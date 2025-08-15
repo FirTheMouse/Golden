@@ -1,0 +1,171 @@
+
+#include<testGrid.hpp>
+#include<util/meshBuilder.hpp>
+#include<rendering/scene.hpp>
+#include<util/color.hpp>
+#include<testSim.hpp>
+#include<json/json.hpp>
+#include<test_object.hpp>
+#include<extension/physics.hpp>
+
+using namespace Golden;
+
+struct S_Tool
+{
+    float tpf = 0.1; float frametime = 0; int frame = 0;
+    std::chrono::steady_clock::time_point last = std::chrono::high_resolution_clock::now();
+    int frames = 0;
+    float pause = 0.0f;
+
+    void tick() {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto delta = std::chrono::duration<float>(end - last);
+        tpf = delta.count(); last = end; frame++; frames++;
+        frametime+=tpf; frame++;
+        if(frametime>=1) {
+            std::cout << frames << " FPS" << std::endl;
+            frametime=0;
+            frames=0;
+        }
+    }
+};
+
+void SimSpeedControl()
+{
+    static bool deBounceSpace = false;
+    if(Input::get().keyPressed(SPACE)&&!deBounceSpace) {T_Sim::get().setSpeed(0); P_Sim::get().setSpeed(0); deBounceSpace=true;}
+    if(!Input::get().keyPressed(SPACE)&&deBounceSpace) {deBounceSpace = false;}
+    if(Input::get().keyPressed(NUM_1)) T_Sim::get().setSpeed(0.3f);
+    if(Input::get().keyPressed(NUM_2)) T_Sim::get().setSpeed(0.1f);
+    if(Input::get().keyPressed(NUM_3)) T_Sim::get().setSpeed(0.03f);
+    if(Input::get().keyPressed(NUM_4)) T_Sim::get().setSpeed(0.016f);
+    if(Input::get().keyPressed(NUM_5)) T_Sim::get().setSpeed(0.001f);
+}
+
+int main()
+{
+    std::string ROOT = "../Projects/Testing/storage/";
+
+    Window window = Window(1280, 768, "Testing");
+    glfwSwapInterval(1); //Vsync 1=on 0=off
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD" << std::endl;
+        return 0;
+    }
+    glEnable(GL_DEPTH_TEST);
+
+    g_ptr<Scene> scene = make<Scene>(window,1);
+    scene->tickEnvironment(1100);
+    scene->setupShadows();
+    scene->camera.speedMod = 0.01f;
+    S_Tool s_tool;
+
+    g_ptr<T_Grid> grid = make<T_Grid>(
+        0.3f,
+        30.0f,
+        makeTerrainGrid(30.0f,0.3f)
+    );
+    grid->intializeGrid();
+
+    scene->add(grid);
+
+
+    T_Sim::get().setScene(scene);
+    P_Sim::get().setScene(scene);
+
+    g_ptr<T_Object> box = make<T_Object>(Model(makeTestBox(2.0f)));
+    scene->add(box);
+    box->setPhysicsState(P_State::ACTIVE);
+    box->setLinearVelocity(vec3(0,-3.8f,0));
+    box->setPosition(vec3(0,8,0));
+
+    box->addScript("onCollide",[box](ScriptContext& ctx){
+        box->setLinearVelocity(vec3(0,
+            -box->getVelocity().position.y(),
+            0));
+    });
+
+    g_ptr<T_Object> box3 = make<T_Object>(Model(makeBox(2.0f,1.0f,4.0f,glm::vec4(0,1,0,1))));
+    box3->addScript("onSlice",[box3](ScriptContext& ctx){
+        if (box3->scene->animStates[box3->ID].duration <= 0.0f)
+        {
+            box3->moveToAnim(vec3(1.3f,0.0f,0),T_Sim::get().tps);
+        }
+    });
+    scene->add(box3);
+    box3->setPosition(vec3(-5.0,5,0));
+    T_Sim::get().active.push_back(box3);
+
+    box3->addScript("onCollide",[box3](ScriptContext& ctx){
+        box3->setPosition(vec3(-8.0f,3,0));
+    });
+
+    auto box4 = make<T_Object>(Model(makeBox(8,2,8,glm::vec4(0,0,1,1))));
+    scene->add(box4);
+    box4->setPosition(vec3(0,10,0));
+
+    auto spawner = make<T_Object>(Model(makeTestBox(0.5f)));
+    scene->add(spawner);
+    spawner->setPosition(vec3(-10,5,0));
+    spawner->add<std::vector<g_ptr<T_Object>>>("boxes",std::vector<g_ptr<T_Object>>{});
+    spawner->addScript("onSlice",[scene](ScriptContext& ctx){
+        for(auto o : T_Sim::get().active)
+        {
+            if(o->getPosition().x()>=10||o->getPosition().x()<=-20)
+            T_Sim::get().queueTask([o]{
+                T_Sim::get().active.erase(std::remove(T_Sim::get().active.begin(), 
+                T_Sim::get().active.end(), o),T_Sim::get().active.end());
+                o->remove();});
+        }
+
+        g_ptr<T_Object> box = make<T_Object>(Model(makeTestBox(0.3f)));
+        scene->add(box);
+        box->setPhysicsState(P_State::ACTIVE);
+        box->setLinearVelocity(vec3(3,0,0));
+        box->setPosition(vec3(-8,randf(5,8),randf(-1,1)));
+    
+        box->addScript("onCollide",[box](ScriptContext& ctx){
+            ctx.get<g_ptr<S_Object>>("with")->remove();
+            // box->setLinearVelocity(vec3(
+            //     -box->getVelocity().position.x(),
+            //     -box->getVelocity().position.y(),
+            //     0));
+        });
+
+        T_Sim::get().queueTask([box]{T_Sim::get().active.push_back(box);});
+    });
+    T_Sim::get().active.push_back(spawner);
+
+    // g_ptr<T_Object> box3 = make<T_Object>(Model(makePhysicsBox(box2->getModel()->localBounds)));
+    // scene->add(box3);
+
+    T_Sim::get().logSPS = true;
+
+
+    T_Sim::get().startSimulation();
+    P_Sim::get().startSimulation();
+
+    //P_Sim::get().runningTurn=true;
+    
+    while (!window.shouldClose()) {
+        if(Input::get().keyPressed(KeyCode::K)) break;
+        P_Sim::get().flushTasks();
+        T_Sim::get().flushTasks();
+        //grid->colorCell(scene->getMousePos(),Color::RED);
+        SimSpeedControl();
+        
+        scene->updateScene(1.0f);
+
+        s_tool.tick();
+
+        window.swapBuffers();
+        window.pollEvents();
+    }
+
+    T_Sim::get().stopSimulation();
+    P_Sim::get().stopSimulation();
+
+    glfwTerminate();
+
+    return 0;
+}

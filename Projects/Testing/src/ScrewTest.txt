@@ -1,0 +1,469 @@
+#include<util/util.hpp>
+#include<rendering/scene.hpp>
+#include<core/helper.hpp>
+#include<gui/text.hpp>
+#include<util/color.hpp>
+#include<util/meshBuilder.hpp>
+#include<core/thread.hpp>
+#include<core/grid.hpp>
+
+using namespace Golden;
+
+struct ErrorMetrics {
+    int totalObjects = 0;
+    int expectedObjects = 0;
+    int orphanedObjects = 0;
+    int duplicateObjects = 0;
+    int missingObjects = 0;
+    int positionMismatches = 0;
+    int screws = 0;
+    float timestamp = 0;
+    
+    void debug() {
+        float errorRate = (float)orphanedObjects / expectedObjects * 100.0f;
+        float conservationError = abs(totalObjects - expectedObjects);
+        print("=== Error Metrics ===");
+        print("Time: ", timestamp, "s");
+        print("Total: ", totalObjects, " Expected: ", expectedObjects);
+        print("Orphaned: ", orphanedObjects, " (", errorRate, "%)");
+        print("Missing: ", missingObjects, " Duplicates: ", duplicateObjects);
+        print("Position Mismatches: ", positionMismatches);
+        print("Screws [DORMANT]: ",screws);
+        print("Conservation Error: ", conservationError);
+    }
+};
+
+int main() {
+    using namespace Golden;
+    using namespace helper;
+
+    std::string MROOT = "../Projects/Testing/assets/models/";
+
+    Window window = Window(1280, 768, "Screw Test");
+    auto scene = make<Scene>(window,1);
+    Data d = make_config(scene,K);
+
+    float mapSize = 30.0f;
+    auto grid = make<Grid>(
+        1.0f, //Cell size4
+        mapSize //Map size
+    );
+
+    auto box = make<Single>(make<Model>(MROOT+"testwiggle.glb"));
+    scene->add(box);
+    box->model->playAnimation("ArmatureAction");
+    box->set<vec3>("move_dir",vec3(0,0,0));
+
+
+    // auto logic = make<Thread>("logic_thread"); 
+    // auto screw_logic = make<Thread>("screw_logic_thread");   
+
+    // for(int i=0;i<grid->cells.length();i++)
+    // {
+    //     if(i<grid->cells.length()/2) {
+    //         grid->cells.get(i)->set<g_ptr<Thread>>("thread",logic);
+    //     }
+    //     else {
+    //         grid->cells.get(i)->set<g_ptr<Thread>>("thread",screw_logic);
+    //     }
+    // }
+
+    int cube_amt = 5000;
+    list<g_ptr<Single>> cubes;
+    for(int i=0;i<cube_amt;i++)
+    {
+        auto cube = make<Single>(makeTestBox(1.0f));
+        scene->add(cube);
+        cube->dtype=std::to_string(i);
+        float color = cube_amt/i;
+        cube->setPosition(vec3(randf(-mapSize/2,mapSize/2),0,randf(-mapSize/2,mapSize/2)));
+        Cell cell = grid->getCell(cube->getPosition());
+        cell->push_if(cube);
+        cube->set<Cell>("cell",cell);
+        cubes << cube;
+        cube->setColor(glm::vec4(color/2,color,color/2,1));
+        //scene->deactivate(cube);
+    }
+
+    list<g_ptr<Thread>> threads;
+    int numThreads = 7;
+    list<list<g_ptr<Single>>> parts;
+    std::atomic<int> thread_count;
+    for(int i=0;i<numThreads;i++)
+    {
+        parts.push(list<g_ptr<Single>>());
+    }
+    for(int c=0;c<cubes.length();c++)
+    {
+        parts[c%numThreads] << cubes[c];
+    }
+    for(int i=0;i<numThreads;i++)
+    {
+        list<g_ptr<Single>> screw_cubes = parts[i];
+        auto screw_logic = make<Thread>(std::to_string(i));
+        screw_logic->set<int>("screws",0);
+        screw_logic->run([scene,box,screw_cubes,grid,screw_logic,&thread_count](ScriptContext& ctx){
+            for(int i =0;i<screw_cubes.length();i++)
+            {
+                vec3 currentPos = screw_cubes[i]->getPosition();
+                vec3 movement = vec3(randi(-1,1),0,randi(-1,1)).mult(randf(0.5f,1.5f));
+                vec3 newPos = currentPos + movement;
+                
+                float halfMap = grid->mapSize / 2.0f;
+                if(newPos.x() < -halfMap || newPos.x() > halfMap) movement.setX(-movement.x());
+                if(newPos.z() < -halfMap || newPos.z() > halfMap) movement.setZ(-movement.z());
+                
+                screw_cubes[i]->move(movement);
+                Cell newCell = grid->getCell(screw_cubes[i]->getPosition());
+                Cell oldCell = screw_cubes[i]->get<Cell>("cell");
+                if(newCell!=oldCell)
+                {
+                    //Data Screw: 
+                    //known failure cases are bad::cast exceptions or silent failure.
+                    //Occurs due to  property acess or shared writting to shared read states:
+                    //there must only be 1 writter to every state
+                    //Try catch here is perfume on a pig, it will somtimes catch when q_any catches the bad::cast,
+                    //but this does nothing for the silent failure condition
+
+                    // try {
+                    // if(oldCell->Object::has("screw_vec"))
+                    // {
+                    //     oldCell->set<vec3>("screw_vec",oldCell->Object::get<vec3>("screw_vec").mult(randf(0.5f,1.5f)));
+                    // }
+                    // else  oldCell->set<vec3>("screw_vec",vec3(0,0,0));
+                    // }
+                    // catch(std::exception e)
+                    // {
+                    //     print("screwed");
+                    // }
+                    
+                    
+
+                    screw_cubes[i]->set<int>("neighbors",0);
+                    //Tear Screw:
+                    //Known failure case is util 265 or 275 list out of bounds (depending on if there's a "from" trace or not). 
+                    //Occurs when iterating throgh a list which can have it's length changed by other threads during the process,
+                    //proper resizing so that the length isn't changing can fix this, as well as try catches around it as util 265 and 275 are catchable.
+
+                    //This is a Neighbor Read, used in Fir's Flock, this is far less performant than using grid
+                    //it's a default approach for small object counts.
+                    // for(int j = 0; j < scene->singles.length(); j++) {
+                    //     if(j >= scene->active.length()) break;
+                    //     auto g = scene->singles.get(j,"screw_4");
+                    //     screw_cubes[i]->inc<int>("neighbors",g->getPosition().length());
+                    // }
+                    for(Cell cell : grid->cellsAround(screw_cubes[i]->getPosition(),2)) {
+                        //Fully stable long term, the correct way to handle a tear screw
+                        for(int j=0;j<cell->length();j++) {
+                            try {
+                                g_ptr<Object> obj = cell->list::get(j, "screw_1");
+                                if(auto g = g_dynamic_pointer_cast<Single>(obj))
+                                {
+                                screw_cubes[i]->inc<int>("neighbors",g->getPosition().length());
+
+                                //This would not be safe, as this would cause a Data Screw because any oppperations are non-atomic
+                                // if(g->has("neighbors"))
+                                // {
+                                // screw_cubes[i]->inc<int>("neighbors",g->get<int>("neighbors"));
+                                // }
+                                }
+                            } catch(const std::out_of_range&) { //This is **not** data guarding, this is tear gaurding
+                                screw_logic->inc("screws",1);
+                                break;
+                            }
+                        }
+
+                        //Triggers list out of bounds exceptions
+                        // size_t snapshot_length = cell->length();
+                        // for(int j = 0; j < snapshot_length; j++) {
+                        //     if(j >= cell->length()) break;
+                        //     g_ptr<Object> obj = cell->list::get(j, "screw_2");
+                        //     if(auto g = g_dynamic_pointer_cast<Single>(obj))
+                        //     {
+                        //     screw_cubes[i]->inc<int>("neighbors",g->getPosition().length());
+                        //     }
+                           
+                        // }
+
+                        //Triggers list out of bounds exceptions
+                        // for(int j = 0; j < cell->length() && j < cell->length(); j++) {
+                        //     g_ptr<Object> obj = cell->list::get(j, "screw_3");
+                        //         if(auto g = g_dynamic_pointer_cast<Single>(obj))
+                        //         {
+                        //         screw_cubes[i]->inc<int>("neighbors",g->getPosition().length());
+                        //         }
+                        // }
+                    }
+
+                    oldCell->erase(screw_cubes[i]);
+                    newCell->push_if(screw_cubes[i]);
+                    screw_cubes[i]->set<Cell>("cell",newCell);
+                }
+            }
+            screw_logic->inc("its",1);
+            thread_count.fetch_add(1);
+        }, 0.000001f);
+        screw_logic->set<int>("its",0);
+        threads << screw_logic;
+    }
+
+    list<ErrorMetrics> errorHistory;
+float auditStartTime = 0;
+
+    std::chrono::steady_clock::time_point last = std::chrono::high_resolution_clock::now();
+    float last_its = 0;
+    float total_time = 0;
+
+    std::string csvData = "timestamp,totalIterations,iterationsPerSecond,totalObjects,expectedObjects,missingObjects,duplicateObjects,orphanedObjects,positionMismatches,conservationError,errorGrowthRate,avgGrowthRate,screws\n";
+    float csvCollectionInterval = 2.0f; // Collect data every 2 seconds
+    float lastCsvCollection = 0.0f;
+
+    start::run(window,d,[&]{
+        if(pressed(SPACE)) {
+            for(auto t : threads)
+            {
+            if(t->runningTurn)
+                t->pause();
+            else 
+                t->start();
+            }
+        }
+
+        box->move(input_2d_arrows(0.5f));
+        if(pressed(E))
+        {
+            print("-----------");
+            for(Cell cell : grid->cellsAround(box->getPosition(),3)) {
+                for(int i=0;i<cell->length();i++) {
+                    if(i >= cell->length()) break;
+                    g_ptr<Object> obj = cell->list::get(i);
+                    print("Object ",i,": ",obj->dtype);
+                }
+            }
+        }
+
+
+        if(pressed(Q))
+        {
+            int its = 0;
+            for(auto t : threads)
+            {
+                its+=t->get<int>("its");
+            }
+            auto end = std::chrono::high_resolution_clock::now();
+            auto delta = std::chrono::duration<float>(end - last);
+            float secs = delta.count();
+            last = end;
+            print("Iterations: ",its," over ",secs," seconds \n","Iterations a second: ",(its-last_its)/secs);
+            last_its = its;
+            total_time += secs;
+            print("Total its/sec: ",thread_count/total_time);
+            print("total time: ",total_time);
+        }
+
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto delta = std::chrono::duration<float>(end - last);
+        float secs = delta.count();
+        last = end;
+        total_time += secs;
+        
+        // Get current iterations
+        int its = 0;
+        int screws = 0;
+        for(auto t : threads)
+        {
+            its += t->get<int>("its");
+            screws += t->get<int>("screws");
+           // t->set<int>("screws",0);
+        }
+        
+        
+        // Automatic CSV data collection at intervals
+        if(total_time - lastCsvCollection >= csvCollectionInterval) {
+            ErrorMetrics metrics;
+            metrics.timestamp = total_time;
+            
+            // Track objects per partition for debugging
+            map<int, int> partitionCounts;
+            
+            // Cell integrity check
+            for(int i = 0; i < grid->cells.length(); i++) {
+                Cell cell = grid->cells.get(i);
+                metrics.totalObjects += cell->length();
+                
+                for(int j = 0; j < cell->length(); j++) {
+                    auto obj = cell->list::get(j);
+                    if(auto single = g_dynamic_pointer_cast<Single>(obj)) {
+                        Cell claimedCell = single->get<Cell>("cell");
+                        if(claimedCell != cell) {
+                            metrics.orphanedObjects++;
+                        }
+                        
+                        // Check position consistency
+                        vec3 actualPos = single->getPosition();
+                        Cell correctCell = grid->getCell(actualPos);
+                        if(correctCell != claimedCell) {
+                            metrics.positionMismatches++;
+                        }
+                        
+                        // Track which partition this object belongs to
+                        int objId = std::stoi(single->dtype);
+                        int partition = objId % numThreads;
+                        if(!partitionCounts.hasKey(partition)) partitionCounts.put(partition,0);
+                        partitionCounts[partition]++;
+                    }
+                }
+            }
+            
+            // Check for missing objects
+            metrics.expectedObjects = cubes.length();
+            metrics.missingObjects = metrics.expectedObjects - metrics.totalObjects;
+            
+            // Duplicate detection
+            if(metrics.totalObjects > metrics.expectedObjects) {
+                metrics.duplicateObjects = metrics.totalObjects - metrics.expectedObjects;
+            }
+            
+            // Conservation error
+            int conservationError = metrics.duplicateObjects - metrics.missingObjects;
+            
+            // Calculate iterations per second
+            float iterationsPerSecond = (its - last_its) / (total_time - lastCsvCollection);
+            last_its = its;
+            
+            errorHistory.push(metrics);
+            
+            // Calculate growth rates
+            float errorGrowthRate = 0.0f;
+            float avgGrowthRate = 0.0f;
+            
+            if(errorHistory.length() > 1) {
+                auto& prev = errorHistory[errorHistory.length()-2];
+                auto& curr = errorHistory[errorHistory.length()-1];
+                
+                float deltaTime = curr.timestamp - prev.timestamp;
+                float deltaErrors = curr.orphanedObjects - prev.orphanedObjects;
+                errorGrowthRate = deltaErrors / deltaTime;
+                
+                if(errorHistory.length() >= 3) {
+                    // Calculate trend over all measurements
+                    int growthRateCount = 0;
+                    for(int i = 2; i < errorHistory.length() && i > 0; i++) {
+                        float dt = errorHistory[i].timestamp - errorHistory[i-1].timestamp;
+                        float de = errorHistory[i].orphanedObjects - errorHistory[i-1].orphanedObjects;
+                        avgGrowthRate += de / dt;
+                        growthRateCount++;
+                    }
+                    avgGrowthRate /= growthRateCount;
+                }
+            }
+            
+            // Add data to CSV string
+            csvData += std::to_string(metrics.timestamp) + "," +
+                       std::to_string(its) + "," +
+                       std::to_string(iterationsPerSecond) + "," +
+                       std::to_string(metrics.totalObjects) + "," +
+                       std::to_string(metrics.expectedObjects) + "," +
+                       std::to_string(metrics.missingObjects) + "," +
+                       std::to_string(metrics.duplicateObjects) + "," +
+                       std::to_string(metrics.orphanedObjects) + "," +
+                       std::to_string(metrics.positionMismatches) + "," +
+                       std::to_string(conservationError) + "," +
+                       std::to_string(errorGrowthRate) + "," +
+                       std::to_string(avgGrowthRate) + "," +
+                       std::to_string(screws) + "\n";
+            
+            lastCsvCollection = total_time;
+            
+        }
+
+        if(pressed(C)) print(csvData);
+
+        
+        if(pressed(F)) {
+            ErrorMetrics metrics;
+            metrics.timestamp = total_time;
+            
+            // Track objects per partition for debugging
+            map<int, int> partitionCounts;
+            
+            // Cell integrity check
+            for(int i = 0; i < grid->cells.length(); i++) {
+                Cell cell = grid->cells.get(i);
+                metrics.totalObjects += cell->length();
+                
+                for(int j = 0; j < cell->length(); j++) {
+                    auto obj = cell->list::get(j);
+                    if(auto single = g_dynamic_pointer_cast<Single>(obj)) {
+                        Cell claimedCell = single->get<Cell>("cell");
+                        if(claimedCell != cell) {
+                            metrics.orphanedObjects++;
+                        }
+                        
+                        // Check position consistency
+                        vec3 actualPos = single->getPosition();
+                        Cell correctCell = grid->getCell(actualPos);
+                        if(correctCell != claimedCell) {
+                            metrics.positionMismatches++;
+                        }
+                        // Track which partition this object belongs to
+                        int objId = std::stoi(single->dtype);
+                        int partition = objId % numThreads;
+                        if(!partitionCounts.hasKey(partition)) partitionCounts.put(partition,0);
+                        partitionCounts[partition]++;
+                    }
+                }
+            }
+            
+            // Check for missing objects
+            metrics.expectedObjects = cubes.length();
+            metrics.missingObjects = metrics.expectedObjects - metrics.totalObjects;
+            
+            // Duplicate detection
+            if(metrics.totalObjects > metrics.expectedObjects) {
+                metrics.duplicateObjects = metrics.totalObjects - metrics.expectedObjects;
+            }
+            
+            // Partition analysis
+            print("=== Partition Distribution ===");
+            for(int i = 0; i < numThreads; i++) {
+                int expected = parts[i].length();
+                int actual = partitionCounts.hasKey(i) ? partitionCounts[i] : 0;
+                print("Thread ", i, ": ", actual, "/", expected, " objects");
+            }
+            
+            metrics.debug();
+            errorHistory.push(metrics);
+            // Temporal analysis if we have history
+            if(errorHistory.length() > 1) {
+                auto& prev = errorHistory[errorHistory.length()-2];
+                auto& curr = errorHistory[errorHistory.length()-1];
+                
+                float deltaTime = curr.timestamp - prev.timestamp;
+                float deltaErrors = curr.orphanedObjects - prev.orphanedObjects;
+                float errorGrowthRate = deltaErrors / deltaTime;
+                
+                print("=== Temporal Analysis ===");
+                print("Error Growth Rate: ", errorGrowthRate, " errors/second");
+                print("Time since start: ", curr.timestamp, "s");
+                
+                if(errorHistory.length() >= 3) {
+                    // Calculate trend over all measurements
+                    float avgGrowthRate = 0;
+                    int growthRateCount = 0;
+                    for(int i =2; i < errorHistory.length() && i > 0; i++) {
+                        float dt = errorHistory[i].timestamp - errorHistory[i-1].timestamp;
+                        float de = errorHistory[i].orphanedObjects - errorHistory[i-1].orphanedObjects;
+                        avgGrowthRate += de / dt;
+                        growthRateCount++;
+                    }
+                    avgGrowthRate /= growthRateCount;
+                    print("Average Growth Rate: ", avgGrowthRate, " errors/second");
+                }
+            }
+        }
+    });
+
+    return 0;
+}

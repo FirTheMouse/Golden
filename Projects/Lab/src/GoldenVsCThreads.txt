@@ -1,0 +1,179 @@
+#include<util/util.hpp>
+#include<rendering/scene.hpp>
+#include<core/helper.hpp>
+#include<gui/text.hpp>
+#include<util/color.hpp>
+#include<util/meshBuilder.hpp>
+#include<core/thread.hpp>
+#include<core/grid.hpp>
+
+using namespace Golden;
+
+
+int main() {
+    using namespace Golden;
+    using namespace helper;
+
+    std::string MROOT = "../Projects/Lab/assets/models/";
+
+    Window window = Window(1280, 768, "Lab Test");
+    auto scene = make<Scene>(window,1);
+    Data d = make_config(scene,K);
+
+    float numThreads = 2;
+    list<g_ptr<Thread>> threads;
+    std::vector<std::thread> c_threads;
+
+    auto shared_obj = make<Object>();
+    std::atomic<int> thread_counter{0};
+    std::atomic<int> c_thread_counter{0};
+    std::atomic<int> c_dummy_counter{0};
+    std::atomic<bool> running{false};
+
+    for(int i=0;i<numThreads;i++)
+    {
+        auto screw_logic = make<Thread>(std::to_string(i));
+        screw_logic->set<int>("screws",0);
+        screw_logic->run([scene,screw_logic,shared_obj,&thread_counter](ScriptContext& ctx){
+            thread_counter.fetch_add(1); 
+        }, 0.000000001f);
+        screw_logic->set<int>("its",0);
+        threads << screw_logic;
+    }
+
+    for(int i = 0; i < numThreads; i++) {
+        c_threads.emplace_back([&c_thread_counter,&c_dummy_counter,&running, i]() {
+            while(!running.load()) {
+                std::this_thread::yield();
+            }
+            
+            while(running.load()) {
+                c_thread_counter.fetch_add(1);
+                std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+            }
+        });
+    }
+
+
+
+    std::chrono::steady_clock::time_point last = std::chrono::high_resolution_clock::now();
+    float last_its = 0;
+    float total_time = 0;
+
+    start::run(window,d,[&]{
+        if(pressed(SPACE)) {
+            for(auto t : threads)
+            {
+            if(t->runningTurn)
+                t->pause();
+            else 
+                t->start();
+            }
+
+            if(running.load()) {
+                running.store(false);
+            }
+            else {
+                running.store(true);
+            }
+        }
+
+        if(pressed(Q))
+        {
+            auto current_time = std::chrono::high_resolution_clock::now();
+            auto delta = std::chrono::duration<float>(current_time - last);
+            float secs = delta.count();
+            
+            int its = 0;
+            for(auto t : threads) {
+                its += t->get<int>("its");
+            }
+            
+            float iterations_per_sec = (its - last_its) / secs;
+            
+            last = current_time;
+            last_its = its;
+            total_time += secs;
+
+            print("Iterations: ",its," over ",secs," seconds \n","Iterations a second: ",iterations_per_sec);
+            print("total time: ",total_time);
+            float count = thread_counter;
+            float c_count = c_thread_counter;
+            print("Thread counts a sec:   ",count/total_time);
+            print("C_Thread counts a sec: ",c_count/total_time);
+            print((c_count/total_time)/(count/total_time));
+        }
+    });
+
+    return 0;
+}
+
+
+
+
+// float mapSize = 30.0f;
+// auto grid = make<Grid>(
+//     1.0f, //Cell size4
+//     mapSize //Map size
+// );
+
+// int cube_amt = 5000;
+// list<g_ptr<Single>> cubes;
+// for(int i=0;i<cube_amt;i++)
+// {
+//     auto cube = make<Single>(makeTestBox(1.0f));
+//     scene->add(cube);
+//     cube->dtype=std::to_string(i);
+//     float color = cube_amt/i;
+//     cube->setPosition(vec3(randf(-mapSize/2,mapSize/2),0,randf(-mapSize/2,mapSize/2)));
+//     Cell cell = grid->getCell(cube->getPosition());
+//     cell->push_if(cube);
+//     cube->set<Cell>("cell",cell);
+//     cubes << cube;
+//     cube->setColor(glm::vec4(color/2,color,color/2,1));
+// }
+
+// list<g_ptr<Thread>> threads;
+// int numThreads = 7;
+// list<list<g_ptr<Single>>> parts;
+// std::atomic<int> thread_count;
+// for(int i=0;i<numThreads;i++)
+// {
+//     parts.push(list<g_ptr<Single>>());
+// }
+// for(int c=0;c<cubes.length();c++)
+// {
+//     parts[c%numThreads] << cubes[c];
+// }
+// for(int i=0;i<numThreads;i++)
+// {
+//     list<g_ptr<Single>> screw_cubes = parts[i];
+//     auto screw_logic = make<Thread>(std::to_string(i));
+//     screw_logic->set<int>("screws",0);
+//     screw_logic->run([scene,screw_cubes,grid,screw_logic,&thread_count](ScriptContext& ctx){
+//         for(int i =0;i<screw_cubes.length();i++)
+//         {
+//             vec3 currentPos = screw_cubes[i]->getPosition();
+//             vec3 movement = vec3(randi(-1,1),0,randi(-1,1)).mult(randf(0.5f,1.5f));
+//             vec3 newPos = currentPos + movement;
+            
+//             float halfMap = grid->mapSize / 2.0f;
+//             if(newPos.x() < -halfMap || newPos.x() > halfMap) movement.setX(-movement.x());
+//             if(newPos.z() < -halfMap || newPos.z() > halfMap) movement.setZ(-movement.z());
+            
+//             screw_cubes[i]->move(movement);
+//             Cell newCell = grid->getCell(screw_cubes[i]->getPosition());
+//             Cell oldCell = screw_cubes[i]->get<Cell>("cell");
+//             if(newCell!=oldCell)
+//             {
+//                 oldCell->erase(screw_cubes[i]);
+//                 newCell->push_if(screw_cubes[i]);
+//                 screw_cubes[i]->set<Cell>("cell",newCell);
+//             }
+//         }
+//         // screw_logic->inc("its",1);
+//         thread_count.fetch_add(1);
+//     }, 0.000001f);
+//     screw_logic->set<int>("its",0);
+//     threads << screw_logic;
+// }

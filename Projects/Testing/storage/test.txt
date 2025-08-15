@@ -1,0 +1,8 @@
+{
+    "name": "Button",
+    "position": [
+        200,
+        200
+    ],
+    "visible": true
+}

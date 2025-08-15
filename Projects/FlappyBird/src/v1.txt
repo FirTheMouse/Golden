@@ -1,0 +1,185 @@
+#include <iostream>
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <rendering/renderer.hpp>
+#include <rendering/scene.hpp>
+#include <rendering/model.hpp>
+#include <rendering/single.hpp>
+#include <core/scriptable.hpp>
+#include <extension/simulation.hpp>
+#include <util/util.hpp>
+#include <fstream>
+#include <string>
+#include <util/util.hpp>
+#include <rendering/scene.hpp>
+#include <util/color.hpp>
+
+using namespace Golden;
+
+bool intersects(g_ptr<Quad> a, g_ptr<Quad> b) {
+    vec2 aPos = a->getPosition();
+    vec2 aSize = a->getScale();
+
+    vec2 bPos = b->getPosition();
+    vec2 bSize = b->getScale();
+
+    return (
+        aPos.x() < bPos.x() + bSize.x() &&
+        aPos.x() + aSize.x() > bPos.x() &&
+        aPos.y() < bPos.y() + bSize.y() &&
+        aPos.y() + aSize.y() > bPos.y()
+    );
+}
+
+vec3 input2D()
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    Input& input = Input::get();
+
+    if(input.keyPressed(UP)) y-=0.3f;
+    if(input.keyPressed(DOWN)) y+=0.3f;
+    if(input.keyPressed(D)) x+=0.3f;
+    if(input.keyPressed(A)) x-=0.3f;
+    return vec3(x,0,0);
+}
+
+glm::vec3 getWorldMousePosition(g_ptr<Scene> scene) {
+    Window& window = scene->window;
+    Camera& camera = scene->camera;
+    int windowWidth = window.width;
+    int windowHeight = window.height;
+    double xpos, ypos;
+    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+
+    // Flip y for OpenGL
+    float glY = windowHeight - float(ypos);
+
+    // Get view/proj
+    glm::mat4 view = camera.getViewMatrix();
+    glm::mat4 projection = camera.getProjectionMatrix();
+    glm::ivec4 viewport(0, 0, windowWidth, windowHeight);
+
+    // Unproject near/far points
+    glm::vec3 winNear(float(xpos), glY, 0.0f);   // depth = 0
+    glm::vec3 winFar(float(xpos), glY, 1.0f);    // depth = 1
+    
+
+    glm::vec3 worldNear = glm::unProject(winNear, view, projection, viewport);
+    glm::vec3 worldFar  = glm::unProject(winFar,  view, projection, viewport);
+
+    // Ray from near to far
+    glm::vec3 rayOrigin = worldNear;
+    glm::vec3 rayDir = glm::normalize(worldFar - worldNear);
+
+     // Intersect with Z = -5 plane (Z-up)
+    float targetZ = 0.0f;
+    if (fabs(rayDir.z) < 1e-6f) return glm::vec3(0); // Ray is parallel to plane
+
+    float t = (targetZ - rayOrigin.z) / rayDir.z;
+    return rayOrigin + rayDir * t;
+}
+
+glm::vec2 mousePos(g_ptr<Scene> scene)
+{
+    Window& window = scene->window;
+    int windowWidth = window.width;
+    int windowHeight = window.height;
+    double xpos, ypos;
+    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+    return glm::vec2(xpos,ypos);
+}
+
+
+int main() {
+    std::string ROOT = "../Projects/FlappyBird/storage/";
+
+    int width = 1280;
+    int height = 768;
+
+    Window window = Window(width, height, "FlappyBird 0.0.1");
+    glfwSwapInterval(0); //Vsync 1=on 0=off
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD" << std::endl;
+        return 0;
+    }
+    glEnable(GL_DEPTH_TEST);
+
+    Input& input = Input::get();
+
+    g_ptr<Scene> scene = make<Scene>(window,2);
+   
+
+    auto bird = make<Quad>();
+    scene->add(bird);
+    bird->scale(vec2(50,50));
+    bird->color = Color::RED;
+    bird->setCenter(vec2(100,height));
+    bird->set<bool>("dead",false);
+
+
+    list<g_ptr<Quad>> pillars;
+    for(int i=0;i<2;i++)
+    {
+    auto pillar = make<Quad>();
+    scene->add(pillar);
+    pillar->scale(vec2(200,600));
+    pillar->color = Color::GREEN;
+    pillar->setCenter(vec2(width*i,(height*2)-300));
+    pillar->inc<int>("pos",width*i);
+    pillars.push(pillar);
+    }
+
+
+    float tpf = 0.1; float frametime = 0; int frame = 0;
+    auto last = std::chrono::high_resolution_clock::now();
+    bool flag = true;
+    float pause = 0.0f;
+
+    bool reeling = false;
+
+    while (!window.shouldClose()) {
+        if(Input::get().keyPressed(KeyCode::K)) break;
+        if(pause>0) pause -=tpf;
+
+
+        pillars([scene,height,width,bird](g_ptr<Quad> pillar){
+            pillar->setCenter(vec2(pillar->inc<int>("pos",-1),(height*2)-pillar->getScale().y()/2));
+            if(pillar->get<int>("pos")<=0) { 
+                pillar->setCenter(vec2(width*2,(height*2)-pillar->getScale().y()/2)); 
+                pillar->inc<int>("pos",width*2);
+                pillar->scale(vec2(200,randf(400.0f,1200.0f)));
+            }
+            if(intersects(bird,pillar))
+            {
+                bird->set<bool>("dead",true);
+            }
+        });
+
+
+       
+
+        if(Input::get().keyPressed(KeyCode::SPACE)&&!bird->get<bool>("dead"))
+        {
+            //pause = 0.05f;
+            bird->setCenter(vec2(100,bird->getCenter().y()-0.8f));
+        }
+        else {
+            bird->setCenter(vec2(100,bird->getCenter().y()+0.6f));
+        }
+        
+
+        scene->updateScene(tpf);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto delta = std::chrono::duration<float>(end - last);
+        tpf = delta.count(); last = end; frame++; 
+
+        window.swapBuffers();
+        window.pollEvents();
+    }
+
+    
+    glfwTerminate();
+    return 0;
+}

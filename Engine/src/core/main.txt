@@ -1,0 +1,349 @@
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <chrono>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <cmath> 
+#include <rendering/model.hpp>
+#include <rendering/renderer.hpp>
+#include <rendering/camera.hpp>
+#include <rendering/scene.hpp>
+#include <util/util.hpp>
+#include <core/input.hpp>
+#include <util/meshBuilder.hpp>
+#include <core/object.hpp>
+#include <core/grid.hpp>
+#include <core/worldgen.hpp>
+#include <core/simulation.hpp>
+#include <core/editor.hpp>
+
+
+//  std::string readFile(const std::string& path) {
+//     std::ifstream file(path, std::ios::in | std::ios::binary);
+//     if (!file) throw std::runtime_error("Cannot open file!");
+//     std::ostringstream contents;
+//     contents << file.rdbuf();
+//     return contents.str();
+// }
+
+vec3 input2D()
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    Input& input = Input::get();
+
+    if(input.keyPressed(UP)) z-=0.3f;
+    if(input.keyPressed(DOWN)) z+=0.3f;
+    if(input.keyPressed(LEFT)) x-=0.3f;
+    if(input.keyPressed(RIGHT)) x+=0.3f;
+    return vec3(x,y,z);
+}
+
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == -1)
+        return; // Ignore keys not mapped
+    if (action == GLFW_PRESS)
+        Input::get().setKey(key, true);
+    else if (action == GLFW_RELEASE)
+        Input::get().setKey(key, false);
+
+    // GLFW_REPEAT can be implmented here later
+}
+
+inline float nonlinearScroll(float delta, float power = 1.5f, float multiplier = 1.0f) {
+    float sign = (delta >= 0) ? 1.0f : -1.0f;
+    return sign * std::pow(std::abs(delta), power) * multiplier;
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    float x = nonlinearScroll((float)xoffset, 1.3f, 0.25f); // Tune 1.3 for sensitvity
+    float y = nonlinearScroll((float)yoffset, 0.9f, 0.75f);
+    Input::get().setScroll(x, y);
+}
+
+void click_callback(GLFWwindow* window, int button, int action, int mods) {
+
+    if (button == -1)
+        return; // Ignore keys not mapped
+    if (action == GLFW_PRESS)
+        Input::get().setKey(button, true);
+    else if (action == GLFW_RELEASE)
+        Input::get().setKey(button, false);
+}
+
+glm::vec3 getWorldMousePosition(Window& window, const Camera& camera) {
+    int windowWidth = window.width;
+    int windowHeight = window.height;
+    double xpos, ypos;
+    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+
+    // Flip y for OpenGL
+    float glY = windowHeight - float(ypos);
+
+    // Get view/proj
+    glm::mat4 view = camera.getViewMatrix();
+    glm::mat4 projection = camera.getProjectionMatrix();
+    glm::ivec4 viewport(0, 0, windowWidth, windowHeight);
+
+    // Unproject near/far points
+    glm::vec3 winNear(float(xpos), glY, 0.0f);   // depth = 0
+    glm::vec3 winFar(float(xpos), glY, 1.0f);    // depth = 1
+    
+
+    glm::vec3 worldNear = glm::unProject(winNear, view, projection, viewport);
+    glm::vec3 worldFar  = glm::unProject(winFar,  view, projection, viewport);
+
+    // Ray from near to far
+    glm::vec3 rayOrigin = worldNear;
+    glm::vec3 rayDir = glm::normalize(worldFar - worldNear);
+
+    // Intersect with y=0 plane
+    if (fabs(rayDir.y) < 1e-6) return glm::vec3(0); // Parallel, fail
+
+    float t = -rayOrigin.y / rayDir.y;
+    return rayOrigin + rayDir * t;
+}
+
+
+
+
+
+
+int main() {
+
+    Window window(1280, 768, "Golden 0.1.6");
+    glfwSwapInterval(1); //Vsync 1=on 0=off
+    // Load OpenGL functions with GLAD
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD" << std::endl;
+        return -1;
+    }
+
+    glEnable(GL_DEPTH_TEST);
+
+    glfwSetKeyCallback((GLFWwindow*)window.getWindow(),key_callback);
+    glfwSetScrollCallback((GLFWwindow*)window.getWindow(), scroll_callback);
+    glfwSetMouseButtonCallback((GLFWwindow*)window.getWindow(), click_callback);
+
+    
+
+
+    std::string vShaderStr = readFile("../src/shaders/vertex.glsl");
+    const char* vertexShaderSource = vShaderStr.c_str();
+
+    std::string vIShaderStr = readFile("../src/shaders/vertexI.glsl");
+    const char* vertexShaderSourceI = vIShaderStr.c_str();
+
+    std::string depthShader = readFile("../src/shaders/depth_vert.glsl");
+    const char* ds = depthShader.c_str();
+
+        std::string depthShaderI = readFile("../src/shaders/depth_verti.glsl");
+    const char* dsI = depthShaderI.c_str();
+    
+    std::string depthFShader = readFile("../src/shaders/depth_frag.glsl");
+    const char* fds = depthFShader.c_str();
+
+    std::string fShaderStr = readFile("../src/shaders/fragment.glsl");
+    const char* fragmentShaderSource = fShaderStr.c_str();
+
+    Shader shader(vertexShaderSource, fragmentShaderSource);
+    Shader shaderDepth(ds, fds);
+    Shader shaderDepthI(dsI, fds);
+    Shader shaderI(vertexShaderSourceI, fragmentShaderSource);
+
+    // Camera setup
+    Camera camera(45.0f, 1280.0f/768.0f, 0.1f, 1000.0f,1);
+    camera.setPosition(glm::vec3(0.0f, 15.0f, 15.0f));
+
+    float cellSize = 0.4f;
+    int mapSize = 40;
+    Model gridModel(makeTerrainGrid(mapSize,cellSize));
+    Grid grid(cellSize,mapSize,std::move(gridModel));
+
+    // Scene setup
+    auto scenePtr = std::make_shared<Scene>(window, camera, shader, shaderI, shaderDepth, shaderDepthI, grid);
+    Scene& scene = *scenePtr;
+    scene.setupShadows();
+    Sim::get().setScene(scenePtr);
+
+    Model gridModel2(makeTerrainGrid(mapSize,cellSize));
+    Grid grid2(cellSize,mapSize,std::move(gridModel2));
+
+    auto scenePtr2 = std::make_shared<Scene>(window, camera, shader, shaderI, shaderDepth, shaderDepthI, grid2);
+    Scene& scene2 = *scenePtr2;
+    scene2.setupShadows();
+
+    Model gridModel3(makeTerrainGrid(100,cellSize));
+    Grid grid3(cellSize,100,std::move(gridModel3));
+
+    auto scenePtr3 = std::make_shared<Scene>(window, camera, shader, shaderI, shaderDepth, shaderDepthI, grid3);
+    Scene& scene3 = *scenePtr3;
+    scene3.setupShadows();
+
+    Editor editor(scene3);
+   // scene.add(3,make_shared<Light>(Light(glm::vec3(0.0f,10.0f,5.0f),glm::vec3(300,300,300))));
+    //scene.addLight(Light(glm::vec3(10.0f,10.0f,-30.0f),glm::vec3(300,300,800)));
+    
+     //REMEMBER TO RESET THE MAP SIZE LATER!
+
+     //genGrass(scene);
+     //genInstances(scene2,1000,make_shared<Model>(Model(ROOT+"models/products/stone.glb")),199,"stone");
+    // genInstances(scene,1000,make_shared<Model>(Model(ROOT+"models/products/stone.glb")),199,"stone");
+     //genInstancesV(scene,3000,make_shared<Model>(Model(ROOT+"models/products/clover.glb")),"clover");
+     //genInstancesV(scene,500,make_shared<Model>(Model(ROOT+"models/products/floweringclover.glb")),"clover");
+   // ants(scene,30);
+    //genInstances(scene,800,make_shared<Model>(Model(ROOT+"models/products/berry.glb")),50,"food");
+    //genInstancesV(scene,3000,make_shared<Model>(Model(ROOT+"models/products/clover.glb")),"clover");
+     //mice(scene2,50);
+
+    shared_ptr<Model> cutModel = make_shared<Model>(Model("../models/products/grass.glb"));
+    cutModel->instance = true;
+    scene.setupInstance("cut",cutModel);
+
+    std::shared_ptr<Mouse> snow = std::make_shared<Mouse>();
+    snow->name = "Snow";
+    snow->type = "mouse";
+    snow->setModel(Model("../models/agents/Snow.glb"));
+    scene.add(snow);
+    //Sim::get().addEntity<Mouse>(snow);
+
+    float tpf = 0.1; float frametime = 0; int frames = 0;
+    int frame = 0;
+    auto last = chrono::high_resolution_clock::now();
+    bool flag = true;
+    bool tickDay = false;
+    int chosenScene = 1;
+    int bCount = 0;
+
+    scene.tickEnvironment(1100);
+    scene2.tickEnvironment(1100);
+    scene3.tickEnvironment(1100);
+
+    // map<string,int> test;
+    // test.put("one",2);
+    // cout << test.getOrDefault("one",0) << endl;
+
+    Sim::get().startSimulation();
+
+    while (!window.shouldClose()) {
+        if(Input::get().keyPressed(KeyCode::K)) break;
+        float currentFrame = glfwGetTime();
+        Sim::get().flushMainThreadCalls();
+    
+    //Rember to update scene update block when adding new scenes
+    if(Input::get().keyPressed(I)){ Sim::get().setScene(scenePtr3); chosenScene=3; scenePtr3->camera.toIso();}
+    if(Input::get().keyPressed(P)){ Sim::get().setScene(scenePtr2); chosenScene=2; scenePtr2->camera.toIso();}
+    if(Input::get().keyPressed(O)){ Sim::get().setScene(scenePtr); chosenScene=1; scenePtr->camera.toIso();}
+
+    if(Input::get().keyPressed(T)&&chosenScene==3&&flag) {
+        flag = false;
+            vec3 clickpos = getWorldMousePosition(window,scenePtr3->camera);
+            scenePtr3->camera.setTarget(clickpos);
+    }
+
+    if(chosenScene!=3)
+    {
+    if(Input::get().keyPressed(B)){
+        flag = false;
+        vec3 clickpos = getWorldMousePosition(window,scene.camera);
+        if(chosenScene==2) clickpos = getWorldMousePosition(window,scene2.camera);
+        std::shared_ptr<Object> berry = std::make_shared<Object>();
+        berry->name = "berry";
+        berry->type= "food";
+        berry->id = bCount++;
+        berry->setModel(Model("../models/products/berry.glb"));
+
+        if(chosenScene==1) {
+        scene.add(berry); 
+        scene.grid.getCell(clickpos).add(berry);}
+        else if (chosenScene==2) {
+        scene2.add(berry); 
+        scene2.grid.getCell(clickpos).add(berry);}
+        
+        berry->setPosition(clickpos.addY(0.2f));
+        berry->updateCells();
+    }
+
+    if(Input::get().keyPressed(F)){
+        flag = false;
+        vec3 clickpos = getWorldMousePosition(window,scene.camera);
+        if(chosenScene==2) clickpos = getWorldMousePosition(window,scene2.camera);
+        std::shared_ptr<Object> berry = std::make_shared<Object>();
+        berry->name = "berry";
+        berry->type = "grass";
+        berry->instance = true;
+
+        if(chosenScene==1) {
+        scene.add(berry); 
+        scene.grid.getCell(clickpos).add(berry);}
+        else if (chosenScene==2) {
+        scene2.add(berry); 
+        scene2.grid.getCell(clickpos).add(berry);}
+        
+        berry->setPosition(clickpos.addY(0.2f));
+        berry->updateCells();
+    }
+
+    if(Input::get().keyPressed(C)&&flag){
+        vec3 clickpos = getWorldMousePosition(window,scene.camera);
+           if(chosenScene==2) clickpos = getWorldMousePosition(window,scene2.camera);
+      // std::vector<glm::mat4> intialTransforms = agentsModel->meshes[0].instanceTransforms;
+         if(chosenScene==1) 
+        for(Cell c : scene.grid.cellsAround(clickpos,6.0f))
+        {
+        if(c.hasType("ant"))
+            {
+            for(auto o : c.getType("ant"))
+            { 
+                o->cleanUp();
+            }
+            }
+        }
+        else if(chosenScene==2) for(Cell c : scene2.grid.cellsAround(clickpos,2.0f)) 
+        if(c.hasType("grass")) for(auto o : c.getType("grass"))
+            { 
+                o->cleanUp();
+            }
+        flag=false;
+       }
+    }
+
+    if(chosenScene==3) editor.update(tpf);
+
+    if(chosenScene==1)
+    scene.updateScene(tpf);
+    else if (chosenScene==2)
+    scene2.updateScene(tpf);
+    else if (chosenScene==3)
+    scene3.updateScene(tpf);
+
+
+        auto end = chrono::high_resolution_clock::now();
+        auto delta = chrono::duration<float>(end - last);
+        tpf = delta.count(); last = end; frames++; 
+        frametime+=tpf; frame++;
+        if(frametime>=1) {
+            flag=true;
+            cout << frames << " FPS" << endl;
+            frametime=0;
+            frames=0;
+        }
+
+        Sim::get().tick(tpf);
+
+        window.swapBuffers();
+        window.pollEvents();
+    }
+
+    // Clean up
+    Sim::get().stopSimulation();
+    glfwTerminate();
+    return 0;
+}

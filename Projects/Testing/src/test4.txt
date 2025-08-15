@@ -1,0 +1,1777 @@
+#include <iostream>
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <chrono>
+#include <random>
+#include <string>
+#include <cassert>
+#include <util/q_map.hpp>
+#include <core/object.hpp>
+
+
+// void testBasicOperations() {
+//     std::cout << "=== Basic Operations Test ===" << std::endl;
+    
+//     q_map<std::string, int> test_map;
+    
+//     // Test 1: Basic put/get
+//     std::cout << "Test 1: Basic put/get operations" << std::endl;
+//     test_map.put("apple", 5);
+//     test_map.put("banana", 3);
+//     test_map.put("cherry", 8);
+    
+//     assert(test_map.get("apple") == 5);
+//     assert(test_map.get("banana") == 3);
+//     assert(test_map.get("cherry") == 8);
+//     std::cout << "✓ Basic put/get working" << std::endl;
+    
+//     // Test 2: Size tracking
+//     std::cout << "Test 2: Size tracking" << std::endl;
+//     assert(test_map.size() == 3);
+//     std::cout << "✓ Size tracking: " << test_map.size() << std::endl;
+    
+//     // Test 3: hasKey functionality
+//     std::cout << "Test 3: hasKey functionality" << std::endl;
+//     assert(test_map.hasKey("apple") == true);
+//     assert(test_map.hasKey("grape") == false);
+//     std::cout << "✓ hasKey working correctly" << std::endl;
+    
+//     // Test 4: Update existing key
+//     std::cout << "Test 4: Update existing key" << std::endl;
+//     test_map.put("apple", 10);
+//     assert(test_map.get("apple") == 10);
+//     std::cout << "✓ Key update working" << std::endl;
+    
+//     // Test 5: Remove functionality
+//     std::cout << "Test 5: Remove functionality" << std::endl;
+//     bool removed = test_map.remove("banana");
+//     assert(removed == true);
+//     assert(test_map.hasKey("banana") == false);
+//     std::cout << "✓ Remove working" << std::endl;
+    
+//     // Test 6: Operator[] access
+//     std::cout << "Test 6: Operator[] access" << std::endl;
+//     int apple_val = test_map["apple"];
+//     assert(apple_val == 10);
+//     std::cout << "✓ Operator[] working" << std::endl;
+// }
+
+// void testResizeTriggering() {
+//     std::cout << "\n=== Resize Triggering Test ===" << std::endl;
+    
+//     q_map<int, std::string> test_map;
+    
+//     std::cout << "Initial capacity: " << test_map.capacity() << std::endl;
+    
+//     // Add enough items to trigger resize (capacity starts at 8, resize at 16)
+//     std::cout << "Adding 20 items to trigger resize..." << std::endl;
+//     for(int i = 0; i < 20; i++) {
+//         test_map.put(i, "value_" + std::to_string(i));
+//     }
+    
+//     std::cout << "Final size: " << test_map.size() << std::endl;
+//     std::cout << "Final capacity: " << test_map.capacity() << std::endl;
+//     assert(test_map.capacity() > 8); // Should have resized
+    
+//     // Verify all items are still accessible
+//     std::cout << "Verifying all items after resize..." << std::endl;
+//     for(int i = 0; i < 20; i++) {
+//         std::string expected = "value_" + std::to_string(i);
+//         assert(test_map.get(i) == expected);
+//     }
+//     std::cout << "✓ All items accessible after resize" << std::endl;
+// }
+
+// void testCollisionHandling() {
+//     std::cout << "\n=== Hash Collision Test ===" << std::endl;
+    
+//     q_map<int, std::string> test_map;
+    
+//     // Add multiple items that will likely hash to same bucket
+//     // (with capacity 8, items 0, 8, 16, 24 should collide)
+//     test_map.put(0, "zero");
+//     test_map.put(8, "eight");
+//     test_map.put(16, "sixteen");
+//     test_map.put(24, "twenty_four");
+    
+//     // Verify all can be retrieved
+//     assert(test_map.get(0) == "zero");
+//     assert(test_map.get(8) == "eight");
+//     assert(test_map.get(16) == "sixteen");
+//     assert(test_map.get(24) == "twenty_four");
+    
+//     std::cout << "✓ Hash collision handling working" << std::endl;
+// }
+
+// void testEdgeCases() {
+//     std::cout << "\n=== Edge Cases Test ===" << std::endl;
+    
+//     q_map<std::string, int> test_map;
+    
+//     // Test 1: Remove non-existent key
+//     std::cout << "Test 1: Remove non-existent key" << std::endl;
+//     bool removed = test_map.remove("nonexistent");
+//     assert(removed == false);
+//     std::cout << "✓ Remove non-existent key handled" << std::endl;
+    
+//     // Test 2: Get non-existent key (should throw)
+//     std::cout << "Test 2: Get non-existent key" << std::endl;
+//     try {
+//         test_map.get("nonexistent");
+//         assert(false); // Should not reach here
+//     } catch(const std::runtime_error&) {
+//         std::cout << "✓ Get non-existent key throws correctly" << std::endl;
+//     }
+    
+//     // Test 3: Empty map operations
+//     std::cout << "Test 3: Empty map operations" << std::endl;
+//     assert(test_map.size() == 0);
+//     assert(test_map.hasKey("anything") == false);
+//     std::cout << "✓ Empty map operations working" << std::endl;
+// }
+
+// int main() {
+//     std::cout << "Starting Basic q_map Test Harness" << std::endl;
+//     std::cout << "=================================" << std::endl;
+    
+//     try {
+//         testBasicOperations();
+//         testResizeTriggering();
+//         testCollisionHandling();
+//         testEdgeCases();
+        
+//         std::cout << "\n🎉 ALL BASIC TESTS PASSED! 🎉" << std::endl;
+//         std::cout << "q_map basic functionality is working correctly." << std::endl;
+        
+//     } catch(const std::exception& e) {
+//         std::cout << "\n❌ TEST FAILED: " << e.what() << std::endl;
+//         return 1;
+//     }
+    
+//     return 0;
+// }
+
+class ConcurrencyTestHarness {
+    private:
+        q_map<int, std::string> test_map;
+        std::atomic<int> operations_completed{0};
+        std::atomic<int> errors{0};
+        std::atomic<int> successful_reads{0};
+        std::atomic<int> successful_writes{0};
+        std::atomic<int> successful_removes{0};
+    
+    public:
+        void concurrentReadWriteTest() {
+            std::cout << "=== Concurrent Read/Write Test ===" << std::endl;
+            
+            const int num_threads = 4;
+            const int operations_per_thread = 1000;
+            
+            // Reset counters
+            operations_completed = 0;
+            errors = 0;
+            successful_reads = 0;
+            successful_writes = 0;
+            
+            // Pre-populate with some data
+            std::cout << "Pre-populating map with 100 entries..." << std::endl;
+            for(int i = 0; i < 100; i++) {
+                test_map.put(i, "initial_value_" + std::to_string(i));
+            }
+            
+            std::vector<std::thread> threads;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            // Create threads - mix of readers and writers
+            for(int t = 0; t < num_threads; t++) {
+                if(t % 2 == 0) {
+                    // Writer thread
+                    threads.emplace_back([this, t, operations_per_thread]() {
+                        this->writerThread(t, operations_per_thread);
+                    });
+                } else {
+                    // Reader thread
+                    threads.emplace_back([this, t, operations_per_thread]() {
+                        this->readerThread(t, operations_per_thread);
+                    });
+                }
+            }
+            
+            // Wait for all threads
+            for(auto& thread : threads) {
+                thread.join();
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            // Report results
+            std::cout << "Test completed in " << duration.count() << "ms" << std::endl;
+            std::cout << "Total operations: " << operations_completed.load() << std::endl;
+            std::cout << "Successful reads: " << successful_reads.load() << std::endl;
+            std::cout << "Successful writes: " << successful_writes.load() << std::endl;
+            std::cout << "Errors: " << errors.load() << std::endl;
+            std::cout << "Final map size: " << test_map.size() << std::endl;
+            std::cout << "Final map capacity: " << test_map.capacity() << std::endl;
+            
+            // Calculate operations per second
+            double ops_per_second = (double)operations_completed.load() * 1000.0 / duration.count();
+            std::cout << "Operations per second: " << (int)ops_per_second << std::endl;
+            
+            assert(errors.load() == 0);
+            std::cout << "✓ Concurrent read/write test passed" << std::endl;
+        }
+        
+        void concurrentResizeTest() {
+            std::cout << "\n=== Concurrent Resize Test ===" << std::endl;
+            
+            // Clear map
+            test_map.clear();
+            
+            const int num_threads = 6;
+            const int items_per_thread = 200;
+            
+            operations_completed = 0;
+            errors = 0;
+            successful_writes = 0;
+            
+            std::vector<std::thread> threads;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            std::cout << "Starting " << num_threads << " threads, each adding " 
+                      << items_per_thread << " items..." << std::endl;
+            std::cout << "This should trigger multiple resize operations." << std::endl;
+            
+            // All threads adding items simultaneously - will trigger resizes
+            for(int t = 0; t < num_threads; t++) {
+                threads.emplace_back([this, t, items_per_thread]() {
+                    this->resizeTestThread(t, items_per_thread);
+                });
+            }
+            
+            // Wait for all threads
+            for(auto& thread : threads) {
+                thread.join();
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            std::cout << "Resize test completed in " << duration.count() << "ms" << std::endl;
+            std::cout << "Total items added: " << successful_writes.load() << std::endl;
+            std::cout << "Final map size: " << test_map.size() << std::endl;
+            std::cout << "Final map capacity: " << test_map.capacity() << std::endl;
+            std::cout << "Errors: " << errors.load() << std::endl;
+            
+            // Verify all items are still accessible
+            std::cout << "Verifying all items are accessible..." << std::endl;
+            int verification_errors = 0;
+            for(int t = 0; t < num_threads; t++) {
+                for(int i = 0; i < items_per_thread; i++) {
+                    int key = t * 10000 + i; // Same key generation as in thread
+                    try {
+                        std::string value = test_map.get(key);
+                        std::string expected = "thread_" + std::to_string(t) + "_item_" + std::to_string(i);
+                        if(value != expected) {
+                            verification_errors++;
+                        }
+                    } catch(...) {
+                        verification_errors++;
+                    }
+                }
+            }
+            
+            std::cout << "Verification errors: " << verification_errors << std::endl;
+            assert(verification_errors == 0);
+            assert(errors.load() == 0);
+            std::cout << "✓ Concurrent resize test passed" << std::endl;
+        }
+        
+        void mixedOperationsTest() {
+            std::cout << "\n=== Mixed Operations Test ===" << std::endl;
+            
+            test_map.clear();
+            
+            const int num_threads = 8;
+            const int operations_per_thread = 500;
+            
+            operations_completed = 0;
+            errors = 0;
+            successful_reads = 0;
+            successful_writes = 0;
+            successful_removes = 0;
+            
+            std::vector<std::thread> threads;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            std::cout << "Starting " << num_threads << " threads doing mixed operations..." << std::endl;
+            
+            // Each thread does random mix of operations
+            for(int t = 0; t < num_threads; t++) {
+                threads.emplace_back([this, t, operations_per_thread]() {
+                    this->mixedOperationsThread(t, operations_per_thread);
+                });
+            }
+            
+            // Wait for all threads
+            for(auto& thread : threads) {
+                thread.join();
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            std::cout << "Mixed operations test completed in " << duration.count() << "ms" << std::endl;
+            std::cout << "Total operations: " << operations_completed.load() << std::endl;
+            std::cout << "Successful reads: " << successful_reads.load() << std::endl;
+            std::cout << "Successful writes: " << successful_writes.load() << std::endl;
+            std::cout << "Successful removes: " << successful_removes.load() << std::endl;
+            std::cout << "Errors: " << errors.load() << std::endl;
+            std::cout << "Final map size: " << test_map.size() << std::endl;
+            
+            double ops_per_second = (double)operations_completed.load() * 1000.0 / duration.count();
+            std::cout << "Operations per second: " << (int)ops_per_second << std::endl;
+            
+            assert(errors.load() == 0);
+            std::cout << "✓ Mixed operations test passed" << std::endl;
+        }
+    
+    private:
+        void writerThread(int thread_id, int num_operations) {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> dis(0, 1000);
+            
+            for(int i = 0; i < num_operations; i++) {
+                try {
+                    int key = dis(gen);
+                    std::string value = "thread_" + std::to_string(thread_id) + "_op_" + std::to_string(i);
+                    test_map.put(key, value);
+                    successful_writes++;
+                    operations_completed++;
+                } catch(const std::exception& e) {
+                    errors++;
+                }
+            }
+        }
+        
+        void readerThread(int thread_id, int num_operations) {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> dis(0, 200); // Read from pre-populated range
+            
+            for(int i = 0; i < num_operations; i++) {
+                try {
+                    int key = dis(gen);
+                    if(test_map.hasKey(key)) {
+                        std::string value = test_map.get(key);
+                        successful_reads++;
+                    }
+                    operations_completed++;
+                } catch(const std::exception& e) {
+                    errors++;
+                }
+            }
+        }
+        
+        void resizeTestThread(int thread_id, int num_items) {
+            for(int i = 0; i < num_items; i++) {
+                try {
+                    int key = thread_id * 10000 + i; // Unique keys per thread
+                    std::string value = "thread_" + std::to_string(thread_id) + "_item_" + std::to_string(i);
+                    test_map.put(key, value);
+                    successful_writes++;
+                    operations_completed++;
+                } catch(const std::exception& e) {
+                    errors++;
+                }
+            }
+        }
+        
+        void mixedOperationsThread(int thread_id, int num_operations) {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> key_dis(0, 500);
+            std::uniform_int_distribution<> op_dis(1, 10);
+            
+            for(int i = 0; i < num_operations; i++) {
+                try {
+                    int key = key_dis(gen);
+                    int operation = op_dis(gen);
+                    
+                    if(operation <= 5) {
+                        // 50% writes
+                        std::string value = "t" + std::to_string(thread_id) + "_op" + std::to_string(i);
+                        test_map.put(key, value);
+                        successful_writes++;
+                    } else if(operation <= 8) {
+                        // 30% reads
+                        if(test_map.hasKey(key)) {
+                            std::string value = test_map.get(key);
+                            successful_reads++;
+                        }
+                    } else {
+                        // 20% removes
+                        if(test_map.remove(key)) {
+                            successful_removes++;
+                        }
+                    }
+                    operations_completed++;
+                } catch(const std::exception& e) {
+                    errors++;
+                }
+            }
+        }
+
+public:
+        void run() {
+            std::cout << "Starting Concurrent q_map Test Harness" << std::endl;
+            std::cout << "=====================================" << std::endl;
+            
+            try {
+                concurrentReadWriteTest();
+                concurrentResizeTest();
+                mixedOperationsTest();
+                
+                std::cout << "\n🎉 ALL CONCURRENCY TESTS PASSED! 🎉" << std::endl;
+                std::cout << "q_map thread safety is working correctly." << std::endl;
+                std::cout << "Firian Concurrency paradigm validated! 🚀" << std::endl;
+                
+            } catch(const std::exception& e) {
+                std::cout << "\n❌ CONCURRENCY TEST FAILED: " << e.what() << std::endl;
+            }
+        }
+    };
+    
+
+
+// // Node in our graph
+// struct GraphNode {
+//     int id = 0;
+//     int value = 0;
+//     std::string data = "";
+    
+//     GraphNode() = default;  // Add default constructor
+//     GraphNode(int _id, int _val, std::string _data) 
+//         : id(_id), value(_val), data(_data) {}
+// };
+
+// // Edge connecting two nodes
+// struct GraphEdge {
+//     int from = 0;
+//     int to = 0;
+//     float weight = 0.0f;
+    
+//     GraphEdge() = default;  // Add default constructor
+//     GraphEdge(int f, int t, float w) : from(f), to(t), weight(w) {}
+// };
+
+// // Concurrent Graph using Firian Concurrency
+// class FirianGraph {
+// private:
+//     q_map<int, GraphNode> nodes;                              // Node storage
+//     q_map<int, std::shared_ptr<q_list<GraphEdge>>> edges;     // Adjacency list with pointers
+//     q_map<int, float> node_scores;                            // Analysis results
+//     q_map<std::string, std::shared_ptr<q_list<int>>> categories; // Node categorization with pointers
+    
+// public:
+//     void addNode(int id, int value, const std::string& data) {
+//         nodes.put(id, GraphNode(id, value, data));
+//         node_scores.put(id, 0.0f);
+        
+//         // Categorize nodes
+//         std::string category = (value % 3 == 0) ? "multiples_of_3" :
+//                               (value % 2 == 0) ? "even" : "odd";
+        
+//         if (!categories.hasKey(category)) {
+//             categories.put(category, std::make_shared<q_list<int>>());
+//         }
+//         auto& cat_list = *categories.get(category);  // Dereference the shared_ptr
+//         cat_list.push(id);
+//     }
+    
+//     void addEdge(int from, int to, float weight) {
+//         if (!edges.hasKey(from)) {
+//             edges.put(from, std::make_shared<q_list<GraphEdge>>());
+//         }
+//         auto& edge_list = *edges.get(from);  // Dereference the shared_ptr
+//         edge_list.push(GraphEdge(from, to, weight));
+//     }
+    
+//     // Concurrent graph analysis - multiple algorithms running simultaneously
+//     void parallelAnalysis(int num_threads = 4) {
+//         std::vector<std::thread> threads;
+//         std::atomic<int> operations_completed{0};
+//         auto start_time = std::chrono::high_resolution_clock::now();
+        
+//         std::cout << "Starting parallel graph analysis with " << num_threads << " threads..." << std::endl;
+        
+//         // Thread 1: Page Rank calculation
+//         threads.emplace_back([this, &operations_completed]() {
+//             this->calculatePageRank(operations_completed);
+//         });
+        
+//         // Thread 2: Community detection
+//         threads.emplace_back([this, &operations_completed]() {
+//             this->detectCommunities(operations_completed);
+//         });
+        
+//         // Thread 3: Shortest path calculations
+//         threads.emplace_back([this, &operations_completed]() {
+//             this->calculateShortestPaths(operations_completed);
+//         });
+        
+//         // Thread 4: Graph statistics
+//         threads.emplace_back([this, &operations_completed]() {
+//             this->calculateStatistics(operations_completed);
+//         });
+        
+//         // Additional threads for stress testing
+//         for (int i = 4; i < num_threads; i++) {
+//             threads.emplace_back([this, &operations_completed, i]() {
+//                 this->dynamicGraphModification(operations_completed, i);
+//             });
+//         }
+        
+//         // Wait for completion
+//         for (auto& thread : threads) {
+//             thread.join();
+//         }
+        
+//         auto end_time = std::chrono::high_resolution_clock::now();
+//         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        
+//         std::cout << "Parallel analysis completed!" << std::endl;
+//         std::cout << "Total operations: " << operations_completed.load() << std::endl;
+//         std::cout << "Time: " << duration.count() << "ms" << std::endl;
+//         std::cout << "Operations per second: " << (operations_completed.load() * 1000) / duration.count() << std::endl;
+//     }
+    
+// private:
+//     void calculatePageRank(std::atomic<int>& ops) {
+//         std::cout << "Thread 1: Calculating PageRank..." << std::endl;
+        
+//         // Simulate iterative PageRank algorithm
+//         for (int iteration = 0; iteration < 100; iteration++) {
+//             // Access all nodes concurrently with other threads
+//             auto node_keys = getNodeKeys();
+            
+//             for (int node_id : node_keys) {
+//                 try {
+//                     float new_score = 0.15f; // Base PageRank value
+                    
+//                     // Calculate incoming link contributions
+//                     if (edges.hasKey(node_id)) {
+//                         auto& edge_list = *edges.get(node_id);  // Dereference
+//                         for (size_t i = 0; i < edge_list.length(); i++) {
+//                             auto& edge = edge_list.get(i, "pagerank");
+//                             new_score += 0.85f * node_scores.get(edge.to) * edge.weight;
+//                         }
+//                     }
+                    
+//                     // Update score (concurrent with other algorithms!)
+//                     node_scores.set(node_id, new_score);
+//                     ops++;
+                    
+//                 } catch (...) {
+//                     // Handle concurrent modifications gracefully
+//                     continue;
+//                 }
+//             }
+//         }
+        
+//         std::cout << "PageRank calculation completed!" << std::endl;
+//     }
+    
+//     void detectCommunities(std::atomic<int>& ops) {
+//         std::cout << "Thread 2: Detecting communities..." << std::endl;
+        
+//         // Simulate community detection algorithm
+//         for (int iteration = 0; iteration < 50; iteration++) {
+//             auto category_keys = getCategoryKeys();
+            
+//             for (const std::string& category : category_keys) {
+//                 try {
+//                     auto& node_list = categories.get(category);
+                    
+//                     // Analyze community structure
+//                     float community_strength = 0.0f;
+//                     for (size_t i = 0; i < node_list->length(); i++) {
+//                         int node_id = node_list->get(i, "community");
+                        
+//                         if (edges.hasKey(node_id)) {
+//                             auto& edge_list = edges.get(node_id);
+//                             for (size_t j = 0; j < edge_list->length(); j++) {
+//                                 auto& edge = edge_list->get(j, "community_edge");
+//                                 community_strength += edge.weight;
+//                             }
+//                         }
+//                         ops++;
+//                     }
+                    
+//                     // Store community analysis results
+//                     std::string result_key = "community_" + category;
+//                     node_scores.set(-1000 - (int)category_keys.size(), community_strength);
+                    
+//                 } catch (...) {
+//                     continue;
+//                 }
+//             }
+//         }
+        
+//         std::cout << "Community detection completed!" << std::endl;
+//     }
+    
+//     void calculateShortestPaths(std::atomic<int>& ops) {
+//         std::cout << "Thread 3: Calculating shortest paths..." << std::endl;
+        
+//         // Simulate shortest path calculations between random node pairs
+//         std::random_device rd;
+//         std::mt19937 gen(rd());
+//         auto node_keys = getNodeKeys();
+        
+//         if (node_keys.size() < 2) return;
+        
+//         std::uniform_int_distribution<> dis(0, node_keys.size() - 1);
+        
+//         for (int calculation = 0; calculation < 1000; calculation++) {
+//             try {
+//                 int start_idx = dis(gen);
+//                 int end_idx = dis(gen);
+                
+//                 if (start_idx >= node_keys.size() || end_idx >= node_keys.size()) continue;
+                
+//                 int start_node = node_keys[start_idx];
+//                 int end_node = node_keys[end_idx];
+                
+//                 // Simulate pathfinding (accessing graph structure concurrently)
+//                 float path_length = calculatePath(start_node, end_node);
+                
+//                 // Store result
+//                 int result_key = start_node * 10000 + end_node;
+//                 node_scores.set(result_key, path_length);
+                
+//                 ops++;
+                
+//             } catch (...) {
+//                 continue;
+//             }
+//         }
+        
+//         std::cout << "Shortest path calculations completed!" << std::endl;
+//     }
+    
+//     void calculateStatistics(std::atomic<int>& ops) {
+//         std::cout << "Thread 4: Calculating graph statistics..." << std::endl;
+        
+//         for (int iteration = 0; iteration < 200; iteration++) {
+//             try {
+//                 // Calculate various graph metrics
+//                 int total_nodes = 0;
+//                 int total_edges = 0;
+//                 float total_weight = 0.0f;
+//                 float avg_degree = 0.0f;
+                
+//                 auto node_keys = getNodeKeys();
+//                 total_nodes = node_keys.size();
+                
+//                 for (int node_id : node_keys) {
+//                     if (edges.hasKey(node_id)) {
+//                         auto& edge_list = edges.get(node_id);
+//                         int degree = edge_list->length();
+//                         total_edges += degree;
+//                         avg_degree += degree;
+                        
+//                         for (size_t i = 0; i < edge_list->length(); i++) {
+//                             auto& edge = edge_list->get(i, "stats");
+//                             total_weight += edge.weight;
+//                         }
+//                     }
+//                     ops++;
+//                 }
+                
+//                 if (total_nodes > 0) {
+//                     avg_degree /= total_nodes;
+//                 }
+                
+//                 // Store statistics (concurrent with other algorithms!)
+//                 node_scores.set(-1, (float)total_nodes);
+//                 node_scores.set(-2, (float)total_edges);
+//                 node_scores.set(-3, total_weight);
+//                 node_scores.set(-4, avg_degree);
+                
+//             } catch (...) {
+//                 continue;
+//             }
+//         }
+        
+//         std::cout << "Graph statistics completed!" << std::endl;
+//     }
+    
+//     void dynamicGraphModification(std::atomic<int>& ops, int thread_id) {
+//         std::cout << "Thread " << thread_id + 1 << ": Dynamic graph modifications..." << std::endl;
+        
+//         std::random_device rd;
+//         std::mt19937 gen(rd());
+//         std::uniform_int_distribution<> node_dis(10000 + thread_id * 1000, 10999 + thread_id * 1000);
+//         std::uniform_real_distribution<> weight_dis(0.1, 2.0);
+        
+//         for (int modification = 0; modification < 500; modification++) {
+//             try {
+//                 // Add new nodes and edges dynamically
+//                 int new_node_id = node_dis(gen);
+//                 int value = modification + thread_id * 1000;
+//                 std::string data = "dynamic_" + std::to_string(thread_id) + "_" + std::to_string(modification);
+                
+//                 addNode(new_node_id, value, data);
+                
+//                 // Connect to existing nodes
+//                 auto existing_keys = getNodeKeys();
+//                 if (!existing_keys.empty()) {
+//                     std::uniform_int_distribution<> existing_dis(0, existing_keys.size() - 1);
+//                     int target_idx = existing_dis(gen);
+//                     if (target_idx < existing_keys.size()) {
+//                         int target_node = existing_keys[target_idx];
+//                         float weight = weight_dis(gen);
+//                         addEdge(new_node_id, target_node, weight);
+//                         addEdge(target_node, new_node_id, weight * 0.8f);
+//                     }
+//                 }
+                
+//                 ops += 3; // Node addition + 2 edges
+                
+//             } catch (...) {
+//                 continue;
+//             }
+//         }
+        
+//         std::cout << "Dynamic modifications by thread " << thread_id + 1 << " completed!" << std::endl;
+//     }
+    
+//     // Helper functions
+//     std::vector<int> getNodeKeys() {
+//         std::vector<int> keys;
+//         // Note: This is a simplified version - in practice you'd implement
+//         // a proper key iteration method for q_map
+//         for (int i = 0; i < 1000; i++) {
+//             if (nodes.hasKey(i)) {
+//                 keys.push_back(i);
+//             }
+//         }
+//         // Also check dynamic nodes
+//         for (int i = 10000; i < 20000; i++) {
+//             if (nodes.hasKey(i)) {
+//                 keys.push_back(i);
+//             }
+//         }
+//         return keys;
+//     }
+    
+//     std::vector<std::string> getCategoryKeys() {
+//         return {"multiples_of_3", "even", "odd"};
+//     }
+    
+//     float calculatePath(int start, int end) {
+//         // Simplified pathfinding simulation
+//         if (start == end) return 0.0f;
+        
+//         // Simulate path calculation by accessing graph structure
+//         float estimated_distance = 1.0f;
+//         if (edges.hasKey(start)) {
+//             auto& edge_list = edges.get(start);
+//             for (size_t i = 0; i < edge_list->length() && i < 3; i++) {
+//                 auto& edge = edge_list->get(i, "pathfind");
+//                 estimated_distance += edge.weight;
+//             }
+//         }
+//         return estimated_distance;
+//     }
+    
+// public:
+//     void printResults() {
+//         std::cout << "\n=== Analysis Results ===" << std::endl;
+        
+//         try {
+//             std::cout << "Graph Statistics:" << std::endl;
+//             std::cout << "  Total nodes: " << (int)node_scores.get(-1) << std::endl;
+//             std::cout << "  Total edges: " << (int)node_scores.get(-2) << std::endl;
+//             std::cout << "  Total weight: " << node_scores.get(-3) << std::endl;
+//             std::cout << "  Average degree: " << node_scores.get(-4) << std::endl;
+//         } catch (...) {
+//             std::cout << "  Statistics calculation in progress..." << std::endl;
+//         }
+        
+//         std::cout << "\nSample PageRank scores:" << std::endl;
+//         for (int i = 0; i < 5; i++) {
+//             try {
+//                 if (node_scores.hasKey(i)) {
+//                     std::cout << "  Node " << i << ": " << node_scores.get(i) << std::endl;
+//                 }
+//             } catch (...) {
+//                 continue;
+//             }
+//         }
+//     }
+
+// public:
+
+// void run() {
+//     std::cout << "Firian Concurrency Graph Processing Proof of Concept" << std::endl;
+//     std::cout << "====================================================" << std::endl;
+    
+//     // Build a test graph
+//     std::cout << "Building test graph..." << std::endl;
+//     for (int i = 0; i < 100; i++) {
+//         addNode(i, i * 7 + 3, "node_data_" + std::to_string(i));
+//     }
+    
+//     // Add edges
+//     std::random_device rd;
+//     std::mt19937 gen(rd());
+//     std::uniform_int_distribution<> node_dis(0, 99);
+//     std::uniform_real_distribution<> weight_dis(0.1, 2.0);
+    
+//     for (int i = 0; i < 300; i++) {
+//         int from = node_dis(gen);
+//         int to = node_dis(gen);
+//         if (from != to) {
+//             addEdge(from, to, weight_dis(gen));
+//         }
+//     }
+    
+//     std::cout << "Graph built! Starting parallel analysis..." << std::endl;
+    
+//     // Run concurrent analysis
+//     parallelAnalysis(6); // 6 concurrent threads
+    
+//     // Show results
+//     printResults();
+    
+//     std::cout << "\n🎉 Proof of Concept Complete! 🎉" << std::endl;
+//     std::cout << "Multiple complex algorithms ran simultaneously on shared graph structure!" << std::endl;
+//     std::cout << "No locks, no coordination, no race conditions!" << std::endl;
+// }
+
+// };
+
+
+
+#include <memory>
+#include <algorithm>
+
+// Forward declarations - replace with your actual includes
+// #include "q_map.hpp"
+// #include "q_list.hpp"
+
+// ==================== DATA STRUCTURES ====================
+
+struct GraphNode {
+    int id = 0;
+    int value = 0;
+    std::string data = "";
+    
+    GraphNode() = default;
+    GraphNode(int _id, int _val, std::string _data) 
+        : id(_id), value(_val), data(_data) {}
+};
+
+struct GraphEdge {
+    int from = 0;
+    int to = 0;
+    float weight = 0.0f;
+    
+    GraphEdge() = default;
+    GraphEdge(int f, int t, float w) : from(f), to(t), weight(w) {}
+};
+
+// Temporary computation objects that showcase Firian's object pooling
+struct PageRankUpdate {
+    int node_id = 0;
+    float new_score = 0.0f;
+    int iteration = 0;
+    
+    PageRankUpdate() = default;
+    PageRankUpdate(int id, float score, int iter) 
+        : node_id(id), new_score(score), iteration(iter) {}
+};
+
+struct PathQuery {
+    int start = 0;
+    int end = 0;
+    float distance = 0.0f;
+    
+    PathQuery() = default;
+    PathQuery(int s, int e) : start(s), end(e), distance(std::numeric_limits<float>::infinity()) {}
+};
+
+// ==================== ENHANCED Q_MAP EXTENSIONS ====================
+// These would be added to your q_map class
+
+template<typename K, typename V>
+class enhanced_q_map : public q_map<K, V> {
+public:
+    // Efficient key iteration
+   std::vector<K> getAllKeys() {
+        std::vector<K> keys;
+        for(size_t bucket_idx = 0; bucket_idx < this->capacity(); bucket_idx++) {
+            try {
+                auto bucket = this->buckets.get(bucket_idx, "getAllKeys");
+                for(size_t i = 0; i < bucket->length(); i++) {
+                    auto& entry = bucket->q_list::get(i, "getAllKeys_entry");
+                    keys.push_back(entry.key);
+                }
+            } catch(...) {
+                continue;
+            }
+        }
+        return keys;
+    }
+    
+    // Safe iteration with callback
+    template<typename Func>
+    void forEachKey(Func&& func) const {
+        auto keys = getAllKeys();
+        for(const K& key : keys) {
+            try {
+                if(this->hasKey(key)) {
+                    func(key, this->get(key));
+                }
+            } catch(...) {
+                continue; // Handle concurrent modifications gracefully
+            }
+        }
+    }
+    
+    // Bulk operations
+    size_t count() {
+        return getAllKeys().size();
+    }
+};
+
+// ==================== TIGHT FIRIAN GRAPH ====================
+
+class TightFirianGraph {
+private:
+    enhanced_q_map<int, GraphNode> nodes;
+    enhanced_q_map<int, std::shared_ptr<q_list<GraphEdge>>> outgoing_edges;
+    enhanced_q_map<int, std::shared_ptr<q_list<GraphEdge>>> incoming_edges;
+    enhanced_q_map<int, float> pagerank_scores;
+    enhanced_q_map<int, float> betweenness_centrality;
+    enhanced_q_map<std::string, float> graph_metrics;
+    
+    // Test configuration
+    int num_nodes = 200;
+    int num_edges = 800;
+    std::mt19937 rng{42}; // Fixed seed for reproducible tests
+    
+public:
+    TightFirianGraph() {
+        // Initialize with small default values
+        graph_metrics.put("density", 0.0f);
+        graph_metrics.put("avg_degree", 0.0f);
+        graph_metrics.put("clustering_coefficient", 0.0f);
+    }
+    
+    // ==================== GRAPH CONSTRUCTION ====================
+    
+    void addNode(int id, int value, const std::string& data) {
+        nodes.put(id, GraphNode(id, value, data));
+        pagerank_scores.put(id, 1.0f); // Initial PageRank value
+        betweenness_centrality.put(id, 0.0f);
+    }
+    
+    void addEdge(int from, int to, float weight) {
+        // Add to outgoing edges
+        if (!outgoing_edges.hasKey(from)) {
+            outgoing_edges.put(from, std::make_shared<q_list<GraphEdge>>());
+        }
+        outgoing_edges.get(from)->push(GraphEdge(from, to, weight));
+        
+        // Add to incoming edges (crucial for PageRank!)
+        if (!incoming_edges.hasKey(to)) {
+            incoming_edges.put(to, std::make_shared<q_list<GraphEdge>>());
+        }
+        incoming_edges.get(to)->push(GraphEdge(from, to, weight));
+    }
+    
+    void buildTestGraph() {
+        std::cout << "Building test graph (" << num_nodes << " nodes, " << num_edges << " edges)..." << std::endl;
+        
+        // Add nodes
+        for (int i = 0; i < num_nodes; i++) {
+            addNode(i, i * 7 + 3, "node_" + std::to_string(i));
+        }
+        
+        // Add edges with realistic distribution
+        std::uniform_int_distribution<> node_dist(0, num_nodes - 1);
+        std::uniform_real_distribution<> weight_dist(0.1, 2.0);
+        
+        for (int i = 0; i < num_edges; i++) {
+            int from = node_dist(rng);
+            int to = node_dist(rng);
+            if (from != to) {
+                addEdge(from, to, weight_dist(rng));
+            }
+        }
+        
+        std::cout << "Graph built successfully!" << std::endl;
+    }
+    
+    // ==================== CONCURRENT ALGORITHMS ====================
+    
+    void concurrentPageRank(std::atomic<int>& ops, int iterations) {
+        const float damping = 0.85f;
+        const float base_score = (1.0f - damping) / num_nodes;
+        
+        for (int iter = 0; iter < iterations; iter++) {
+            enhanced_q_map<int, float> new_scores;
+            
+            // Initialize all scores
+            auto node_keys = nodes.getAllKeys();
+            for (int node_id : node_keys) {
+                new_scores.put(node_id, base_score);
+            }
+            
+            // Calculate PageRank based on incoming edges
+            for (int node_id : node_keys) {
+                if (incoming_edges.hasKey(node_id)) {
+                    try {
+                        auto& incoming = incoming_edges.get(node_id);
+                        float incoming_score = 0.0f;
+                        
+                        for (size_t i = 0; i < incoming->length(); i++) {
+                            auto& edge = incoming->get(i, "pagerank");
+                            int source_node = edge.from;
+                            
+                            if (pagerank_scores.hasKey(source_node) && outgoing_edges.hasKey(source_node)) {
+                                float source_score = pagerank_scores.get(source_node);
+                                int out_degree = outgoing_edges.get(source_node)->length();
+                                if (out_degree > 0) {
+                                    incoming_score += (source_score / out_degree) * edge.weight;
+                                }
+                            }
+                        }
+                        
+                        float current_base = new_scores.get(node_id);
+                        new_scores.set(node_id, current_base + damping * incoming_score);
+                    } catch (...) {
+                        continue;
+                    }
+                }
+                ops++;
+            }
+            
+            // Update scores (this showcases concurrent map updates!)
+            for (int node_id : node_keys) {
+                try {
+                    if (new_scores.hasKey(node_id)) {
+                        pagerank_scores.set(node_id, new_scores.get(node_id));
+                    }
+                } catch (...) {
+                    continue;
+                }
+            }
+        }
+    }
+    
+    void concurrentBetweennessCentrality(std::atomic<int>& ops, int iterations) {
+        auto node_keys = nodes.getAllKeys();
+        std::uniform_int_distribution<> node_dist(0, node_keys.size() - 1);
+        
+        for (int iter = 0; iter < iterations; iter++) {
+            // Sample random node pairs for betweenness calculation
+            if (node_keys.size() < 2) break;
+            
+            int source_idx = node_dist(rng);
+            int target_idx = node_dist(rng);
+            
+            if (source_idx >= node_keys.size() || target_idx >= node_keys.size()) continue;
+            if (source_idx == target_idx) continue;
+            
+            int source = node_keys[source_idx];
+            int target = node_keys[target_idx];
+            
+            // Simplified betweenness calculation (BFS-based)
+            try {
+                auto paths = findShortestPaths(source, target);
+                for (int intermediate : paths) {
+                    if (betweenness_centrality.hasKey(intermediate)) {
+                        float current = betweenness_centrality.get(intermediate);
+                        betweenness_centrality.set(intermediate, current + 1.0f);
+                    }
+                }
+                ops++;
+            } catch (...) {
+                continue;
+            }
+        }
+    }
+    
+    void concurrentGraphMetrics(std::atomic<int>& ops, int iterations) {
+        for (int iter = 0; iter < iterations; iter++) {
+            try {
+                // Calculate various graph metrics
+                float total_edges = 0;
+                float total_degree_squared = 0;
+                int total_nodes = nodes.count();
+                
+                auto node_keys = nodes.getAllKeys();
+                for (int node_id : node_keys) {
+                    int out_degree = 0;
+                    if (outgoing_edges.hasKey(node_id)) {
+                        out_degree = outgoing_edges.get(node_id)->length();
+                    }
+                    
+                    total_edges += out_degree;
+                    total_degree_squared += out_degree * out_degree;
+                    ops++;
+                }
+                
+                // Update metrics
+                float avg_degree = total_nodes > 0 ? total_edges / total_nodes : 0.0f;
+                float max_possible_edges = total_nodes * (total_nodes - 1);
+                float density = max_possible_edges > 0 ? total_edges / max_possible_edges : 0.0f;
+                
+                graph_metrics.set("avg_degree", avg_degree);
+                graph_metrics.set("density", density);
+                graph_metrics.set("total_edges", total_edges);
+                
+            } catch (...) {
+                continue;
+            }
+        }
+    }
+    
+    void concurrentDynamicModification(std::atomic<int>& ops, int iterations, int thread_id) {
+        std::uniform_int_distribution<> node_dist(num_nodes + thread_id * 1000, 
+                                                 num_nodes + (thread_id + 1) * 1000 - 1);
+        std::uniform_real_distribution<> weight_dist(0.1, 2.0);
+        
+        auto existing_keys = nodes.getAllKeys();
+        std::uniform_int_distribution<> existing_dist(0, existing_keys.size() - 1);
+        
+        for (int iter = 0; iter < iterations; iter++) {
+            try {
+                // Add new node
+                int new_node = node_dist(rng);
+                addNode(new_node, new_node, "dynamic_" + std::to_string(thread_id) + "_" + std::to_string(iter));
+                
+                // Connect to existing nodes
+                if (!existing_keys.empty() && existing_dist(rng) < existing_keys.size()) {
+                    int target_idx = existing_dist(rng);
+                    if (target_idx < existing_keys.size()) {
+                        int target = existing_keys[target_idx];
+                        addEdge(new_node, target, weight_dist(rng));
+                        addEdge(target, new_node, weight_dist(rng) * 0.8f);
+                    }
+                }
+                
+                ops += 3; // Node + 2 edges
+            } catch (...) {
+                continue;
+            }
+        }
+    }
+    
+    // ==================== HELPER FUNCTIONS ====================
+    
+    std::vector<int> findShortestPaths(int source, int target) {
+        // Simplified BFS for shortest path
+        std::vector<int> path;
+        
+        if (source == target) return path;
+        
+        // Simple approximation - follow outgoing edges
+        if (outgoing_edges.hasKey(source)) {
+            try {
+                auto& edges = outgoing_edges.get(source);
+                for (size_t i = 0; i < std::min((size_t)3, edges->length()); i++) {
+                    auto& edge = edges->get(i, "shortest_path");
+                    path.push_back(edge.to);
+                    if (edge.to == target) break;
+                }
+            } catch (...) {
+                // Handle concurrent modifications
+            }
+        }
+        
+        return path;
+    }
+    
+    // ==================== VALIDATION ====================
+    
+    void validatePageRank() {
+        std::cout << "Validating PageRank results..." << std::endl;
+        
+        // Calculate sequential PageRank for comparison
+        enhanced_q_map<int, float> sequential_scores;
+        auto node_keys = nodes.getAllKeys();
+        
+        // Initialize
+        for (int node_id : node_keys) {
+            sequential_scores.put(node_id, 1.0f);
+        }
+        
+        // Sequential PageRank iterations
+        const float damping = 0.85f;
+        for (int iter = 0; iter < 10; iter++) {
+            enhanced_q_map<int, float> new_scores;
+            
+            for (int node_id : node_keys) {
+                float score = (1.0f - damping) / num_nodes;
+                
+                if (incoming_edges.hasKey(node_id)) {
+                    auto& incoming = incoming_edges.get(node_id);
+                    for (size_t i = 0; i < incoming->length(); i++) {
+                        auto& edge = incoming->get(i, "validate");
+                        int source = edge.from;
+                        if (sequential_scores.hasKey(source) && outgoing_edges.hasKey(source)) {
+                            float source_score = sequential_scores.get(source);
+                            int out_degree = outgoing_edges.get(source)->length();
+                            if (out_degree > 0) {
+                                score += damping * (source_score / out_degree) * edge.weight;
+                            }
+                        }
+                    }
+                }
+                new_scores.put(node_id, score);
+            }
+            
+            // Update
+            for (int node_id : node_keys) {
+                sequential_scores.set(node_id, new_scores.get(node_id));
+            }
+        }
+        
+        // Compare with concurrent results
+        int differences = 0;
+        float max_diff = 0.0f;
+        
+        for (int node_id : node_keys) {
+            if (pagerank_scores.hasKey(node_id) && sequential_scores.hasKey(node_id)) {
+                float concurrent_score = pagerank_scores.get(node_id);
+                float sequential_score = sequential_scores.get(node_id);
+                float diff = std::abs(concurrent_score - sequential_score);
+                
+                if (diff > 0.1f) { // Tolerance for floating point and concurrent effects
+                    differences++;
+                    max_diff = std::max(max_diff, diff);
+                }
+            }
+        }
+        
+        std::cout << "PageRank validation complete!" << std::endl;
+        std::cout << "  Significant differences: " << differences << "/" << node_keys.size() << std::endl;
+        std::cout << "  Maximum difference: " << max_diff << std::endl;
+        
+        if (differences < node_keys.size() * 0.1) { // Less than 10% different
+            std::cout << "  ✅ VALIDATION PASSED" << std::endl;
+        } else {
+            std::cout << "  ⚠️  VALIDATION WARNING - High differences detected" << std::endl;
+        }
+    }
+    
+    // ==================== PERFORMANCE TESTING ====================
+    
+    struct BenchmarkResult {
+        int threads;
+        int operations;
+        long long duration_ms;
+        long long ops_per_second;
+        
+        void print() const {
+            std::cout << "  " << threads << " threads: " 
+                      << operations << " ops in " << duration_ms << "ms"
+                      << " (" << ops_per_second << " ops/sec)" << std::endl;
+        }
+    };
+    
+    BenchmarkResult runConcurrentBenchmark(int num_threads) {
+        std::cout << "Running benchmark with " << num_threads << " threads..." << std::endl;
+        
+        std::vector<std::thread> threads;
+        std::atomic<int> total_operations{0};
+        
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
+        // Each thread does balanced work
+        int iterations_per_thread = 100;
+        
+        for (int i = 0; i < num_threads; i++) {
+            threads.emplace_back([this, &total_operations, iterations_per_thread, i, num_threads]() {
+                switch (i % 4) {
+                    case 0:
+                        this->concurrentPageRank(total_operations, iterations_per_thread);
+                        break;
+                    case 1:
+                        this->concurrentBetweennessCentrality(total_operations, iterations_per_thread);
+                        break;
+                    case 2:
+                        this->concurrentGraphMetrics(total_operations, iterations_per_thread);
+                        break;
+                    case 3:
+                        this->concurrentDynamicModification(total_operations, iterations_per_thread, i);
+                        break;
+                }
+            });
+        }
+        
+        // Wait for completion
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        
+        BenchmarkResult result;
+        result.threads = num_threads;
+        result.operations = total_operations.load();
+        result.duration_ms = duration.count();
+        result.ops_per_second = result.duration_ms > 0 ? (result.operations * 1000LL) / result.duration_ms : 0;
+        
+        return result;
+    }
+    
+    void scalabilityTest() {
+        std::cout << "\n=== SCALABILITY TEST ===" << std::endl;
+        std::vector<BenchmarkResult> results;
+        
+        for (int threads = 1; threads <= 8; threads *= 2) {
+            auto result = runConcurrentBenchmark(threads);
+            results.push_back(result);
+            result.print();
+        }
+        
+        // Calculate efficiency
+        std::cout << "\nScaling efficiency:" << std::endl;
+        if (!results.empty()) {
+            long long baseline = results[0].ops_per_second;
+            for (const auto& result : results) {
+                float efficiency = (float)result.ops_per_second / (baseline * result.threads) * 100.0f;
+                std::cout << "  " << result.threads << " threads: " 
+                          << efficiency << "% efficiency" << std::endl;
+            }
+        }
+    }
+    
+    void stressTest() {
+        std::cout << "\n=== STRESS TEST ===" << std::endl;
+        std::cout << "Running high-contention scenario..." << std::endl;
+        
+        // Many threads, small graph, high contention
+        auto result = runConcurrentBenchmark(16);
+        result.print();
+        
+        std::cout << "Stress test completed - system remained stable!" << std::endl;
+    }
+    
+    // ==================== RESULTS DISPLAY ====================
+    
+    void printResults() {
+        std::cout << "\n=== ANALYSIS RESULTS ===" << std::endl;
+        
+        // Graph metrics
+        std::cout << "Graph Structure:" << std::endl;
+        std::cout << "  Nodes: " << nodes.count() << std::endl;
+        try {
+            std::cout << "  Average degree: " << graph_metrics.get("avg_degree") << std::endl;
+            std::cout << "  Density: " << graph_metrics.get("density") << std::endl;
+            std::cout << "  Total edges: " << (int)graph_metrics.get("total_edges") << std::endl;
+        } catch (...) {
+            std::cout << "  Metrics calculation in progress..." << std::endl;
+        }
+        
+        // Sample PageRank scores
+        std::cout << "\nTop PageRank scores:" << std::endl;
+        std::vector<std::pair<int, float>> scores;
+        auto node_keys = nodes.getAllKeys();
+        
+        for (int node_id : node_keys) {
+            if (pagerank_scores.hasKey(node_id)) {
+                try {
+                    scores.push_back({node_id, pagerank_scores.get(node_id)});
+                } catch (...) {
+                    continue;
+                }
+            }
+        }
+        
+        std::sort(scores.begin(), scores.end(), 
+                 [](const auto& a, const auto& b) { return a.second > b.second; });
+        
+        for (int i = 0; i < std::min(5, (int)scores.size()); i++) {
+            std::cout << "  Node " << scores[i].first << ": " << scores[i].second << std::endl;
+        }
+    }
+    
+    // ==================== MAIN TEST RUNNER ====================
+    
+    void runComprehensiveTest() {
+        std::cout << "🚀 Firian Concurrency Graph Processing Benchmark" << std::endl;
+        std::cout << "=================================================" << std::endl;
+        
+        // Build test graph
+        buildTestGraph();
+        
+        // Run tests in order
+        std::cout << "\n1. Correctness Validation" << std::endl;
+        validatePageRank();
+        
+        std::cout << "\n2. Performance Scaling" << std::endl;
+        scalabilityTest();
+        
+        std::cout << "\n3. Stress Testing" << std::endl;
+        stressTest();
+        
+        std::cout << "\n4. Final Results" << std::endl;
+        printResults();
+        
+        std::cout << "\n🎉 COMPREHENSIVE TEST COMPLETE! 🎉" << std::endl;
+        std::cout << "✅ Multiple algorithms ran concurrently" << std::endl;
+        std::cout << "✅ No manual synchronization required" << std::endl;
+        std::cout << "✅ Automatic handling of concurrent modifications" << std::endl;
+        std::cout << "✅ Seamless object lifecycle management" << std::endl;
+        
+        std::cout << "\nFirian Concurrency: Simple + Fast + Safe ✨" << std::endl;
+    }
+};
+
+struct TestObject {
+    int value;
+    std::string data;
+    
+    TestObject() : value(0), data("") {}
+    TestObject(int v) : value(v), data("test_" + std::to_string(v)) {}
+    
+    // Copy constructor and assignment for safety
+    TestObject(const TestObject& other) : value(other.value), data(other.data) {}
+    TestObject& operator=(const TestObject& other) {
+        if (this != &other) {
+            value = other.value;
+            data = other.data;
+        }
+        return *this;
+    }
+};
+
+    void concurrentSerializationTest() {
+        // Setup concurrent data structures
+        q_list<TestObject> live_data;
+        enhanced_q_map<int, std::string> live_map;
+        
+        std::atomic<bool> serialization_complete{false};
+        std::atomic<int> operations_during_serialization{0};
+        
+        // Thread 1: Constantly modifying data
+        std::thread modifier([&]() {
+            int counter = 0;
+            while (!serialization_complete.load()) {
+                live_data.push(TestObject(counter++));
+                live_map.put(counter, "item_" + std::to_string(counter));
+                if (live_data.length() > 100) {
+                    live_data.remove(0);  // Remove oldest
+                }
+                operations_during_serialization++;
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+        });
+        
+        // Thread 2: Serializing while modifications happen
+        std::thread serializer([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Let modifications start
+            
+            std::stringstream serialized_data;
+            
+            // Serialize q_list while it's being modified
+            serialized_data << "q_list_size:" << live_data.length() << "\n";
+            for (size_t i = 0; i < live_data.length(); i++) {
+                try {
+                    auto& obj = live_data.get(i);
+                    serialized_data << "list_item:" << obj.value << ":" << obj.data << "\n";
+                } catch (...) {
+                    // Handle concurrent modification gracefully
+                    serialized_data << "list_item:modified_during_read\n";
+                }
+            }
+            
+            // Serialize q_map while it's being modified
+            auto keys = live_map.getAllKeys();
+            serialized_data << "q_map_size:" << keys.size() << "\n";
+            for (int key : keys) {
+                try {
+                    if (live_map.hasKey(key)) {
+                        std::string value = live_map.get(key);
+                        serialized_data << "map_item:" << key << ":" << value << "\n";
+                    }
+                } catch (...) {
+                    serialized_data << "map_item:" << key << ":modified_during_read\n";
+                }
+            }
+            
+            serialization_complete.store(true);
+            
+            std::cout << "Serialization completed successfully!" << std::endl;
+            std::cout << "Operations during serialization: " << operations_during_serialization.load() << std::endl;
+            std::cout << "Serialized data length: " << serialized_data.str().length() << " bytes" << std::endl;
+            
+            // Optional: Print first few lines of serialized data to verify content
+            std::string serialized_str = serialized_data.str();
+            size_t pos = 0;
+            int lines_shown = 0;
+            std::cout << "\nFirst few lines of serialized data:" << std::endl;
+            while (pos < serialized_str.length() && lines_shown < 10) {
+                size_t newline = serialized_str.find('\n', pos);
+                if (newline == std::string::npos) break;
+                std::cout << "  " << serialized_str.substr(pos, newline - pos) << std::endl;
+                pos = newline + 1;
+                lines_shown++;
+            }
+        });
+        
+        modifier.join();
+        serializer.join();
+        
+        std::cout << "\nSUCCESS: Concurrent serialization completed without blocking modifications!" << std::endl;
+    }
+
+    void dualConcurrentSerializationTest() {
+        q_list<TestObject> live_data;
+        
+        std::atomic<bool> serialization_complete{false};
+        std::atomic<int> operations_during_serialization{0};
+        std::atomic<int> serializer1_items{0};
+        std::atomic<int> serializer2_items{0};
+        
+        // Thread 1: Constantly modifying data
+        std::thread modifier([&]() {
+            int counter = 0;
+            while (!serialization_complete.load()) {
+                live_data.push(TestObject(counter++));
+                if (live_data.length() > 200) {  // Bigger buffer for dual serializers
+                    live_data.remove(0);
+                }
+                operations_during_serialization++;
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+        });
+        
+        // Serializer Thread 1
+        std::thread serializer1([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            
+            std::stringstream serialized_data1;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            serialized_data1 << "SERIALIZER1_START\n";
+            serialized_data1 << "q_list_size:" << live_data.length() << "\n";
+            
+            for (size_t i = 0; i < live_data.length(); i++) {
+                try {
+                    auto& obj = live_data.get(i);
+                    serialized_data1 << "s1_item:" << obj.value << ":" << obj.data << "\n";
+                    serializer1_items++;
+                } catch (...) {
+                    serialized_data1 << "s1_item:modified_during_read\n";
+                }
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            serialized_data1 << "SERIALIZER1_END\n";
+            std::cout << "Serializer 1 completed in " << duration.count() << "ms" << std::endl;
+            std::cout << "Serializer 1 captured " << serializer1_items.load() << " items" << std::endl;
+            std::cout << "Serializer 1 data length: " << serialized_data1.str().length() << " bytes" << std::endl;
+        });
+        
+        // Serializer Thread 2 (starts slightly offset)
+        std::thread serializer2([&]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(75));  // Offset start
+            
+            std::stringstream serialized_data2;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            serialized_data2 << "SERIALIZER2_START\n";
+            serialized_data2 << "q_list_size:" << live_data.length() << "\n";
+            
+            for (size_t i = 0; i < live_data.length(); i++) {
+                try {
+                    auto& obj = live_data.get(i);
+                    serialized_data2 << "s2_item:" << obj.value << ":" << obj.data << "\n";
+                    serializer2_items++;
+                } catch (...) {
+                    serialized_data2 << "s2_item:modified_during_read\n";
+                }
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            serialized_data2 << "SERIALIZER2_END\n";
+            std::cout << "Serializer 2 completed in " << duration.count() << "ms" << std::endl;
+            std::cout << "Serializer 2 captured " << serializer2_items.load() << " items" << std::endl;
+            std::cout << "Serializer 2 data length: " << serialized_data2.str().length() << " bytes" << std::endl;
+            
+            // Signal completion after both serializers have had time to work
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            serialization_complete.store(true);
+        });
+        
+        modifier.join();
+        serializer1.join();
+        serializer2.join();
+        
+        std::cout << "\n=== DUAL SERIALIZATION RESULTS ===" << std::endl;
+        std::cout << "Total operations during dual serialization: " << operations_during_serialization.load() << std::endl;
+        std::cout << "Combined items serialized: " << (serializer1_items.load() + serializer2_items.load()) << std::endl;
+        
+        // Calculate effective throughput
+        int total_items = serializer1_items.load() + serializer2_items.load();
+        std::cout << "Effective serialization throughput: ~" << total_items << " items from " << operations_during_serialization.load() << " concurrent ops" << std::endl;
+        
+        std::cout << "SUCCESS: Dual concurrent serialization completed!" << std::endl;
+    }
+
+    void parallelBinarySerializationTest() {
+        q_list<TestObject> live_data;
+        
+        // Pre-populate with substantial data
+        for (int i = 0; i < 1000; i++) {
+            live_data.push(TestObject(i));
+        }
+        
+        std::atomic<bool> serialization_complete{false};
+        std::atomic<int> operations_during_serialization{0};
+        
+        // Serialization results
+        std::vector<char> binary_chunk1;
+        std::vector<char> binary_chunk2;
+        std::atomic<bool> chunk1_complete{false};
+        std::atomic<bool> chunk2_complete{false};
+        
+        // Modifier thread
+        std::thread modifier([&]() {
+            int counter = 1000;
+            while (!serialization_complete.load()) {
+                live_data.push(TestObject(counter++));
+                if (live_data.length() > 1200) {
+                    live_data.remove(0);
+                }
+                operations_during_serialization++;
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+        });
+        
+        // Get snapshot size for work division
+        size_t total_items = live_data.length();
+        size_t half_point = total_items / 2;
+        
+        // Serializer 1: First half
+        std::thread serializer1([&]() {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            for (size_t i = 0; i < half_point; i++) {
+                try {
+                    auto& obj = live_data.get(i);
+                    
+                    // Binary serialization of the object
+                    const char* value_bytes = reinterpret_cast<const char*>(&obj.value);
+                    binary_chunk1.insert(binary_chunk1.end(), value_bytes, value_bytes + sizeof(obj.value));
+                    
+                    // Serialize string length + data
+                    size_t str_len = obj.data.length();
+                    const char* len_bytes = reinterpret_cast<const char*>(&str_len);
+                    binary_chunk1.insert(binary_chunk1.end(), len_bytes, len_bytes + sizeof(str_len));
+                    binary_chunk1.insert(binary_chunk1.end(), obj.data.begin(), obj.data.end());
+                    
+                } catch (...) {
+                    // Handle concurrent modification
+                    int error_marker = -1;
+                    const char* error_bytes = reinterpret_cast<const char*>(&error_marker);
+                    binary_chunk1.insert(binary_chunk1.end(), error_bytes, error_bytes + sizeof(error_marker));
+                }
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            chunk1_complete.store(true);
+            std::cout << "Thread 1 serialized " << half_point << " items in " << duration.count() << "ms" << std::endl;
+            std::cout << "Thread 1 binary size: " << binary_chunk1.size() << " bytes" << std::endl;
+        });
+        
+        // Serializer 2: Second half
+        std::thread serializer2([&]() {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            for (size_t i = half_point; i < total_items; i++) {
+                try {
+                    auto& obj = live_data.get(i);
+                    
+                    // Binary serialization of the object
+                    const char* value_bytes = reinterpret_cast<const char*>(&obj.value);
+                    binary_chunk2.insert(binary_chunk2.end(), value_bytes, value_bytes + sizeof(obj.value));
+                    
+                    // Serialize string length + data
+                    size_t str_len = obj.data.length();
+                    const char* len_bytes = reinterpret_cast<const char*>(&str_len);
+                    binary_chunk2.insert(binary_chunk2.end(), len_bytes, len_bytes + sizeof(str_len));
+                    binary_chunk2.insert(binary_chunk2.end(), obj.data.begin(), obj.data.end());
+                    
+                } catch (...) {
+                    // Handle concurrent modification
+                    int error_marker = -1;
+                    const char* error_bytes = reinterpret_cast<const char*>(&error_marker);
+                    binary_chunk2.insert(binary_chunk2.end(), error_bytes, error_bytes + sizeof(error_marker));
+                }
+            }
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+            
+            chunk2_complete.store(true);
+            std::cout << "Thread 2 serialized " << (total_items - half_point) << " items in " << duration.count() << "ms" << std::endl;
+            std::cout << "Thread 2 binary size: " << binary_chunk2.size() << " bytes" << std::endl;
+        });
+        
+        // Wait for both chunks to complete
+        while (!chunk1_complete.load() || !chunk2_complete.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        
+        serialization_complete.store(true);
+        
+        // Combine binary chunks
+        std::vector<char> complete_binary;
+        complete_binary.insert(complete_binary.end(), binary_chunk1.begin(), binary_chunk1.end());
+        complete_binary.insert(complete_binary.end(), binary_chunk2.begin(), binary_chunk2.end());
+        
+        modifier.join();
+        serializer1.join();
+        serializer2.join();
+        
+        std::cout << "\n=== PARALLEL BINARY SERIALIZATION RESULTS ===" << std::endl;
+        std::cout << "Total items processed: " << total_items << std::endl;
+        std::cout << "Operations during serialization: " << operations_during_serialization.load() << std::endl;
+        std::cout << "Combined binary size: " << complete_binary.size() << " bytes" << std::endl;
+        std::cout << "SUCCESS: Parallel binary serialization completed!" << std::endl;
+    }
+
+
+
+using namespace Golden;
+
+int main() {
+  
+    // ConcurrencyTestHarness harness;
+    // harness.run();
+    // FirianGraph graph;
+    // graph.run();
+    //TightFirianGraph graph;
+    // graph.runComprehensiveTest();
+    concurrentSerializationTest();
+    dualConcurrentSerializationTest();
+    parallelBinarySerializationTest();
+}

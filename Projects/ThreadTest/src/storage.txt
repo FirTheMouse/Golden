@@ -1,0 +1,230 @@
+#include<util/meshBuilder.hpp>
+#include<rendering/scene.hpp>
+#include<util/color.hpp>
+#include<extension/physics.hpp>
+#include<thread>
+#include<chrono>
+#include<random>
+
+using namespace Golden;
+
+using str = std::string;
+
+std::atomic<int> object_count{0};
+std::atomic<int> removal_count{0};
+std::atomic<int> collision_count{0};
+std::atomic<int> map_access_count{0};
+std::atomic<int> id_mismatch_count{0};
+std::atomic<int> physics_iterations{0};
+
+
+struct TestTool {
+    float tpf = 0.1; 
+    float frametime = 0; 
+    int frame = 0;
+    std::chrono::steady_clock::time_point last = std::chrono::high_resolution_clock::now();
+    int frames = 0;
+
+    void tick() {
+        auto end = std::chrono::high_resolution_clock::now();
+        auto delta = std::chrono::duration<float>(end - last);
+        tpf = delta.count(); 
+        last = end; 
+        frame++; 
+        frames++;
+        frametime += tpf; 
+        
+        if(frametime >= 1) {
+            print("FPS: ", frames, " Objects: ", object_count.load(), " Removals: ", removal_count.load(), " Map size: ", map_access_count.load());
+            frametime = 0;
+            frames = 0;
+        }
+    }
+};
+
+class T_Object : virtual public Single, virtual public Scriptable {
+public:
+    
+    T_Object(g_ptr<Model> _model) {
+        setModel(_model);
+        object_count++;
+    }
+    
+    ~T_Object() {
+        object_count--;
+    }
+
+    void remove() override {
+        Single::remove();
+    }
+};
+
+
+class H_Test_Scene : public Scene {
+    public:
+        using Scene::Scene;
+        float pause = 0.0f;
+        float pause2 = 0.0f;
+        
+       // map<str,list<g_ptr<T_Object>>> all;  // The Hel organization system!
+        void tick()
+        {
+        pause -= 1.0f;
+        pause2 -= 1.0f;
+
+        if(pause <= 0.0f) { 
+            pause = 6.0f;
+            
+            auto projectile = make<T_Object>(make<Model>(makeTestBox(0.2f)));
+            projectile->set<str>("dtype", "proj");  // Hel style!
+            projectile->set<str>("from","projectile::162");
+            add(projectile);
+            projectile->setPhysicsState(P_State::ACTIVE);
+            projectile->setLinearVelocity(vec3(30.0f, 0, 0));
+            projectile->setPosition(vec3(-15.0f, 0.5f, 0));
+            
+            projectile->addScript("onCollide", [this, projectile](ScriptContext& ctx){
+                g_ptr<S_Object> s = ctx.get<g_ptr<S_Object>>("with");
+                if(auto h = g_dynamic_pointer_cast<T_Object>(s)) {
+                    if(s->get<str>("dtype") == "demon") {
+                        
+                        deactivate(h);
+                        deactivate(projectile);
+                        // print("REMOVAL QUEUED FOR \n UUID=",h->UUID," ID=",h->ID,
+                        // "\n UUID=",projectile->UUID," ID=",projectile->ID);
+                        // P_Sim::get().removeUUID(h->UUID);
+                        // P_Sim::get().removeUUID(projectile->UUID);
+                        // P_Sim::get().queueTask([scene,h,projectile]{
+                        // print("REMOVAL ON PHYSICS THREAD FOR \n UUID=",h->UUID," ID=",h->ID,
+                    // "\n UUID=",projectile->UUID," ID=",projectile->ID);
+                            //removeObject(h);        // Remove demon first
+                            //removeObject(projectile); // Remove bullet second
+                        // });
+                    }
+                }
+            });
+        }
+
+        // Create demons with Hel-style dtype
+        if(pause2 <= 0.0f) { 
+            pause2 = 12.0f;
+            
+            auto demon = make<T_Object>(make<Model>(makeTestBox(1.0f)));
+            demon->set<str>("dtype", "demon");  // Hel style!
+            demon->set<str>("from","demon::195");
+            add(demon);
+            demon->setPosition(vec3(9.0f, 5.5f, 0));
+            demon->setPhysicsState(P_State::ACTIVE);
+            demon->setLinearVelocity(vec3(0.0f,-2.0f,0.0f));
+        } 
+    }
+
+
+        void add(const g_ptr<S_Object>& sobj) override {
+            Scene::add(sobj);
+            
+            // if(auto obj = g_dynamic_pointer_cast<T_Object>(sobj)) {
+            //     str dtype = obj->get<str>("dtype");
+            //     if(!all.hasKey(dtype)) all.put(dtype, list<g_ptr<T_Object>>{});
+            //     all.get(dtype) << obj;
+            // }
+        }
+        
+        // Hel's exact removal pattern
+        void removeObject(g_ptr<T_Object> obj) {
+           //print("HEL REMOVAL: UUID:", obj->UUID, " ID:", obj->ID, " dtype:", obj->get<str>("dtype"));
+            
+            // Remove from type-based organization (this is what Hel does!)
+            // int ridx = -1;
+            // list<g_ptr<T_Object>>& r = all.get(obj->get<str>("dtype"));
+            // for(int i = 0; i < r.length(); i++) {
+            //     if(r[i] == obj) {
+            //         ridx = i; 
+            //         break;
+            //     }
+            // }
+            // if(ridx != -1) r.removeAt(ridx);
+            
+            obj->remove();  // This calls Single::remove() which does swap-and-pop
+        }
+    };
+
+class T_Sim : virtual public Sim, public Singleton<T_Sim>
+{
+friend class Singleton<T_Sim>;
+protected:
+    T_Sim() {}
+public:
+    void runSlice() override {
+        if(auto tscene = g_dynamic_pointer_cast<H_Test_Scene>(scene)) {
+            queueAndWait([tscene]{
+                tscene->tick();
+            });
+        }
+    }
+};
+
+void SimSpeedControl() {
+    static bool deBounceSpace = false;
+    if(Input::get().keyPressed(SPACE)&&!deBounceSpace) {T_Sim::get().setSpeed(0); P_Sim::get().setSpeed(0); deBounceSpace=true;}
+    if(!Input::get().keyPressed(SPACE)&&deBounceSpace) {deBounceSpace = false;}
+}
+
+int main() {
+    print("=== Scene Object Map Race Condition Test ===");
+    
+    Window window = Window(1280, 768, "Threading Test");
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+        std::cerr << "Failed to initialize GLAD" << std::endl;
+        return 0;
+    }
+    glEnable(GL_DEPTH_TEST);
+    
+    g_ptr<H_Test_Scene> scene = make<H_Test_Scene>(window, 1);
+    scene->tickEnvironment(1100);
+    scene->setupShadows();
+    scene->camera.speedMod = 0.001f;
+    
+    TestTool test_tool;
+
+    T_Sim::get().setScene(scene);
+    P_Sim::get().setScene(scene);
+    
+    T_Sim::get().startSimulation();
+    P_Sim::get().startSimulation();
+
+    // Very fast simulation to maximize race conditions
+    T_Sim::get().setSpeed(0.06f);
+    P_Sim::get().setSpeed(0.004f);
+    
+    float pause = 0.0f;
+    float pause2 = 0.0f;
+    float stress_timer = 0.0f;
+    
+    while (!window.shouldClose()) {
+        P_Sim::get().flushTasks();
+        T_Sim::get().flushTasks();
+        SimSpeedControl();
+        
+        pause -= test_tool.tpf;
+        pause2 -= test_tool.tpf;
+        stress_timer -= test_tool.tpf;
+
+        
+
+        scene->updateScene(1);
+
+        
+        window.swapBuffers();
+        window.pollEvents();
+    }
+
+    T_Sim::get().stopSimulation();
+    P_Sim::get().stopSimulation();
+    glfwTerminate();
+    
+    print("Final stats: Objects=", object_count.load(), " Removals=", removal_count.load(), 
+          " Collisions=", collision_count.load(), " ID Mismatches=", id_mismatch_count.load());
+    
+    return 0;
+}

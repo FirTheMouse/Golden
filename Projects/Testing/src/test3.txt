@@ -1,0 +1,1103 @@
+#include<core/helper.hpp>
+#include<util/meshBuilder.hpp>
+#include<rendering/single.hpp>
+#include<util/color.hpp>
+#include<extension/physics.hpp>
+#include<util/logger.hpp>
+
+namespace Golden
+{
+// void testPoolPerformance() {
+//     Window window = Window(1280, 768, "testing",0);
+//     auto scene = make<Scene>(window, 2);
+    
+//     // Define a simple test object type
+//     g_ptr<Model> mdl = make<Model>(makeTestBox(1.0f));
+//     scene->set<g_ptr<Model>>("mdl",mdl);
+//     scene->define("test_obj", Script<>("make_test", [scene](ScriptContext& ctx) {
+//         auto obj = make<Single>(makeTestBox(1.0f)); //scene->get<g_ptr<Model>>("mdl")
+//         obj->set<int>("value", rand() % 1000);
+//         scene->add(obj);
+//         obj->setPosition(vec3(0,0,0));
+//         obj->setColor(Color::RED);
+//         obj->addScript("onClick",[](ScriptContext& ctx){
+//             for(int i=0;i<1000;i++)
+//             {
+//                 print(i);
+//             }
+//         });
+//         ctx.set<g_ptr<Object>>("toReturn", obj);
+//     }));
+    
+//     auto start = std::chrono::high_resolution_clock::now();
+    
+//     // Test 1: Rapid creation/recycling
+//     std::vector<g_ptr<Single>> objects;
+//     for(int i = 0; i < 100000; i++) {
+//         auto obj = scene->create<Single>("test_obj");
+//         objects.push_back(obj);
+        
+//         // Recycle every 100 objects to test reuse
+//         if(i % 100 == 99) {
+//             for(auto& o : objects) {
+//                 scene->recycle(o, "test_obj");
+//             }
+//             objects.clear();
+//         }
+//     }
+    
+//     auto end = std::chrono::high_resolution_clock::now();
+//     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+//     std::cout << "Pool performance test: " << duration.count() << "ms for 100k create/recycle cycles" << std::endl;
+// }
+
+// void testActualObjectCreation() {
+//     Window window = Window(1280, 768, "testing", 0);
+//     auto scene = make<Scene>(window, 2);
+    
+//     // Test 1: Compare pooled vs non-pooled creation
+//     auto start_traditional = std::chrono::high_resolution_clock::now();
+    
+//     std::vector<g_ptr<Single>> traditional_objects;
+//     for(int i = 0; i < 1000; i++) {  // Smaller count for traditional
+//         auto obj = make<Single>(makeTestBox(1.0f));
+//         obj->set<int>("unique_id", i);  // Ensure each is unique
+//         scene->add(obj);
+//         obj->setPosition(vec3(i % 100, i / 100, 0));  // Unique positions
+//         obj->setColor(Color::RED);
+//         traditional_objects.push_back(obj);
+//     }
+    
+//     auto end_traditional = std::chrono::high_resolution_clock::now();
+//     auto traditional_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_traditional - start_traditional);
+    
+//     // Test 2: Your pooled version with same workload
+//     scene->define("complex_obj", Script<>("make_complex", [scene](ScriptContext& ctx) {
+//         auto obj = make<Single>(makeTestBox(1.0f));
+//         scene->add(obj);
+//         size_t id = obj->UUID;
+//         obj->set<int>("unique_id", id);
+//         obj->setPosition(vec3(id % 100, id / 100, 0));
+//         obj->setColor(Color::RED);
+//         obj->addScript("onClick", [id](ScriptContext& ctx) {
+//             // Actually do something unique per object
+//             print("Object ", id, " clicked");
+//         });
+//         ctx.set<g_ptr<Object>>("toReturn", obj);
+//     }));
+    
+//     auto start_pooled = std::chrono::high_resolution_clock::now();
+    
+//     std::vector<g_ptr<Single>> pooled_objects;
+//     for(int i = 0; i < 1000; i++) {
+//         // Pass unique data to creation script
+//         ScriptContext ctx;
+//         ctx.set<int>("unique_id", i);
+        
+//         auto obj = scene->create<Single>("complex_obj");
+//         pooled_objects.push_back(obj);
+//     }
+    
+//     auto end_pooled = std::chrono::high_resolution_clock::now();
+//     auto pooled_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_pooled - start_pooled);
+    
+//     std::cout << "Traditional creation: " << traditional_duration.count() << "ms" << std::endl;
+//     std::cout << "Pooled creation: " << pooled_duration.count() << "ms" << std::endl;
+    
+//     // Test 3: Verify objects are actually different
+//     std::cout << "First traditional object ID: " << traditional_objects[0]->get<int>("unique_id") << std::endl;
+//     std::cout << "Last traditional object ID: " << traditional_objects[999]->get<int>("unique_id") << std::endl;
+//     std::cout << "First pooled object ID: " << pooled_objects[0]->get<int>("unique_id") << std::endl;
+//     std::cout << "Last pooled object ID: " << pooled_objects[999]->get<int>("unique_id") << std::endl;
+// }
+
+// void stressConcurrentRemovalDEBUG() {
+//     std::cout << "[DEBUG] Starting stressConcurrentRemoval()" << std::endl;
+    
+//     Window window = Window(1280, 768, "stress test", 0);
+//     std::cout << "[DEBUG] Window created" << std::endl;
+    
+//     auto scene = make<Scene>(window, 2);
+//     std::cout << "[DEBUG] Scene created" << std::endl;
+    
+//     // Pre-cache a model
+//     scene->set<g_ptr<Model>>("test_model", make<Model>(makeTestBox(1.0f)));
+//     std::cout << "[DEBUG] Test model cached" << std::endl;
+    
+//     std::atomic<int> actual_creations{0};
+//     std::cout << "[DEBUG] Atomic counter initialized" << std::endl;
+
+//     std::cout << "[DEBUG] Defining stress_obj script..." << std::endl;
+//     scene->define("stress_obj", Script<>("make_stress", [scene,&actual_creations](ScriptContext& ctx) {
+//         int creation_num = actual_creations.fetch_add(1) + 1;
+//         std::cout << "[SCRIPT] Creating object #" << creation_num << " on thread " << std::this_thread::get_id() << std::endl;
+        
+//         auto cached_model = scene->get<g_ptr<Model>>("test_model");
+//         std::cout << "[SCRIPT] Got cached model for #" << creation_num << std::endl;
+        
+//         auto new_model = make<Model>();
+//         std::cout << "[SCRIPT] Created new model for #" << creation_num << std::endl;
+        
+//         new_model->copy(*cached_model);
+//         std::cout << "[SCRIPT] Copied model for #" << creation_num << std::endl;
+        
+//         auto obj = make<Single>(new_model);
+//         std::cout << "[SCRIPT] Created Single for #" << creation_num << std::endl;
+        
+//         obj->set<int>("created_at", (int)std::time(nullptr));
+//         std::cout << "[SCRIPT] Set timestamp for #" << creation_num << std::endl;
+        
+//         scene->add(obj);
+//         std::cout << "[SCRIPT] Added to scene for #" << creation_num << std::endl;
+        
+//         ctx.set<g_ptr<Object>>("toReturn", obj);
+//         std::cout << "[SCRIPT] Set return value for #" << creation_num << std::endl;
+        
+//         std::cout << "[SCRIPT] Completed object #" << creation_num << std::endl;
+//     }));
+//     std::cout << "[DEBUG] Script definition complete" << std::endl;
+    
+//     // Pre-populate the pool with objects
+//     std::cout << "[DEBUG] Starting pre-population..." << std::endl;
+//     std::vector<g_ptr<Single>> initial_objects;
+//     for(int i = 0; i < 1000; i++) {
+//         if(i % 100 == 0) std::cout << "[DEBUG] Pre-populating object " << i << std::endl;
+        
+//         auto obj = scene->create<Single>("stress_obj");
+//         if(!obj) {
+//             std::cout << "[ERROR] Failed to create object " << i << " during pre-population!" << std::endl;
+//             return;
+//         }
+//         initial_objects.push_back(obj);
+//     }
+//     std::cout << "[DEBUG] Created " << initial_objects.size() << " initial objects" << std::endl;
+    
+//     // Recycle them all so we have a full pool
+//     std::cout << "[DEBUG] Starting recycling phase..." << std::endl;
+//     for(int i = 0; i < initial_objects.size(); i++) {
+//         if(i % 100 == 0) std::cout << "[DEBUG] Recycling object " << i << std::endl;
+//         scene->recycle(initial_objects[i], "stress_obj");
+//     }
+//     std::cout << "[DEBUG] Pool pre-populated with 1000 objects" << std::endl;
+    
+//     // Reset creation counter for the actual test
+//     actual_creations.store(0);
+//     std::cout << "[DEBUG] Reset creation counter" << std::endl;
+    
+//     // Now the real stress test
+//     std::atomic<int> total_operations{0};
+//     std::atomic<int> errors{0};
+//     std::cout << "[DEBUG] Initialized test counters" << std::endl;
+    
+//     std::vector<std::thread> threads;
+//     std::cout << "[DEBUG] Created thread vector" << std::endl;
+    
+//     auto start = std::chrono::high_resolution_clock::now();
+//     std::cout << "[DEBUG] Starting timer" << std::endl;
+    
+//     // Launch multiple threads
+//     std::cout << "[DEBUG] About to launch 8 threads..." << std::endl;
+//     for(int thread_id = 0; thread_id < 8; thread_id++) {
+//         std::cout << "[DEBUG] Creating thread " << thread_id << std::endl;
+        
+//         threads.emplace_back([&, thread_id]() {
+//             std::cout << "[THREAD-" << thread_id << "] Thread started, ID: " << std::this_thread::get_id() << std::endl;
+            
+//             std::vector<g_ptr<Single>> my_objects;
+//             std::cout << "[THREAD-" << thread_id << "] Created local object vector" << std::endl;
+            
+//             for(int cycle = 0; cycle < 100; cycle++) {
+//                 std::cout << "[THREAD-" << thread_id << "] Starting cycle " << cycle << std::endl;
+                
+//                 try {
+//                     // Rapid create phase
+//                     std::cout << "[THREAD-" << thread_id << "] Starting create phase for cycle " << cycle << std::endl;
+//                     for(int i = 0; i < 50; i++) {
+//                         if(i % 10 == 0) std::cout << "[THREAD-" << thread_id << "] Creating object " << i << " in cycle " << cycle << std::endl;
+                        
+//                         auto obj = scene->create<Single>("stress_obj");
+//                         if(obj) {
+//                             // Add some thread-specific data after creation
+//                             obj->set<int>("thread_id", thread_id);
+//                             obj->set<int>("object_num", cycle * 50 + i);
+//                             my_objects.push_back(obj);
+//                             total_operations.fetch_add(1);
+//                         } else {
+//                             std::cout << "[ERROR-THREAD-" << thread_id << "] Failed to create object " << i << " in cycle " << cycle << std::endl;
+//                             errors.fetch_add(1);
+//                         }
+//                     }
+//                     std::cout << "[THREAD-" << thread_id << "] Completed create phase for cycle " << cycle << ", created " << my_objects.size() << " objects" << std::endl;
+                    
+//                     // Brief "usage" simulation
+//                     std::cout << "[THREAD-" << thread_id << "] Starting usage simulation for cycle " << cycle << std::endl;
+//                     std::this_thread::sleep_for(std::chrono::microseconds(100));
+//                     std::cout << "[THREAD-" << thread_id << "] Completed usage simulation for cycle " << cycle << std::endl;
+                    
+//                     // Rapid recycle phase
+//                     std::cout << "[THREAD-" << thread_id << "] Starting recycle phase for cycle " << cycle << std::endl;
+//                     for(int i = 0; i < my_objects.size(); i++) {
+//                         if(i % 10 == 0) std::cout << "[THREAD-" << thread_id << "] Recycling object " << i << " in cycle " << cycle << std::endl;
+//                         scene->recycle(my_objects[i], "stress_obj");
+//                         total_operations.fetch_add(1);
+//                     }
+//                     my_objects.clear();
+//                     std::cout << "[THREAD-" << thread_id << "] Completed recycle phase for cycle " << cycle << std::endl;
+                    
+//                 } catch(const std::exception& e) {
+//                     std::cout << "[EXCEPTION-THREAD-" << thread_id << "] Cycle " << cycle << " error: " << e.what() << std::endl;
+//                     errors.fetch_add(1);
+//                 } catch(...) {
+//                     std::cout << "[EXCEPTION-THREAD-" << thread_id << "] Cycle " << cycle << " unknown exception!" << std::endl;
+//                     errors.fetch_add(1);
+//                 }
+//             }
+//             std::cout << "[THREAD-" << thread_id << "] Thread completed all cycles" << std::endl;
+//         });
+        
+//         std::cout << "[DEBUG] Thread " << thread_id << " launched" << std::endl;
+//     }
+    
+//     std::cout << "[DEBUG] All threads launched, waiting for completion..." << std::endl;
+    
+//     // Wait for all threads
+//     for(int i = 0; i < threads.size(); i++) {
+//         std::cout << "[DEBUG] Joining thread " << i << std::endl;
+//         threads[i].join();
+//         std::cout << "[DEBUG] Thread " << i << " joined successfully" << std::endl;
+//     }
+    
+//     std::cout << "[DEBUG] All threads joined" << std::endl;
+    
+//     auto end = std::chrono::high_resolution_clock::now();
+//     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+//     std::cout << "[DEBUG] Calculating results..." << std::endl;
+//     std::cout << "Concurrent stress test results:" << std::endl;
+//     std::cout << "Time: " << duration.count() << "ms" << std::endl;
+//     std::cout << "Total operations: " << total_operations.load() << std::endl;
+//     std::cout << "Errors: " << errors.load() << std::endl;
+//     std::cout << "Operations per second: " << (total_operations.load() * 1000) / duration.count() << std::endl;
+//     std::cout << "Actual creations: " << actual_creations.load() << std::endl;
+    
+//     // Verify pool integrity
+//     std::cout << "[DEBUG] Testing pool integrity..." << std::endl;
+//     try {
+//         auto test_obj = scene->create<Single>("stress_obj");
+//         std::cout << "Pool still functional after stress test: " << (test_obj ? "YES" : "NO") << std::endl;
+//     } catch(const std::exception& e) {
+//         std::cout << "Pool broken after stress test: " << e.what() << std::endl;
+//     } catch(...) {
+//         std::cout << "Pool broken after stress test: unknown exception" << std::endl;
+//     }
+    
+//     std::cout << "[DEBUG] stressConcurrentRemoval() completed" << std::endl;
+// }
+
+void stressConcurrentRemoval() {
+    Window window = Window(1280, 768, "stress test", 0);
+    auto scene = make<Scene>(window, 2);
+    
+    // Pre-cache a model
+    scene->set<g_ptr<Model>>("test_model", make<Model>(makeTestBox(1.0f)));
+    
+    std::atomic<int> actual_creations{0};
+
+    scene->define("stress_obj", Script<>("make_stress", [scene,&actual_creations](ScriptContext& ctx) {
+        actual_creations++;
+        //print("1");
+        auto cached_model = scene->get<g_ptr<Model>>("test_model");
+        //print("2");
+        auto new_model = make<Model>();
+        new_model->copy(*cached_model);
+        auto obj = make<Single>(new_model);
+        obj->set<int>("created_at", (int)std::time(nullptr)); // Just some unique data
+        scene->add(obj);
+        ctx.set<g_ptr<Object>>("toReturn", obj);
+    }));
+    
+    // Pre-populate the pool with objects
+    std::cout << "Pre-populating pool..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Let things settle
+std::cout << "Starting concurrent test..." << std::endl;
+    std::vector<g_ptr<Single>> initial_objects;
+    for(int i = 0; i < 1000; i++) {
+        auto obj = scene->create<Single>("stress_obj");
+        initial_objects.push_back(obj);
+    }
+    
+    // Recycle them all so we have a full pool
+    for(auto& obj : initial_objects) {
+        scene->recycle(obj, "stress_obj");
+    }
+    std::cout << "Pool pre-populated with 1000 objects" << std::endl;
+    
+    // Now the real stress test
+    std::atomic<int> total_operations{0};
+    std::atomic<int> errors{0};
+    std::vector<std::thread> threads;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // Launch multiple threads
+    for(int thread_id = 0; thread_id < 8; thread_id++) {
+        threads.emplace_back([&, thread_id]() {
+            std::vector<g_ptr<Single>> my_objects;
+            
+            for(int cycle = 0; cycle < 100; cycle++) {
+                try {
+                    // Rapid create phase
+                    for(int i = 0; i < 50; i++) {
+                        auto obj = scene->create<Single>("stress_obj");
+                        if(obj) {
+                            // Add some thread-specific data after creation
+                            obj->set<int>("thread_id", thread_id);
+                            obj->set<int>("object_num", cycle * 50 + i);
+                            my_objects.push_back(obj);
+                            total_operations++;
+                        } else {
+                            errors++;
+                        }
+                    }
+                    
+                    // Brief "usage" simulation
+                    std::this_thread::sleep_for(std::chrono::microseconds(100));
+                    
+                    // Rapid recycle phase
+                    for(auto& obj : my_objects) {
+                        scene->recycle(obj, "stress_obj");
+                        total_operations++;
+                    }
+                    my_objects.clear();
+                    
+                } catch(const std::exception& e) {
+                    std::cout << "Thread " << thread_id << " error: " << e.what() << std::endl;
+                    errors++;
+                }
+            }
+        });
+    }
+    
+    // Wait for all threads
+    for(auto& t : threads) {
+        t.join();
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "Concurrent stress test results:" << std::endl;
+    std::cout << "Time: " << duration.count() << "ms" << std::endl;
+    std::cout << "Total operations: " << total_operations.load() << std::endl;
+    std::cout << "Errors: " << errors.load() << std::endl;
+    std::cout << "Operations per second: " << (total_operations.load() * 1000) / duration.count() << std::endl;
+    std::cout << "Actual creations: " << actual_creations << std::endl;
+    
+    // Verify pool integrity
+    try {
+        auto test_obj = scene->create<Single>("stress_obj");
+        std::cout << "Pool still functional after stress test: " << (test_obj ? "YES" : "NO") << std::endl;
+    } catch(const std::exception& e) {
+        std::cout << "Pool broken after stress test: " << e.what() << std::endl;
+    }
+}
+
+void bulletHellStressTest() {
+    Window window = Window(1280, 768, "bullet hell test", 0);
+    auto scene = make<Scene>(window, 2);
+    
+    // Pre-cache model
+    scene->set<g_ptr<Model>>("bullet_model", make<Model>(makeTestBox(0.1f)));
+    
+    std::atomic<int> actual_creations{0};
+    std::atomic<int> bullets_recycled{0};
+    
+    scene->define("bullet", Script<>("make_bullet", [scene, &actual_creations](ScriptContext& ctx) {
+        actual_creations++;  // This should stay low if pool is working
+        auto cached_model = scene->get<g_ptr<Model>>("bullet_model");
+        auto new_model = make<Model>();
+        new_model->copy(*cached_model);
+        auto bullet = make<Single>(new_model);
+        scene->add(bullet);
+        ctx.set<g_ptr<Object>>("toReturn", bullet);
+    }));
+    
+    // PRE-POPULATE THE POOL (this was missing!)
+    std::cout << "Pre-populating bullet pool..." << std::endl;
+    std::vector<g_ptr<Single>> initial_bullets;
+    for(int i = 0; i < 2000; i++) {  // More bullets for intense test
+        auto bullet = scene->create<Single>("bullet");
+        initial_bullets.push_back(bullet);
+    }
+    
+    // Recycle them all so pool is full
+    for(auto& bullet : initial_bullets) {
+        scene->recycle(bullet, "bullet");
+    }
+    std::cout << "Pool pre-populated with 2000 bullets" << std::endl;
+    
+    // Now the actual test...
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    std::vector<std::thread> spawners;
+    
+    // 4 "guns" firing simultaneously
+    for(int gun = 0; gun < 4; gun++) {
+        spawners.emplace_back([&, gun]() {
+            std::vector<g_ptr<Single>> my_bullets;
+            
+            for(int burst = 0; burst < 200; burst++) { // 200 bursts per gun
+                // Rapid fire - 25 bullets per burst
+                for(int i = 0; i < 25; i++) {
+                    auto bullet = scene->create<Single>("bullet");
+                    if(bullet) {
+                        bullet->set<int>("gun_id", gun);
+                        my_bullets.push_back(bullet);
+                    }
+                }
+                
+                // Brief pause between bursts
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                
+                // Random bullets "hit targets" and get recycled
+                for(auto it = my_bullets.begin(); it != my_bullets.end();) {
+                    if(rand() % 100 < 10) { // 10% hit rate
+                        scene->recycle(*it, "bullet");
+                        bullets_recycled++;
+                        it = my_bullets.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+            
+            // Clean up remaining bullets
+            for(auto& bullet : my_bullets) {
+                scene->recycle(bullet, "bullet");
+                bullets_recycled++;
+            }
+        });
+    }
+    
+    for(auto& t : spawners) t.join();
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "=== BULLET HELL TEST ===" << std::endl;
+    std::cout << "Time: " << duration.count() << "ms" << std::endl;
+    std::cout << "Bullets created: " << actual_creations.load() << std::endl;
+    std::cout << "Bullets recycled: " << bullets_recycled.load() << std::endl;
+    std::cout << "Creation rate: " << (actual_creations.load() * 1000) / duration.count() << " bullets/sec" << std::endl;
+}
+
+void memoryPressureTest() {
+    Window window = Window(1280, 768, "memory pressure test", 0);
+    auto scene = make<Scene>(window, 2);
+    
+    // Larger model for memory pressure
+    scene->set<g_ptr<Model>>("heavy_model", make<Model>(makeTestBox(2.0f)));
+    
+    std::atomic<int> actual_creations{0};
+    
+    scene->define("heavy_single", Script<>("make_heavy", [scene, &actual_creations](ScriptContext& ctx) {
+        actual_creations++;
+        auto cached_model = scene->get<g_ptr<Model>>("heavy_model");
+        auto new_model = make<Model>();
+        new_model->copy(*cached_model);
+        auto obj = make<Single>(new_model);
+        
+        // Add some extra data to increase memory footprint
+        obj->set<std::vector<float>>("extra_data", std::vector<float>(1000, 3.14f));
+        obj->set<std::string>("description", "Heavy object with lots of data");
+        
+        scene->add(obj);
+        ctx.set<g_ptr<Object>>("toReturn", obj);
+    }));
+    
+    std::cout << "Starting memory pressure test..." << std::endl;
+    std::vector<g_ptr<Single>> persistent_objects;
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // Keep creating objects and measure performance degradation
+    for(int batch = 0; batch < 50; batch++) {
+        auto batch_start = std::chrono::high_resolution_clock::now();
+        
+        // Create 100 objects
+        for(int i = 0; i < 100; i++) {
+            auto obj = scene->create<Single>("heavy_single");
+            if(obj) {
+                persistent_objects.push_back(obj);
+            }
+        }
+        
+        auto batch_end = std::chrono::high_resolution_clock::now();
+        auto batch_duration = std::chrono::duration_cast<std::chrono::microseconds>(batch_end - batch_start);
+        
+        if(batch % 5 == 0) { // Print every 5th batch
+            std::cout << "Batch " << batch << " (Total objects: " << persistent_objects.size() 
+                      << "): " << batch_duration.count() << "μs for 100 objects" << std::endl;
+        }
+        
+        // Occasionally recycle some objects to test pool reuse
+        if(batch % 10 == 9 && persistent_objects.size() > 500) {
+            std::cout << "Recycling 200 objects..." << std::endl;
+            for(int i = 0; i < 200; i++) {
+                scene->recycle(persistent_objects.back(), "heavy_single");
+                persistent_objects.pop_back();
+            }
+        }
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "=== MEMORY PRESSURE TEST ===" << std::endl;
+    std::cout << "Total time: " << total_duration.count() << "ms" << std::endl;
+    std::cout << "Final object count: " << persistent_objects.size() << std::endl;
+    std::cout << "Actual creations: " << actual_creations.load() << std::endl;
+    std::cout << "Average creation time: " << total_duration.count() / (float)actual_creations.load() << "ms per object" << std::endl;
+    
+    // Clean up
+    std::cout << "Cleaning up remaining objects..." << std::endl;
+    for(auto& obj : persistent_objects) {
+        scene->recycle(obj, "heavy_single");
+    }
+    std::cout << "Cleanup complete." << std::endl;
+}
+
+void bulletHellTraditionalTest() {
+    Window window = Window(1280, 768, "traditional test", 0);
+    auto scene = make<Scene>(window, 2);
+    
+    // Traditional approach: vector + mutex
+    std::vector<g_ptr<Single>> bullet_pool;
+    std::mutex pool_mutex;
+    std::atomic<int> actual_creations{0};
+    std::atomic<int> recycled_count{0};
+    
+    scene->set<g_ptr<Model>>("bullet_model", make<Model>(makeTestBox(0.1f)));
+    
+    auto create_bullet = [&]() -> g_ptr<Single> {
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        
+        if (!bullet_pool.empty()) {
+            auto bullet = bullet_pool.back();
+            bullet_pool.pop_back();
+            return bullet;
+        } else {
+            actual_creations++;
+            auto cached_model = scene->get<g_ptr<Model>>("bullet_model");
+            auto new_model = make<Model>();
+            new_model->copy(*cached_model);
+            auto bullet = make<Single>(new_model);
+            scene->add(bullet);
+            return bullet;
+        }
+    };
+    
+    auto recycle_bullet = [&](g_ptr<Single> bullet) {
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        bullet_pool.push_back(bullet);
+        recycled_count++;
+    };
+    
+    // Pre-populate pool
+    std::cout << "Pre-populating traditional pool..." << std::endl;
+    for(int i = 0; i < 2000; i++) {
+        bullet_pool.push_back(create_bullet());
+    }
+    std::cout << "Traditional pool pre-populated with 2000 bullets" << std::endl;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    std::vector<std::thread> spawners;
+    
+    // Same test as before: 4 guns, 200 bursts each, 25 bullets per burst
+    for(int gun = 0; gun < 4; gun++) {
+        spawners.emplace_back([&, gun]() {
+            std::vector<g_ptr<Single>> my_bullets;
+            
+            for(int burst = 0; burst < 200; burst++) {
+                for(int i = 0; i < 25; i++) {
+                    auto bullet = create_bullet();
+                    if(bullet) {
+                        bullet->set<int>("gun_id", gun);
+                        my_bullets.push_back(bullet);
+                    }
+                }
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                
+                for(auto it = my_bullets.begin(); it != my_bullets.end();) {
+                    if(rand() % 100 < 10) {
+                        recycle_bullet(*it);
+                        it = my_bullets.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+            
+            for(auto& bullet : my_bullets) {
+                recycle_bullet(bullet);
+            }
+        });
+    }
+    
+    for(auto& t : spawners) t.join();
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    std::cout << "=== TRADITIONAL VECTOR + MUTEX TEST ===" << std::endl;
+    std::cout << "Time: " << duration.count() << "ms" << std::endl;
+    std::cout << "Bullets created: " << actual_creations.load() << std::endl;
+    std::cout << "Bullets recycled: " << recycled_count.load() << std::endl;
+    std::cout << "Creation rate: " << (actual_creations.load() * 1000) / duration.count() << " bullets/sec" << std::endl;
+}
+
+void validateConcurrentReuse() {
+    Window window = Window(1280, 768, "Firian Validation", 0);
+    auto scene = make<Scene>(window, 2);
+
+    std::atomic<int> actual_creations{0};
+    std::atomic<int> total_operations{0};
+    std::atomic<int> errors{0};
+
+    // Setup script factory for bullets
+    scene->set<g_ptr<Model>>("bullet_model", make<Model>(makeTestBox(0.1f)));
+    scene->define("bullet", Script<>("make_bullet", [scene, &actual_creations](ScriptContext& ctx) {
+        actual_creations++;
+        auto model = scene->get<g_ptr<Model>>("bullet_model");
+        auto m = make<Model>();
+        m->copy(*model);
+        auto obj = make<Single>(m);
+        obj->set<size_t>("bullet", scene->pools.get("bullet")->q->length());
+        scene->add(obj);
+        ctx.set<g_ptr<Object>>("toReturn", obj);
+    }));
+
+    // Prepopulate the pool
+    std::vector<g_ptr<Single>> bullets;
+    for (int i = 0; i < 1000; ++i) {
+        auto obj = scene->create<Single>("bullet");
+        bullets.push_back(obj);
+    }
+    for (auto& obj : bullets) {
+        scene->recycle(obj, "bullet");
+    }
+
+    std::vector<std::thread> threads;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int t = 0; t < 8; ++t) {
+        threads.emplace_back([&, t]() {
+            std::vector<g_ptr<Single>> local;
+            for (int cycle = 0; cycle < 100; ++cycle) {
+                try {
+                    for (int i = 0; i < 50; ++i) {
+                        auto obj = scene->create<Single>("bullet");
+                        if (obj) {
+                            obj->set<int>("thread_id", t);
+                            local.push_back(obj);
+                            total_operations++;
+                            std::this_thread::sleep_for(std::chrono::nanoseconds(rand() % 500));
+                        } else {
+                            errors++;
+                        }
+                    }
+                    for (auto& obj : local) {
+                        scene->recycle(obj, "bullet");
+                        total_operations++;
+                    }
+                    local.clear();
+                } catch (...) {
+                    errors++;
+                }
+            }
+        });
+    }
+
+    for (auto& th : threads) {
+        th.join();
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "\n=== FIRIAN VALIDATION TEST ===\n";
+    std::cout << "Duration: " << duration.count() << "ms\n";
+    std::cout << "Total operations: " << total_operations.load() << "\n";
+    std::cout << "Actual creations: " << actual_creations.load() << "\n";
+    std::cout << "Errors: " << errors.load() << "\n";
+
+    // Post-run audit
+    auto pool = scene->pools.get("bullet");
+    for (size_t i = 0; i < pool->q->length(); ++i) {
+        try {
+            auto& obj = pool->q->q_list::get(i, "audit");
+            size_t claimed = obj->get<size_t>("bullet");
+            assert(pool->q->q_list::get(claimed) == obj);
+        } catch (...) {
+            std::cerr << "Audit failure at index " << i << "\n";
+            errors++;
+        }
+    }
+
+    std::cout << "Pool verified with " << pool->q->length() << " entries.\n";
+    std::cout << "Validation complete.\n";
+}
+
+}
+
+int main() {
+    Golden::bulletHellStressTest();
+    Golden::bulletHellTraditionalTest();
+//     Golden::validateConcurrentReuse();
+//   Golden::stressConcurrentRemoval();
+// Golden::memoryPressureTest();
+    return 0;
+}
+
+
+// class Timer {
+//     public:
+//         Timer() : start_time(std::chrono::high_resolution_clock::now()) {}
+        
+//         void reset() {
+//             start_time = std::chrono::high_resolution_clock::now();
+//         }
+        
+//         double elapsed_ms() const {
+//             auto end_time = std::chrono::high_resolution_clock::now();
+//             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+//             return duration.count() / 1000.0;
+//         }
+        
+//     private:
+//         std::chrono::high_resolution_clock::time_point start_time;
+//     };
+
+
+// int main() {
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing",0);
+//     auto scene = make<Scene>(window,2);
+//     Data d = make_config(scene,K);
+
+
+//     for(int i = 0;i<1000;i++)
+//     {
+//         auto p = make<Quad>();
+//         scene->add(p);
+//         float s = randf(20.0f,100.0f); p->scale(vec2(s,s));
+//         p->setLinearVelocity(vec2(randf(-8,8),randf(-8,8)));
+//         p->setPosition(vec2(
+//             randf(0,scene->window.width*2),
+//             randf(0,scene->window.height*2))
+//         );
+//         p->setColor(randi(0,1)==0 ? Color::RED : Color::BLACK);
+
+//         p->addScript("onUpdate",[scene,p](ScriptContext& ctx){
+//             // vec3 v = p->getVelocity().position;
+//             // p->move(vec2(v.x(),v.y()));
+//             // float x = p->getCenter().x();
+//             // float y = p->getCenter().y();
+//             // if(x>=scene->window.width*2||x<=0) p->run("onCollide");
+//             // else if(y>=scene->window.height*2||y<=0) p->run("onCollide");
+//         });
+
+//         p->addScript("onCollide",[scene,p](ScriptContext& ctx){
+//             vec3 v = p->getVelocity().position;
+//            p->setLinearVelocity(vec2(v.x(),v.y())*randf(-1.5f,-0.5f));
+//         });
+
+//         for(int j=0;j<300;j++)
+//         {
+//         p->addScript(std::to_string(j),[scene,p](ScriptContext& ctx){});
+//         }
+//     }
+
+//     Timer time;
+//     int frames = 0;
+//     while (!window.shouldClose()&&time.elapsed_ms()<3000) {
+//         if(Input::get().keyJustPressed(K)) return 0;
+        
+
+//         if(scene) scene->updateScene(1.0f);
+//         frames++;
+//         //if(scene) scene->advanceSlots();
+//         window.swapBuffers();
+//         window.pollEvents();
+//     }
+//     glfwTerminate();
+
+//     print(frames);
+    
+//     return 0;
+// }
+
+// int main() {
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing");
+//     auto scene = make<Scene>(window,2);
+//     Data d = make_config(scene,K);
+
+//     for(int i = 0;i<10;i++)
+//     {
+//         auto p = make<Quad>();
+//         scene->add(p);
+//         float s = randf(20.0f,100.0f); p->scale(vec2(s,s));
+//         p->setLinearVelocity(vec2(randf(-8,8),randf(-8,8)));
+//         p->setPosition(vec2(
+//             randf(0,scene->window.width*2),
+//             randf(0,scene->window.height*2))
+//         );
+//         p->setColor(randi(0,1)==0 ? Color::RED : Color::BLACK);
+
+//         p->addScript("onUpdate",[scene,p](ScriptContext& ctx){
+//             vec3 v = p->getVelocity().position;
+//             p->move(vec2(v.x(),v.y()));
+//             float x = p->getCenter().x();
+//             float y = p->getCenter().y();
+//             if(x>=scene->window.width*2||x<=0) p->run("onCollide");
+//             else if(y>=scene->window.height*2||y<=0) p->run("onCollide");
+//         });
+
+//         p->addScript("onCollide",[scene,p](ScriptContext& ctx){
+//             vec3 v = p->getVelocity().position;
+//            p->setLinearVelocity(vec2(v.x(),v.y())*randf(-1.5f,-0.5f));
+//         });
+//     }
+
+//     start::run(window,d,[&]{
+//         for(int i=0;i<scene->quadActive.length();i++)
+//         {
+//             if(i>=scene->quads.length()) break;
+//             if(!scene->quadActive[i]) continue;
+//             auto g = scene->quads[i];
+//             for(int j=0;j<scene->quadActive.length();j++)
+//             {
+//                 if(j>=scene->quadVelocities.length()) break;
+//                 if(!scene->quadActive[j]) continue;
+//                 auto q = scene->quads[j];
+//                 if(g==q) continue;
+
+//                 if(g->pointInQuad(q->getCenter()))
+//                 { 
+//                     g->run("onCollide");
+//                     break;
+//                 }
+//             }
+//         }
+//     });
+
+//     return 0;
+// }
+
+// int main() {
+//     //f -> c = (x-32) * 0.555
+//     //c -> f = (x*1.8) + 32
+//     //f -> k = (x-32) * 0.555 + 273.15
+//     //c -> k = x+ 273.15
+//     //Kelvin is just the inverse of the given formula +/- 273.15
+
+//     float t = 0.0f; //Input your temperture here
+//     char u_from = 'f'; //Temp unit: f = farnheit, c = celsius, k = kelvin
+//     char u_to = 'f'; //Temp unit: f = farnheit, c = celsius, k = kelvin
+//     float o = 0.0f; //Output
+
+//     auto f_to_c = [](float t) -> float{return (t-32) * 5.0/9.0;};
+//     auto c_to_f = [](float t) -> float{return (t*1.8) + 32;};
+//     auto f_to_k = [f_to_c](float t) -> float{return f_to_c(t)+273.15;};
+//     auto c_to_k = [](float t) -> float{return t+273.15;};
+//     auto k_to_f = [c_to_f](float t) -> float{return c_to_f(t-273.15);};
+//     auto k_to_c = [](float t) -> float{return t-273.15;};
+//     auto same = [](float t) -> float{return t;};
+
+//     float r = t;
+
+//     std::map<char, std::map<char, std::function<float(float)>>> convert = {
+//         {'f', {{'f', same}, {'c', f_to_c}, {'k', f_to_k}}},
+//         {'c', {{'f', c_to_f}, {'c', same}, {'k', c_to_k}}},
+//         {'k', {{'f', k_to_f}, {'c', k_to_c}, {'k', same}}}
+//     };
+
+//     float o = convert[u_from][u_to](t);
+
+//     std::cout << t << " " << u_from << " = " << o << " " << u_to << "\n";
+
+//     return 0;
+// }
+
+// int main() {
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing");
+//     auto scene = make<Scene>(window,2);
+//     Data d = make_config(scene,K);
+//     load_gui(scene,"StudentSystem","ssgui");
+//     check_loaded({"main part"},scene);
+
+
+//     start::run(window,d,[&]{
+//         if(pressed(C))
+//             scene->openWidget("main part",true);
+
+//         if(scene->slotJustFired("main part"))
+//         {
+
+//         }
+//     });
+
+//     return 0;
+// }
+
+
+// int main() {
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing");
+//     auto scene = make<Scene>(window,2);
+//     Data d = make_config(scene,K);
+//     load_gui(scene,"StudentSystem","ssgui");
+//     check_loaded({"main part"},scene);
+
+//     auto background = make<Quad>();
+//     scene->add(background);
+//     background->scale(vec2(4000,4000));
+//     background->setPosition(vec2(0,0));
+//     background->color = Color::BLACK;
+
+//     auto source_code = make<Font>(EROOT+"fonts/source_code.ttf",50);
+//     auto t = text::makeText("This is some test text\nI wrote it myself",source_code,scene,vec2(30,100),1.0f);
+//     split_str(text::string_of(t));
+
+//     start::run(window,d,[&]{
+//         if(pressed(C))
+//             scene->openWidget("main part",true);
+
+//         if(scene->slotJustFired("main part"))
+//         {
+
+//         }
+//     });
+
+//     return 0;
+// }
+
+
+// int main() {
+
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing",0);
+//     auto scene = make<Scene>(window,1);
+//     scene->camera.speedMod = 0.003f;
+//     load_gui(scene,"StudentSystem","ssgui");
+//     check_loaded({"main part"},scene);
+//     Data d = make_config(scene,K);
+
+//     auto box = make<Single>(makeTestBox(1.0f));
+//     scene->add(box);
+//     box->setPhysicsState(P_State::ACTIVE);
+//     box->addScript("onCollide",[box](ScriptContext& ctx){
+//         vec3 velocity = box->getVelocity().position;
+//         vec3 facing = box->facing();
+
+//         auto n = ctx.get<g_ptr<S_Object>>("with");
+//         vec3 normal = n->facing();
+//         vec3 reflected = velocity - normal * (2.0f * velocity.dot(normal));
+//         box->setLinearVelocity(reflected);
+//     });
+//     box->faceTowards(vec3(3,0,-5));
+//     box->setLinearVelocity(box->facing()*3);
+
+//     auto box3 = make<Single>(makeTestBox(1.0f));
+//     scene->add(box3);
+//     box3->setPhysicsState(P_State::ACTIVE);
+//     box3->addScript("onCollide",[box3](ScriptContext& ctx){
+//         vec3 velocity = box3->getVelocity().position;
+//         vec3 facing = box3->facing();
+
+//         auto n = ctx.get<g_ptr<S_Object>>("with");
+//         vec3 normal = n->facing();
+//         vec3 reflected = velocity - normal * (2.0f * velocity.dot(normal));
+//         box3->setLinearVelocity(reflected);
+//     });
+//     box3->setPosition(vec3(0,0,-12));
+//     box3->faceTowards(vec3(-3,0,5));
+//     box3->setLinearVelocity(box3->facing()*3);
+
+//     auto box2 = make<Single>(makeTestBox(2.0f));
+//     scene->add(box2);
+//     box2->setPhysicsState(P_State::ACTIVE);
+//     box2->addScript("onCollide",[box2](ScriptContext& ctx){
+
+//     });
+//     box2->setPosition(vec3(0,0.5f,-5));
+//     box2->scale(4,1,1);
+
+//     auto ground = make<Single>(makeBox(25,0.1f,10,Color::GREY));
+//     scene->add(ground);
+//     ground->setPhysicsState(P_State::NONE);
+//     ground->setPosition(vec3(0,-0.5f,0));    
+//     P_Sim::get().setScene(scene);
+//     start::run(window,d,[&]{
+//         P_Sim::get().updatePhysics();
+//         if(pressed(C))
+//             scene->openWidget("main part",true,scene->mousePos2d());
+//         if(scene->slotFired("main part"))
+//         {
+//             print("BOOM!");
+//             box->setLinearVelocity(vec3(5,0,0));
+//             //box->move(1,0,0);
+//         }
+//     });
+
+//     return 0;
+// }
+
+// int main() {
+
+//     using namespace Golden;
+//     using namespace helper;
+
+//     Window window = Window(1280, 768, "testing");
+//     auto scene = make<Scene>(window,1);
+//     auto gguim = make<GGUIM>(scene);
+//     load_gui(gguim,"StudentSystem","ssgui");
+//     check_loaded({"test_ddw"},gguim);
+//     Data d = make_config(scene,gguim,K);
+
+//     auto box = make<Single>(makeTestBox(1.0f));
+//     scene->add(box);
+
+//     auto box2 = make<Single>(makeTestBox(2.0f));
+//     scene->add(box2);
+//     box2->setPosition(vec3(10,0.5f,0));
+
+//     auto ground = make<Single>(makeBox(25,0.1f,10,Color::GREY));
+//     scene->add(ground);
+//     ground->setPosition(vec3(0,-0.5f,0));    
+//     start::run(window,d,[&]{
+//         if(pressed(C))
+//             print("c!");
+//         box->move(input_2d_arrows(0.3f));
+
+//         if(gguim->slotFired("test_ddw"))
+//         {
+//             box->move(1,0,0);
+//         }
+//     });
+
+//     return 0;
+// }

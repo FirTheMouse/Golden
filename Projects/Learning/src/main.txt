@@ -1,0 +1,253 @@
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <cstdint>
+#include <thread>
+#include <chrono>
+#include <random>
+#include <perf_q_list.hpp>
+
+const std::string ROOT = "../Projects/Learning/assets/images/";
+
+// Template framebuffer so we can test both containers
+template<typename PixelContainer>
+class Framebuffer {
+public:
+    int width, height;
+    PixelContainer pixels;
+    
+    Framebuffer(int w, int h) : width(w), height(h) {
+        if constexpr (std::is_same_v<PixelContainer, std::vector<uint32_t>>) {
+            pixels.resize(w * h, 0xFFFFFFFF);
+        } else {
+            // For q_list, initialize with white pixels
+            for (int i = 0; i < w * h; i++) {
+                pixels.push(0xFFFFFFFF);
+            }
+        }
+    }
+    
+    void setPixel(int x, int y, uint32_t color) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            if constexpr (std::is_same_v<PixelContainer, std::vector<uint32_t>>) {
+                pixels[y * width + x] = color;
+            } else {
+                pixels.get(y * width + x) = color;
+            }
+        }
+    }
+    
+    uint32_t getPixel(int x, int y) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            if constexpr (std::is_same_v<PixelContainer, std::vector<uint32_t>>) {
+                return pixels[y * width + x];
+            } else {
+                return pixels.get(y * width + x);
+            }
+        }
+        return 0;
+    }
+    
+    void drawLine(int x0, int y0, int x1, int y1, uint32_t color) {
+        int dx = abs(x1 - x0);
+        int dy = abs(y1 - y0);
+        int sx = (x0 < x1) ? 1 : -1;
+        int sy = (y0 < y1) ? 1 : -1;
+        int err = dx - dy;
+        
+        int x = x0, y = y0;
+        
+        while (true) {
+            setPixel(x, y, color);
+            
+            if (x == x1 && y == y1) break;
+            
+            int e2 = 2 * err;
+            if (e2 > -dy) {
+                err -= dy;
+                x += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+    
+    void savePPM(const std::string& filename) {
+        std::ofstream file(ROOT + filename);
+        file << "P3\n" << width << " " << height << "\n255\n";
+        
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                uint32_t pixel = getPixel(x, y);
+                int r = (pixel >> 16) & 0xFF;
+                int g = (pixel >> 8) & 0xFF;
+                int b = pixel & 0xFF;
+                file << r << " " << g << " " << b << " ";
+            }
+            file << "\n";
+        }
+    }
+};
+
+// Same framebuffer template as before...
+
+// Test 1: Collaborative editing scenario
+template<typename FramebufferType>
+void simulateUser1(FramebufferType& fb) {
+    // User 1 works on left side of screen
+    for (int frame = 0; frame < 60; frame++) { // Simulate 60 frames
+        for (int i = 0; i < 20; i++) {
+            int x = (rand() % 300) + 50;  // Left side
+            int y = (rand() % 400) + 100;
+            fb.drawLine(x, y, x + 15, y + 8, 0xFFFF0000); // Red strokes
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60fps
+    }
+}
+
+template<typename FramebufferType>
+void simulateUser2(FramebufferType& fb) {
+    // User 2 works on right side of screen
+    for (int frame = 0; frame < 60; frame++) {
+        for (int i = 0; i < 20; i++) {
+            int x = (rand() % 300) + 450; // Right side
+            int y = (rand() % 400) + 100;
+            fb.drawLine(x, y, x + 15, y + 8, 0xFF0000FF); // Blue strokes
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+}
+
+template<typename FramebufferType>
+void simulateUIUpdates(FramebufferType& fb) {
+    // Background UI updates (cursor, highlights, etc.)
+    for (int frame = 0; frame < 60; frame++) {
+        // Draw a moving cursor
+        int cursor_x = 100 + (frame * 5);
+        int cursor_y = 50;
+        fb.drawLine(cursor_x, cursor_y, cursor_x, cursor_y + 20, 0xFF000000);
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
+}
+
+// Test 2: Real-time text editing simulation
+template<typename FramebufferType>
+void simulateTyping(FramebufferType& fb, int startX) {
+    std::string text = "Hello from concurrent thread ";
+    int x = startX;
+    int y = 200;
+    
+    for (char c : text) {
+        // Simulate typing each character
+        // Draw a simple character representation
+        fb.drawLine(x, y, x + 8, y, 0xFF000000);
+        fb.drawLine(x, y, x, y + 12, 0xFF000000);
+        fb.drawLine(x, y + 12, x + 8, y + 12, 0xFF000000);
+        
+        x += 10;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Typing speed
+    }
+}
+
+// Test 3: Interactive application simulation
+template<typename FramebufferType>
+void simulateMouseTrail(FramebufferType& fb) {
+    // Simulate mouse movement with trail effect
+    for (int t = 0; t < 200; t++) {
+        int x = 400 + (int)(100 * sin(t * 0.1));
+        int y = 300 + (int)(50 * cos(t * 0.15));
+        
+        // Draw trail dots
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                if (dx*dx + dy*dy <= 4) {
+                    fb.setPixel(x + dx, y + dy, 0xFF888888);
+                }
+            }
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+void testCollaborativeEditing() {
+    std::cout << "\n=== Collaborative Editing Test ===" << std::endl;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    Framebuffer<q_list<uint32_t>> fb(800, 600);
+    
+    std::vector<std::thread> threads;
+    threads.emplace_back([&]() { simulateUser1(fb); });
+    threads.emplace_back([&]() { simulateUser2(fb); });
+    threads.emplace_back([&]() { simulateUIUpdates(fb); });
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    fb.savePPM("collaborative_test.ppm");
+    std::cout << "Collaborative editing: " << duration.count() << "ms" << std::endl;
+}
+
+void testRealTimeTyping() {
+    std::cout << "\n=== Real-time Typing Test ===" << std::endl;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    Framebuffer<q_list<uint32_t>> fb(800, 600);
+    
+    std::vector<std::thread> threads;
+    threads.emplace_back([&]() { simulateTyping(fb, 50); });
+    threads.emplace_back([&]() { simulateTyping(fb, 450); });
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    fb.savePPM("typing_test.ppm");
+    std::cout << "Real-time typing: " << duration.count() << "ms" << std::endl;
+}
+
+void testInteractiveApp() {
+    std::cout << "\n=== Interactive Application Test ===" << std::endl;
+    
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    Framebuffer<q_list<uint32_t>> fb(800, 600);
+    
+    std::vector<std::thread> threads;
+    threads.emplace_back([&]() { simulateMouseTrail(fb); });
+    threads.emplace_back([&]() { simulateTyping(fb, 100); });
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    
+    fb.savePPM("interactive_test.ppm");
+    std::cout << "Interactive app: " << duration.count() << "ms" << std::endl;
+}
+
+int main() {
+    std::cout << "Testing q_list with realistic graphics workloads..." << std::endl;
+    
+    testCollaborativeEditing();
+    testRealTimeTyping();
+    testInteractiveApp();
+    
+    std::cout << "\nTests complete! Check the generated images." << std::endl;
+    
+    return 0;
+}

@@ -1,0 +1,418 @@
+#include<util/util.hpp>
+#include<rendering/scene.hpp>
+#include<gui/text.hpp>
+#include<rendering/single.hpp>
+#include<core/input.hpp>
+
+using str = std::string;
+using namespace Golden;
+
+bool pressed(KeyCode code) {return Input::get().keyJustPressed(code);}
+bool held(KeyCode code) {return Input::get().keyPressed(code);}
+
+list<str> newList(const str& s,char delimiter = ',')
+{
+    list<str> toReturn;
+    int last = 0;
+    for(int i=0;i<s.length();i++)
+    {
+        if(s.at(i)==delimiter) {
+            toReturn << s.substr(last,i-last);
+            last = i+1;
+        }
+    }
+    if(last<s.length())
+    {
+        toReturn << s.substr(last,s.length()-last);
+    }
+    return toReturn;
+}
+
+struct S_Result
+{
+//S_Result(str _cmd,list<str> _lst) : cmd(_cmd), lst(_lst) {}
+S_Result() {}
+str cmd = "NONE";
+list<str> lst;
+str cbk = "NONE";
+};
+
+S_Result subParse(const str& s)
+{
+    S_Result toReturn;
+    auto nl = newList(s,'|');
+    if(nl.length()<=1) {toReturn.lst = nl; return toReturn;}
+    str x = nl[1];
+    toReturn.cmd = x;
+    toReturn.cbk = nl[0];
+    nl.removeAt(0); nl.removeAt(0);
+    toReturn.lst = nl;
+    return toReturn;
+}
+
+bool contains(const str& s,const str& l)
+{
+    int p = 0;
+    for(int i=0;i<s.length();i++)
+    {
+        if(p==l.length()) return true;
+        if(s.at(i)==l.at(p)) {
+            p++;
+        }
+        else p=0;
+    }
+    return false;
+}
+
+struct gen {
+gen() {}
+str s;
+list<Data> dl;
+};
+
+gen generate(list<str> text,int times = 1)
+{
+list<list<str>> meta;
+for(int i=0;i<text.length();i++) meta << newList(text[i]);
+
+
+list<Data> finished;
+for(int i=0;i<times;i++)
+{
+    Data s;
+    for(auto l : meta) {
+        if(l[0]!="X") {
+            char delmiter = l[0].at(0);
+            if(delmiter == '[')
+            {
+                auto sr = subParse(l[0]);
+                if(sr.cmd=="RANDF")
+                {
+                    s.set<str>(l[1],std::to_string(randf(
+                        std::stof(sr.lst[0]),
+                        std::stof(sr.lst[1]))));
+                }
+                else if(sr.cmd=="RANDI")
+                {
+                    s.set<str>(l[1],std::to_string(randi(
+                        std::stof(sr.lst[0]),
+                        std::stof(sr.lst[1]))));
+                }
+                else
+                {
+                    s.set<str>(l[1],"INVALID OPPERATOR "+sr.cmd);
+                }
+            }
+            else {
+            str end = "";
+            for(int c=2;c<l.length();c++)
+            {
+                auto nl = newList(l[c],delmiter);
+                end = end+nl[randi(0,nl.length()-1)];
+            }
+            s.set<str>(l[1],end);
+            }
+        }
+        else { 
+            list<str> cl;
+            for(int j=2;j<l.length();j++) {
+                if(l[j].at(0)=='[')
+                {
+                    list<str> nsl = newList(l[j],']');
+                    int isValid = 0;
+                    for(int m=0;m<nsl.length();m++)
+                    {
+                        auto sr = subParse(nsl[m]);
+                        if(sr.cmd=="ANY") {
+                        if(s.has(sr.lst[0])) {
+                                for(int c=1;c<sr.lst.length();c++) {
+                                    if(sr.lst[c] == s.get<str>(sr.lst[0])) {
+                                        isValid++;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        else if(sr.cmd=="REF") {
+                        if(sr.lst.length()<=0)
+                        {
+                            print(nsl[m]);
+                        }
+                        else if(s.has(sr.lst[0])) {
+                            str cbka = "";
+                            auto cbkal = newList(sr.cbk,'[');
+                            if(cbkal.length()>0) cbka = cbkal[0];
+                            if(cl.length()==0) cl <<cbka+s.get<str>(sr.lst[0]);
+                            else cl[0] = cl[0]+cbka+s.get<str>(sr.lst[0]);
+                        }
+                        }
+                    }
+                    if(isValid>=nsl.length()-1)
+                    {
+                        auto nnsl = newList(nsl[nsl.length()-1],'|');
+                        cl << nnsl[randi(0,nnsl.length()-1)];
+                    }
+                    
+                }
+                else cl << l[j];
+            }
+            str toSet = "ERROR";
+            if(cl.length()>0) toSet = cl[randi(0,cl.length()-1)];
+            s.set<str>(l[1],toSet);}
+         }
+    finished << s;
+}
+str toReturn = "";
+finished([&,meta](Data& s){
+    for(int i=0;i<meta.length();i++) {if(meta[i][1].at(0)=='!') continue;
+         else toReturn = toReturn+meta[i][1]+s.get<str>(meta[i][1])+"\n";}
+    toReturn = toReturn+"----------------\n";
+});
+gen g;
+g.dl = finished;
+g.s = toReturn;
+return g;
+}
+
+int main() {
+
+
+std::string ROOT = "../Projects/GUIDE/storage/";
+std::string EROOT = "../Engine/assets/";
+
+
+Window window = Window(1280, 768, "Text Adventure 0.1");
+glfwSwapInterval(1); //Vsync 1=on 0=off
+if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    std::cerr << "Failed to initialize GLAD" << std::endl;
+    return 0;
+}
+
+g_ptr<Scene> scene = make<Scene>(window,2);
+scene->camera = Camera(60.0f, 1280.0f/768.0f, 0.1f, 1000.0f, 4);
+scene->camera.setPosition(glm::vec3(0.0f, 0.0f, 5.0f));
+scene->relight(glm::vec3(0.0f,0.1f,0.9f),glm::vec4(1,1,1,1));
+scene->setupShadows();
+
+// auto s = make<Quad>();
+// scene->add(s);
+// s->scale(vec2(500,500));
+// s->setCenter(vec2(500,500));
+
+auto loaded = scene->loadQFabList("../Projects/StudentSystem/assets/gui/ssgui.fab");
+list<std::string> needed{"test_ddw"};
+for(auto s : needed)
+    if(!scene->hasSlot(s)) print("ss::main::205 Missing GUI element: ",s);
+  
+
+auto small = make<Font>(EROOT+"fonts/roboto.ttf",40);
+
+
+list<str> dungeonGen = {
+    "X,Room Type: ,Forgotten Crypt,Ancient Library,Sunken Vault,Broken Armory",
+    "X,Features: ,Cracked walls,Overgrown roots,Flickering torches,Faint chanting,Cold air,Dripping ceiling",
+
+    "X,Inhabitants: ,"
+    "[|ANY|Room Type: |Forgotten Crypt]Skeleton|Spirit|Wraith,"
+    "[|ANY|Room Type: |Ancient Library]Ghost|Animated Book|Wisp,"
+    "[|ANY|Room Type: |Sunken Vault]Slime|Mimic|Water Elemental,"
+    "[|ANY|Room Type: |Broken Armory]Rust Golem|Specter|Haunted Armor",
+
+    "[|RANDI|0|10],Threat Level: ",
+
+    "X,Treasure: ,"
+    "[|ANY|Threat Level: |0|1|2]Rusted sword|Empty chest,"
+    "[|ANY|Threat Level: |3|4|5]Gemstone|Potion,"
+    "[|ANY|Threat Level: |6|7|8]Enchanted Ring|Scroll,"
+    "[|ANY|Threat Level: |9|10]Cursed Relic|Ancient Artifact"
+};
+gen room = generate(dungeonGen,4);
+
+while (!window.shouldClose()) {
+    if(pressed(K)) break;
+
+    if(auto g = scene->nearestElement())
+    {
+        if(pressed(MOUSE_LEFT))
+        {
+            g->run("onClick");
+            scene->fireSlots(g);
+        }
+    }
+    if(scene->slotFired("test_ddw"))
+    {
+        print("BOOM!");
+    }
+
+    scene->updateScene(1.0f);
+    scene->advanceSlots();
+    window.swapBuffers();
+    window.pollEvents();
+}
+glfwTerminate();
+return 0;
+
+// list<str> test1 = {
+// "|,Name: ,Ja|Be|Ma,ck |de |ly ,Smith|Klien|Mondelez|Ashford",
+// "X,Species: ,Wolf,Bear,Human,Fox,Hawk,Eagle,Otter,Badger,Pine Martin,Rabbit,Deer",
+// "[|RANDF|0|4],Grade: ",
+// "X,House: ,[|ANY|Species: |Wolf|Fox]Kexlar,[|ANY|Species: |Rabbit|Deer]Syrath,None"};
+
+// list<str> quest = {
+// "X,!Type: ,Kill,Help,Find",
+// "X,!Location: ,Docks,Forest,Cave,Town",
+// "X,!Target: ,[|ANY|!Type: |Help]Child,[|ANY|!Type: |Kill]Goblin,[|ANY|!Type: |Find][|ANY|!Location: |Docks]Fish,[|ANY|!Type: |Find]Gold",
+// "X,Quest: ,[|REF|!Type: ] the [|REF|!Target: ] in the [|REF|!Location: ]"};
+
+// list<str> shop = {
+//     "X,ShopType: ,Blacksmith,Alchemist,General",
+
+//     "X,Sells: ,"
+//     "[|ANY|ShopType: |Blacksmith]Weapons|Tools|Armour,"
+//     "[|ANY|ShopType: |Alchemist]Potions|Herbs,"
+//     "[|ANY|ShopType: |General]Supplies|Food|Clothes"
+//     };
+
+// gen shp = generate(shop);
+// Data& d = shp.dl[0];
+// gen items = generate(
+//     list<str>{ 
+//         "X,!Sells,"+d.get<str>("Sells: "),
+//         "X,Item: ,"
+//         "[|ANY|!Sells|Weapons]Sword|Spear|Dagger,"
+//         "[|ANY|!Sells|Armour]Curiass|Boot|Gauntlet,"
+//         "[|ANY|!Sells|Tools]Pickaxe|Crate|Shovel,"
+//         "[|ANY|!Sells|Potions]Healing|Posion|Sleeping,"
+//         "[|ANY|!Sells|Herbs]Foxglove|Lavender|Clover,"
+//         "[|ANY|!Sells|Supplies]Rope|Matchbox|Waterskin,"
+//         "[|ANY|!Sells|Food]Bread|Cake|Apple,"
+//         "[|ANY|!Sells|Clothes]Shirt|Shoes|Pants,",
+
+//         "[|RANDF|10|100],Price: ",
+//         "X,Sale: ,Yes,Yes,No,No,No"},
+//     5
+//     );
+// // print(shp.s);
+// // print(items.s);
+
+// list<str> dungeonGen = {
+//     "X,Room Type: ,Forgotten Crypt,Ancient Library,Sunken Vault,Broken Armory",
+//     "X,Features: ,Cracked walls,Overgrown roots,Flickering torches,Faint chanting,Cold air,Dripping ceiling",
+
+//     "X,Inhabitants: ,"
+//     "[|ANY|Room Type: |Forgotten Crypt]Skeleton|Spirit|Wraith,"
+//     "[|ANY|Room Type: |Ancient Library]Ghost|Animated Book|Wisp,"
+//     "[|ANY|Room Type: |Sunken Vault]Slime|Mimic|Water Elemental,"
+//     "[|ANY|Room Type: |Broken Armory]Rust Golem|Specter|Haunted Armor",
+
+//     "[|RANDI|0|10],Threat Level: ",
+
+//     "X,Treasure: ,"
+//     "[|ANY|Threat Level: |0|1|2]Rusted sword|Empty chest,"
+//     "[|ANY|Threat Level: |3|4|5]Gemstone|Potion,"
+//     "[|ANY|Threat Level: |6|7|8]Enchanted Ring|Scroll,"
+//     "[|ANY|Threat Level: |9|10]Cursed Relic|Ancient Artifact"
+// };
+
+// gen room = generate(dungeonGen,4);
+// print(room.s);
+
+// gen places = generate(list<str>{
+//     "X,!n1,a|b|c,x|y|z,1|2|3",
+//     "X,!n2,b|n|m,f|g|h,4|5|6",
+//     "|,Place: ,The Great |Red |Windy |Endless  ,Desert|Forest|City|Ocean"
+// },3);
+// str toPrint;
+// for(int i=0;i<10;i++)
+// {
+// int p =randi(0,2);
+// gen people = generate(list<str>{
+//     "|,!n1,"+places.dl[p].get<str>("!n1"), 
+//     "|,!n2,"+places.dl[p].get<str>("!n2"), 
+//     "X,Name: ,[|REF|!n1][|REF|!n2]",
+//     "X,From: ,"+places.dl[p].get<str>("Place: ")
+// });
+// toPrint = toPrint+(people.s);
+// }
+// print(toPrint);
+
+// gen kingdoms = generate(list<str>{
+//     "X,!title1,Al|Bel|Car,Da|El|Fer,Gr|Hel|Il",
+//     "X,!title2,ion|ar|en,ius|eth|an,or|ul|em",
+//     "|,Kingdom: ,The |Grand |Fallen |United ,Empire|Dominion|Hold|Kingdom",
+//     "X,Color: ,Red,Blue,Gold,Green",
+//     "|,!housePrefix,Von|De|La ,Ar|Bel|Cal"
+// }, 3);
+
+// // Now generate nobles from each
+// str report;
+// for(int i=0;i<10;i++) {
+//     int k = randi(0, 2);
+//     Data& kdata = kingdoms.dl[k];
+
+//     gen noble = generate(list<str>{
+//         "|,!title1," + kdata.get<str>("!title1"),
+//         "|,!title2," + kdata.get<str>("!title2"),
+//         "|,!housePrefix," + kdata.get<str>("!housePrefix"),
+//         "X,Name: ,[|REF|!title1][|REF|!title2]",
+//         "X,House: ,[|REF|!housePrefix][|REF|!title2]",
+//         "X,Allegiance: ," + kdata.get<str>("Kingdom: "),
+//         "X,Colors: ," + kdata.get<str>("Color: ")
+//     });
+
+//     report += noble.s;
+// }
+// //print(report);
+
+
+// // ───── Layer 1: Homeland + culture syllables ─────────────────────────
+// gen homelands = generate({
+//     "X,Homeland: ,Ashen Wastes,Silver Mountains,Moonlit Bay",
+
+//     // Hidden syllable banks keyed by homeland
+//     "X,!n1,[|ANY|Homeland: |Ashen Wastes]Ra|Sha|Ta,"
+//             "[|ANY|Homeland: |Silver Mountains]El|Fa|Da,"
+//             "[|ANY|Homeland: |Moonlit Bay]Mo|Na|Si",
+
+//     "X,!n2,[|ANY|Homeland: |Ashen Wastes]kar|mir|tul,"
+//             "[|ANY|Homeland: |Silver Mountains]ron|lith|riel,"
+//             "[|ANY|Homeland: |Moonlit Bay]len|dor|thas",
+
+//     "X,!culture,[|ANY|Homeland: |Ashen Wastes]Nomad,"
+//                 "[|ANY|Homeland: |Silver Mountains]Highborn,"
+//                 "[|ANY|Homeland: |Moonlit Bay]Tidewalker"
+// }, 3);
+
+// // ───── Generate characters pulling directly from homeland data ───────
+// str out;
+// for (int i = 0; i < 5; ++i)
+// {
+//     int h = randi(0, homelands.dl.length());
+//     Data& H = homelands.dl[h];
+
+//     gen person = generate({
+//         // Pass hidden syllables straight through
+//         "|,!n1,"        + H.get<str>("!n1"),
+//         "|,!n2,"        + H.get<str>("!n2"),
+
+//         // Build visible fields
+//         "X,Name: ,[|REF|!n1][|REF|!n2]",
+//         "X,Culture: ,"  + H.get<str>("!culture"),
+//         "X,Homeland: ," + H.get<str>("Homeland: "),
+
+//         // Profession determined by culture
+//         "X,Profession: ,"
+//             "[|ANY|Culture: |Nomad]Scout|Tracker,"
+//             "[|ANY|Culture: |Highborn]Mage|Knight,"
+//             "[|ANY|Culture: |Tidewalker]Sailor|Shaman",
+
+//         // Story hook referencing generated fields
+//         "X,Story: ,[|REF|Name: ] the [|REF|Profession: ] from "
+//                    "[|REF|Homeland: ]"
+//     });
+
+//     out += person.s;
+// }
+
+// print(out);
+}
