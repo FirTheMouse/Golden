@@ -139,7 +139,18 @@
 
 int main() {
 
-    g_ptr<s_node> test_script = compile_script("../Projects/Testing/src/golden.gld");
+    //g_ptr<s_node> test_script = compile_script("../Projects/Testing/src/golden.gld");
+
+    reg_b_types();
+    init_t_keys();
+    std::string code = readFile("../Projects/Testing/src/golden.gld");
+    list<g_ptr<Token>> tokens = tokenize(code);
+    reg_a_types();
+    reg_s_types();
+    reg_t_types();
+    a_function_blob();
+    list<g_ptr<a_node>> nodes = parse_tokens(tokens);
+    balance_precedence(nodes);
 
     // benchmark_performance();
     // benchmark_bulk_operations();
