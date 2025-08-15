@@ -136,9 +136,6 @@ class Token : public Object {
          }
 };
 
-using Tokens = g_ptr<d_list<g_ptr<Token>>>;
-using TokensM = d_list<g_ptr<Token>>;
-
 static bool token_is_split(char c) {
     return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<');
 }
@@ -624,15 +621,15 @@ public:
 class s_node : public Object {
 public:
     s_node() {
-        tokens = make<TokensM>();
+
     }
     ~s_node() {
        children.destroy();
-       tokens->destroy();
+
     }
 
     s_type scope_type = GLOBAL;
-    Tokens tokens;
+    list<g_ptr<Token>> tokens;
 
     g_ptr<s_node> parent;
     g_ptr<Type> type_ref = nullptr;
@@ -651,8 +648,8 @@ public:
     map<std::string,g_ptr<r_node>> method_map;
 
     void addToken(g_ptr<Token> token) {
-        token->index = tokens->length();
-        tokens->push(token);
+        token->index = tokens.length();
+        tokens.push(token);
     }
     void addToken(b_type _type, const std::string& _content) {
         g_ptr<Token> token = make<Token>(_type,_content);
