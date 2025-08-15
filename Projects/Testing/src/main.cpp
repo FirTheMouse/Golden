@@ -148,9 +148,22 @@ int main() {
     reg_a_types();
     reg_s_types();
     reg_t_types();
+    init_type_key_to_type();
     a_function_blob();
     list<g_ptr<a_node>> nodes = parse_tokens(tokens);
     balance_precedence(nodes);
+    scope_function_blob();
+    g_ptr<s_node> root = parse_scope(nodes);
+    t_function_blob_top();
+    t_function_blob_bottom();
+    parse_nodes(root);
+    reg_r_types();
+    discover_function_blob();
+    discover_symbols(root);
+    r_function_blob();
+    g_ptr<Frame> frame = resolve_symbols(root);
+    exec_function_blob();
+    execute_r_nodes(frame);
 
     // benchmark_performance();
     // benchmark_bulk_operations();
