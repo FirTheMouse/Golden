@@ -95,7 +95,7 @@ public:
         }
     }
 
-    void set(void* ptr,void* value,size_t index,size_t size) {
+    static void set(void* ptr,void* value,size_t index,size_t size) {
         switch(size) {
             case 1: memcpy(&(*(list<uint8_t>*)ptr)[index], value, 1); break;
             case 4: memcpy(&(*(list<uint32_t>*)ptr)[index], value, 4); break;
@@ -120,7 +120,7 @@ public:
     }
 
 
-    void* get(void* ptr, size_t index, size_t size) {        
+    static void* get(void* ptr, size_t index, size_t size) {        
         switch(size) {
             case 1: return &(*(list<uint8_t>*)ptr)[index];
             case 4: return &(*(list<uint32_t>*)ptr)[index]; 

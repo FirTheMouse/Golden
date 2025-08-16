@@ -195,9 +195,6 @@ public:
     Light(glm::vec3 pos,glm::vec3 col) : position(pos), color(col) {}
 };
 
-typedef enum{
-   OBJECT=0, MODEL = 1, INSTANCE_MODEL = 2, LIGHT = 3
-} ADDID;
 
 /// @todo Overhaul rendering system, make scene more flexible and modular
 class Scene : virtual public Object {

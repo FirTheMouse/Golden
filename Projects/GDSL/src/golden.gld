@@ -1,3 +1,6 @@
-int i;
-i = 3;
-print(i);
+type person {
+    string name = "noname";
+}
+
+person joe;
+joe.name = "Joe";

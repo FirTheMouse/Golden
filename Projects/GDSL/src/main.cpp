@@ -1,5 +1,5 @@
 #include<core/helper.hpp>
-#include<Golden.hpp>
+#include<modules/standard.hpp>
 
 #include <chrono>
 #include <iostream>
@@ -137,11 +137,19 @@ void benchmark_bulk_operations() {
     std::cout << "Speed speedup: " << (double)cpp_speed_time.count() / type_speed_time.count() << "x\n";
 }
 
+struct man {
+    std::string name = "noname";
+};
+
 int main() {
 
-    int mode = 0; //0 == Compile and run, 1 == benchmark
+    int mode = 0; //0 == Compile and run, 1 == benchmark // 2 == testing
 
     if(mode==0) {
+        base_module::initialize();
+        opperator_module::initialize();
+        variables_module::initialize();
+        literals_module::initialize();
         reg_b_types();
         init_t_keys();
         std::string code = readFile("../Projects/GDSL/src/golden.gld");
@@ -149,7 +157,6 @@ int main() {
         reg_a_types();
         reg_s_types();
         reg_t_types();
-        init_type_key_to_type();
         a_function_blob();
         list<g_ptr<a_node>> nodes = parse_tokens(tokens);
         balance_precedence(nodes);
@@ -162,13 +169,80 @@ int main() {
         discover_function_blob();
         discover_symbols(root);
         r_function_blob();
-        g_ptr<Frame> frame = resolve_symbols(root);
         exec_function_blob();
-        execute_r_nodes(frame);
+        g_ptr<Frame> frame = resolve_symbols(root);
+
+        const int ITERATIONS = 1000; // Run multiple times for statistical validity
+
+        // C++ baseline
+        auto start = std::chrono::high_resolution_clock::now();
+            struct person {
+                std::string name = "noname";
+            };
+            person joe;
+            joe.name = "Joe";
+        auto end = std::chrono::high_resolution_clock::now();
+        auto cpp_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+        start = std::chrono::high_resolution_clock::now();
+            execute_r_nodes(frame); 
+        end = std::chrono::high_resolution_clock::now();
+        auto golden_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+        print("C++: ", cpp_time.count()," ns per execution\n");
+        print("Golden: ", golden_time.count()," ns per execution\n");
+        print("Slowdown: ", (double)golden_time.count() / cpp_time.count(), "x\n");
+
     }
     else if (mode==1) {
         benchmark_performance();
         benchmark_bulk_operations();
+    }
+    else if (mode==2) {
+       volatile size_t c = 0;
+       int ITERATIONS = 100;
+       int MAP_SIZE = 500;
+       map<int,int> test_map;
+       for(size_t i = 0; i < MAP_SIZE; i++) {
+          test_map.put(i,i);
+       }
+       auto process_get = [&](volatile size_t& c) {
+        int k = c+1;
+        if(test_map.hasKey(k)) {
+            c = test_map.get(k);
+        }
+        else {
+            //Do nothing
+        }
+       };
+       auto start = std::chrono::high_resolution_clock::now();
+       for(int i=0;i<ITERATIONS;i++) {
+            process_get(c);
+       }
+       auto end = std::chrono::high_resolution_clock::now();
+       auto get_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+       size_t t = reg::new_type("TEST");
+       auto process_direct = [&](volatile size_t& c) {
+        int k = c+1;
+        try {
+            c = test_map.get(k);
+        }
+        catch(std::exception e) {
+            //Do nothing
+        }
+       };
+       start = std::chrono::high_resolution_clock::now();
+       for(int i=0;i<ITERATIONS;i++) {
+            process_direct(c);
+       }
+       end = std::chrono::high_resolution_clock::now();
+       auto direct_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+       print("GET_TYPE: ",get_time.count()," ns (" ,get_time.count() / ITERATIONS," ns per operation)\n");
+       print("DIRECT: ",direct_time.count()," ns (" ,direct_time.count() / ITERATIONS," ns per operation)\n");
+       print("Slowdown factor: ",(double)get_time.count() / direct_time.count(),"x\n");
+
     }
 
     print("==DONE==");
