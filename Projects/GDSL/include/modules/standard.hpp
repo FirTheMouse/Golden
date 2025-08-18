@@ -13,10 +13,200 @@ namespace base_module {
     }
 }
 
+namespace control_module {
+    static void initialize() {
+        reg::new_type("IF_KEY");
+        reg::new_type("ELSE_KEY");
+        reg::new_type("RETURN_KEY");
+        reg::new_type("WHILE_KEY"); 
+        reg::new_type("BREAK_KEY"); 
+        reg::new_type("DO_KEY");
+    }
+
+}
+
+
+namespace property_module {
+    static void initialize() {
+        size_t equals_id = reg::new_type("EQUALS"); 
+        size_t dot_id = reg::new_type("DOT");
+
+        size_t assignment_id = reg::new_type("ASSIGNMENT");
+        state_is_opp.put(assignment_id,true);
+        token_to_opp.put(equals_id,assignment_id);
+        type_precdence.put(assignment_id,1); 
+        size_t t_assignment_id = reg::new_type("T_ASSIGN"); 
+        t_opp_conversion.put(assignment_id, t_assignment_id);
+        size_t r_assignment_id = reg::new_type("R_ASSIGNMENT");
+        r_handlers.put(t_assignment_id, [r_assignment_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_assignment_id;
+            result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+        });
+        exec_handlers.put(r_assignment_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
+            
+            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
+                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
+            
+            Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
+                                   target_index, ctx.node->right->value.size);
+            return ctx.node;
+        });
+
+        size_t prop_access_id = reg::new_type("PROP_ACCESS"); 
+        state_is_opp.put(prop_access_id,true); 
+        token_to_opp.put(dot_id,prop_access_id);
+        type_precdence.put(prop_access_id,3);
+        size_t t_prop_access_id = reg::new_type("T_PROP_ACCESS");
+        t_opp_conversion.put(prop_access_id, t_prop_access_id);
+        size_t r_prop_access_id = reg::new_type("R_PROP_ACCESS");
+        r_handlers.put(t_prop_access_id, [r_prop_access_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_prop_access_id;
+            g_ptr<r_node> info = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            if(info->resolved_type) {
+                result->slot = info->slot;
+                if(ctx.frame->slots.length() <= result->slot) ctx.frame->slots << 0;
+                result->resolved_type = info->resolved_type;
+                result->value.address = result->resolved_type->adress_column(ctx.node->right->name);
+                result->value.size = result->resolved_type->notes.get(ctx.node->right->name).size;
+                result->value.type = info->value.type;
+                result->name = ctx.node->left->name;
+                result->frame = info->frame;
+    
+                for(auto c : ctx.scope->children) {
+                    if(c->type_ref && c->type_ref == result->resolved_type) {
+                        result->value.type = c->o_type_map.get(ctx.node->right->name);
+                        break;
+                    }
+                }
+    
+                g_ptr<s_node> search_scope = ctx.scope;
+                while(result->value.type == GET_TYPE(OBJECT)) {
+                    if(search_scope->type_ref && search_scope->type_ref == result->resolved_type) {
+                        result->value.type = search_scope->o_type_map.get(ctx.node->right->name);
+                        break;
+                    }
+                    if(result->value.type != GET_TYPE(OBJECT)) break;
+                    if(search_scope->parent) {
+                        search_scope = search_scope->parent;
+                    } else break;
+                }
+            }
+        });
+        exec_handlers.put(r_prop_access_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            if(ctx.node->frame) {
+                ctx.node->value.data = Type::get(ctx.node->value.address, 
+                    ctx.node->frame->slots.get(ctx.node->slot), 
+                    ctx.node->value.size);
+                // print(ctx.node->value.address, "-", 
+                //     ctx.node->frame->slots.get(ctx.node->slot, "execute_r_node::prop_access"), 
+                //     " -> ", ctx.node->value.to_string());
+            }
+            else print("execute_r_node::1970 No frame in node for prop access");
+            return ctx.node;
+        });
+    }
+}
+
 namespace opperator_module {
     static void initialize() {
 
 
+    size_t plus_id = reg::new_type("PLUS"); 
+    size_t minus_id = reg::new_type("MINUS"); 
+    size_t star_id = reg::new_type("STAR"); 
+    size_t slash_id = reg::new_type("SLASH"); 
+    size_t langle_id = reg::new_type("LANGLE"); 
+    size_t rangle_id = reg::new_type("RANGLE"); 
+
+    reg::new_type("PLUS_EQUALS");
+    reg::new_type("EQUALS_EQUALS");
+    reg::new_type("NOT_EQUALS");
+    reg::new_type("PLUS_PLUS"); 
+    reg::new_type("MINUS_MINUS");
+    reg::new_type("MINUS_EQUALS");
+    reg::new_type("SLASH_EQUALS");
+    reg::new_type("STAR_EQUALS");
+
+    reg::new_type("IS_EQUALS"); 
+
+    auto binary_op_handler = [](uint32_t r_type) {
+        return [r_type](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_type;
+            if(ctx.node->left) 
+                result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            if(ctx.node->right)
+                result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+        };
+    };
+    auto arithmetic_handler = [](auto operation, uint32_t result_type) {
+        return [operation, result_type](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_operation(ctx.node, operation, result_type, ctx.frame);
+            return ctx.node;
+        };
+    };
+
+    size_t add_id = reg::new_type("ADD");
+    state_is_opp.put(add_id,true);
+    token_to_opp.put(plus_id,add_id);
+    type_precdence.put(add_id,1); 
+    size_t t_add_id = reg::new_type("T_ADD"); 
+    t_opp_conversion.put(add_id, t_add_id); 
+    size_t r_add_id = reg::new_type("R_ADD"); 
+    r_handlers.put(t_add_id, binary_op_handler(r_add_id));
+    exec_handlers.put(r_add_id, arithmetic_handler([](auto a, auto b){ return a+b; }, GET_TYPE(INT)));
+
+    size_t subtract_id = reg::new_type("SUBTRACT"); 
+    state_is_opp.put(subtract_id,true);
+    token_to_opp.put(minus_id,subtract_id);
+    type_precdence.put(subtract_id,1); 
+    size_t t_subtract_id = reg::new_type("T_SUBTRACT"); 
+    t_opp_conversion.put(subtract_id, t_subtract_id);
+    size_t r_subtract_id = reg::new_type("R_SUBTRACT");
+    r_handlers.put(t_subtract_id, binary_op_handler(r_subtract_id));
+    exec_handlers.put(r_subtract_id, arithmetic_handler([](auto a, auto b){ return a-b; }, GET_TYPE(INT)));
+
+    size_t multiply_id = reg::new_type("MULTIPLY"); 
+    state_is_opp.put(multiply_id,true);
+    token_to_opp.put(star_id,multiply_id); 
+    type_precdence.put(multiply_id,2);
+    size_t t_multiply_id = reg::new_type("T_MULTIPLY");
+    t_opp_conversion.put(multiply_id, t_multiply_id);
+    size_t r_multiply_id = reg::new_type("R_MULTIPLY"); 
+    r_handlers.put(t_multiply_id, binary_op_handler(r_multiply_id));
+    exec_handlers.put(r_multiply_id, arithmetic_handler([](auto a, auto b){ return a*b; }, GET_TYPE(INT)));
+
+    size_t divide_id = reg::new_type("DIVIDE");
+    state_is_opp.put(divide_id,true);
+    token_to_opp.put(slash_id,divide_id);
+    type_precdence.put(divide_id,2);
+    size_t t_divide_id = reg::new_type("T_DIVIDE");
+    t_opp_conversion.put(divide_id, t_divide_id); 
+    size_t r_divide_id = reg::new_type("R_DIVIDE"); 
+    r_handlers.put(t_divide_id, binary_op_handler(r_divide_id));
+    exec_handlers.put(r_divide_id, arithmetic_handler([](auto a, auto b){ return a/b; }, GET_TYPE(INT)));
+
+    size_t greater_than_id = reg::new_type("GREATER_THAN");
+    state_is_opp.put(greater_than_id,true);
+    token_to_opp.put(rangle_id,greater_than_id);
+    type_precdence.put(greater_than_id,1);
+    size_t t_greater_than = reg::new_type("T_GREATER_THAN");
+    t_opp_conversion.put(greater_than_id, t_greater_than);
+    size_t r_greater_than_id = reg::new_type("R_GREATER_THAN");
+    r_handlers.put(t_greater_than, binary_op_handler(r_greater_than_id)); 
+    exec_handlers.put(r_greater_than_id, arithmetic_handler([](auto a, auto b){ return a>b; }, GET_TYPE(BOOL)));
+
+    size_t less_than_id = reg::new_type("LESS_THAN");
+    state_is_opp.put(less_than_id,true);
+    token_to_opp.put(langle_id,less_than_id); 
+    type_precdence.put(less_than_id,1); 
+    size_t t_less_than_id = reg::new_type("T_LESS_THAN");
+    t_opp_conversion.put(less_than_id, t_less_than_id);
+    size_t r_less_than_id = reg::new_type("R_LESS_THAN");
+    r_handlers.put(t_less_than_id, binary_op_handler(r_less_than_id));
+    exec_handlers.put(r_less_than_id, arithmetic_handler([](auto a, auto b){ return a<b; }, GET_TYPE(BOOL)));
 
     }
 }
@@ -95,18 +285,7 @@ namespace variables_module {
         });
 
 
-        size_t r_assignment_id = reg::new_type("R_ASSIGNMENT");
-        exec_handlers.put(r_assignment_id, [r_identifier_id](exec_context& ctx) -> g_ptr<r_node> {
-            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
-            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
-            
-            size_t target_index = (ctx.node->left->type == r_identifier_id) ? 
-                ctx.index : ctx.frame->slots.get(ctx.node->left->slot, "execute_r_node::assignment");
-            
-            Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
-                                   target_index, ctx.node->right->value.size);
-            return ctx.node;
-        });
+        
     }
 
 }
@@ -216,16 +395,13 @@ namespace literals_module {
 
 static void reg_b_types() {
    
-    reg::new_type("TYPE"); reg::new_type("TYPE_KEY");  reg::new_type("DOT");
-    reg::new_type("LBRACE"); reg::new_type("RBRACE"); reg::new_type("LPAREN"); reg::new_type("RPAREN"); reg::new_type("LBRACKET");
-    reg::new_type("RBRACKET"); reg::new_type("END"); reg::new_type("IF_KEY");
-    reg::new_type("ELSE_KEY");  reg::new_type("METHOD_KEY");
-    reg::new_type("RETURN_KEY"); 
-    reg::new_type("PRINT_KEY"); reg::new_type("EQUALS"); reg::new_type("PLUS"); reg::new_type("PLUS_EQUALS");
-    reg::new_type("EQUALS_EQUALS"); reg::new_type("NOT_EQUALS"); reg::new_type("PLUS_PLUS"); reg::new_type("MINUS"); reg::new_type("MINUS_MINUS");
-    reg::new_type("MINUS_EQUALS"); reg::new_type("LANGLE"); reg::new_type("RANGLE"); reg::new_type("NOT"); reg::new_type("COMMA");
-    reg::new_type("STAR"); reg::new_type("SLASH"); reg::new_type("STAR_EQUALS");
-    reg::new_type("SLASH_EQUALS"); reg::new_type("WHILE_KEY"); reg::new_type("BREAK_KEY"); reg::new_type("DO_KEY");
+    reg::new_type("TYPE"); reg::new_type("TYPE_KEY"); 
+    reg::new_type("LBRACE"); reg::new_type("RBRACE"); 
+    reg::new_type("LPAREN"); reg::new_type("RPAREN"); 
+    reg::new_type("LBRACKET"); reg::new_type("RBRACKET"); 
+    reg::new_type("END");   reg::new_type("METHOD_KEY");
+    reg::new_type("PRINT_KEY");  reg::new_type("NOT"); reg::new_type("COMMA");
+   
 }
 static void init_t_keys() {
     reg_t_key("type", GET_TYPE(TYPE_KEY), 8, GET_TYPE(F_TYPE_KEY)); 
@@ -235,29 +411,25 @@ static void init_t_keys() {
     reg_t_key("while", GET_TYPE(WHILE_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("do", GET_TYPE(DO_KEY), 0, GET_TYPE(F_KEYWORD));
  }
 static void reg_a_types() {
-     reg::new_type("VAR_DECL_INIT"); reg::new_type("METHOD_CALL"); reg::new_type("METHOD_DECL");
-    reg::new_type("TYPE_DECL"); reg::new_type("PROP_ACCESS"); reg::new_type("ASSIGNMENT"); reg::new_type("ENTER_SCOPE"); reg::new_type("EXIT_SCOPE");
+    reg::new_type("VAR_DECL_INIT"); reg::new_type("METHOD_CALL"); reg::new_type("METHOD_DECL");
+    reg::new_type("TYPE_DECL");  reg::new_type("ENTER_SCOPE"); reg::new_type("EXIT_SCOPE");
     reg::new_type("PRINT_CALL"); reg::new_type("ENTER_PAREN"); reg::new_type("EXIT_PAREN");  
-    reg::new_type("RETURN_CALL"); reg::new_type("ARGUMENT_GROUP"); reg::new_type("IF_DECL"); reg::new_type("ELSE_DECL"); reg::new_type("ADD");
-    reg::new_type("SUBTRACT"); reg::new_type("MULTIPLY"); reg::new_type("DIVIDE"); reg::new_type("IS_EQUALS"); reg::new_type("GREATER_THAN");
-    reg::new_type("LESS_THAN"); reg::new_type("BREAK_CALL"); reg::new_type("WHILE_DECL"); reg::new_type("DO_DECL");
+    reg::new_type("RETURN_CALL"); reg::new_type("ARGUMENT_GROUP"); reg::new_type("IF_DECL"); reg::new_type("ELSE_DECL"); 
+    reg::new_type("BREAK_CALL"); reg::new_type("WHILE_DECL"); reg::new_type("DO_DECL");
  }
 static void reg_s_types() { 
     reg::new_type("GLOBAL"); reg::new_type("TYPE_DEF"); reg::new_type("METHOD"); reg::new_type("FUNCTION");
     reg::new_type("IF_BLOCK"); reg::new_type("BLOCK"); reg::new_type("WHILE_LOOP"); reg::new_type("FOR_LOOP");
 }
 static void reg_t_types() {
-    reg::new_type("T_ASSIGN");
-    reg::new_type("T_METHOD_CALL"); reg::new_type("T_RETURN"); reg::new_type("T_PROP_ACCESS"); reg::new_type("T_METHOD_DECL"); reg::new_type("T_IF");
-    reg::new_type("T_ELSE"); reg::new_type("T_BLOCK"); reg::new_type("T_ADD"); reg::new_type("T_SUBTRACT"); reg::new_type("T_MULTIPLY");
-    reg::new_type("T_DIVIDE"); reg::new_type("T_PRINT"); reg::new_type("T_GREATER_THAN"); reg::new_type("T_LESS_THAN"); reg::new_type("T_TYPE_DECL");
+    reg::new_type("T_METHOD_CALL"); reg::new_type("T_RETURN"); reg::new_type("T_METHOD_DECL"); reg::new_type("T_IF");
+    reg::new_type("T_ELSE"); reg::new_type("T_BLOCK");  reg::new_type("T_PRINT"); reg::new_type("T_TYPE_DECL");
     reg::new_type("T_WHILE"); reg::new_type("T_BREAK"); reg::new_type("T_DO");
  }
- static void reg_r_types() {
+static void reg_r_types() {
     reg::new_type("R_IF");   reg::new_type("R_METHOD_CALL");
-    reg::new_type("R_PROP_ACCESS"); reg::new_type("R_TYPE_DECL"); reg::new_type("R_METHOD_DECL"); 
-    reg::new_type("R_PRINT_CALL"); reg::new_type("R_RETURN"); reg::new_type("R_ELSE"); reg::new_type("R_ADD"); reg::new_type("R_SUBTRACT");
-    reg::new_type("R_MULTIPLY"); reg::new_type("R_DIVIDE"); reg::new_type("R_GREATER_THAN"); reg::new_type("R_LESS_THAN"); reg::new_type("R_BREAK");
+     reg::new_type("R_TYPE_DECL"); reg::new_type("R_METHOD_DECL"); 
+    reg::new_type("R_PRINT_CALL"); reg::new_type("R_RETURN"); reg::new_type("R_ELSE");  reg::new_type("R_BREAK");
     reg::new_type("R_WHILE"); reg::new_type("R_DO");
  }
 
@@ -369,22 +541,6 @@ static void a_function_blob() {
             ctx.state = GET_TYPE(UNTYPED);
         }
     });
-
-    // Multi-token handlers
-    
-
-
-    state_is_opp.put(GET_TYPE(ADD),true); state_is_opp.put(GET_TYPE(SUBTRACT),true); state_is_opp.put(GET_TYPE(MULTIPLY),true);
-    state_is_opp.put(GET_TYPE(DIVIDE),true); state_is_opp.put(GET_TYPE(GREATER_THAN),true); state_is_opp.put(GET_TYPE(LESS_THAN),true);
-    state_is_opp.put(GET_TYPE(ASSIGNMENT),true); state_is_opp.put(GET_TYPE(PROP_ACCESS),true); 
-
-    token_to_opp.put(GET_TYPE(PLUS),GET_TYPE(ADD)); token_to_opp.put(GET_TYPE(MINUS),GET_TYPE(SUBTRACT)); token_to_opp.put(GET_TYPE(STAR),GET_TYPE(MULTIPLY)); 
-    token_to_opp.put(GET_TYPE(SLASH),GET_TYPE(DIVIDE)); token_to_opp.put(GET_TYPE(LANGLE),GET_TYPE(LESS_THAN)); token_to_opp.put(GET_TYPE(RANGLE),GET_TYPE(GREATER_THAN)); 
-    token_to_opp.put(GET_TYPE(EQUALS),GET_TYPE(ASSIGNMENT)); token_to_opp.put(GET_TYPE(DOT),GET_TYPE(PROP_ACCESS));
-    
-    type_precdence.put(GET_TYPE(ADD),1); type_precdence.put(GET_TYPE(SUBTRACT),1); type_precdence.put(GET_TYPE(MULTIPLY),2); type_precdence.put(GET_TYPE(DIVIDE),2);
-    type_precdence.put(GET_TYPE(LESS_THAN),1); type_precdence.put(GET_TYPE(GREATER_THAN),1); type_precdence.put(GET_TYPE(ASSIGNMENT),1); 
-    type_precdence.put(GET_TYPE(PROP_ACCESS),3);
 }
 
 static void scope_function_blob() {
@@ -425,10 +581,9 @@ static void scope_function_blob() {
 }
 
 static void t_function_blob_top() {
-    t_opp_conversion.put(GET_TYPE(ADD), GET_TYPE(T_ADD)); t_opp_conversion.put(GET_TYPE(SUBTRACT), GET_TYPE(T_SUBTRACT)); t_opp_conversion.put(GET_TYPE(MULTIPLY), GET_TYPE(T_MULTIPLY));
-    t_opp_conversion.put(GET_TYPE(DIVIDE), GET_TYPE(T_DIVIDE)); t_opp_conversion.put(GET_TYPE(ASSIGNMENT), GET_TYPE(T_ASSIGN)); t_opp_conversion.put(GET_TYPE(LESS_THAN), GET_TYPE(T_LESS_THAN));
-    t_opp_conversion.put(GET_TYPE(GREATER_THAN), GET_TYPE(T_GREATER_THAN)); t_opp_conversion.put(GET_TYPE(IF_DECL), GET_TYPE(T_IF)); t_opp_conversion.put(GET_TYPE(ELSE_DECL), GET_TYPE(T_ELSE));
-    t_opp_conversion.put(GET_TYPE(WHILE_DECL), GET_TYPE(T_WHILE)); t_opp_conversion.put(GET_TYPE(BREAK_CALL), GET_TYPE(T_BREAK)); t_opp_conversion.put(GET_TYPE(PROP_ACCESS), GET_TYPE(T_PROP_ACCESS));
+
+     t_opp_conversion.put(GET_TYPE(IF_DECL), GET_TYPE(T_IF)); t_opp_conversion.put(GET_TYPE(ELSE_DECL), GET_TYPE(T_ELSE));
+    t_opp_conversion.put(GET_TYPE(WHILE_DECL), GET_TYPE(T_WHILE)); t_opp_conversion.put(GET_TYPE(BREAK_CALL), GET_TYPE(T_BREAK)); 
     t_opp_conversion.put(GET_TYPE(METHOD_CALL), GET_TYPE(T_METHOD_CALL)); t_opp_conversion.put(GET_TYPE(RETURN_CALL), GET_TYPE(T_RETURN));
  }
 
@@ -573,45 +728,7 @@ static void r_function_blob() {
         }
     });
 
-    r_handlers.put(GET_TYPE(T_PROP_ACCESS), [](g_ptr<r_node> result, r_context& ctx) {
-        result->type = GET_TYPE(R_PROP_ACCESS);
-        g_ptr<r_node> info = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-        if(info->resolved_type) {
-            result->slot = info->slot;
-            if(ctx.frame->slots.length() <= result->slot) ctx.frame->slots << 0;
-            result->resolved_type = info->resolved_type;
-            result->value.address = result->resolved_type->adress_column(ctx.node->right->name);
-            result->value.size = result->resolved_type->notes.get(ctx.node->right->name).size;
-            result->value.type = info->value.type;
-            result->name = ctx.node->left->name;
-            result->frame = info->frame;
-
-            for(auto c : ctx.scope->children) {
-                if(c->type_ref && c->type_ref == result->resolved_type) {
-                    result->value.type = c->o_type_map.get(ctx.node->right->name);
-                    break;
-                }
-            }
-
-            g_ptr<s_node> search_scope = ctx.scope;
-            while(result->value.type == GET_TYPE(OBJECT)) {
-                if(search_scope->type_ref && search_scope->type_ref == result->resolved_type) {
-                    result->value.type = search_scope->o_type_map.get(ctx.node->right->name);
-                    break;
-                }
-                if(result->value.type != GET_TYPE(OBJECT)) break;
-                if(search_scope->parent) {
-                    search_scope = search_scope->parent;
-                } else break;
-            }
-        }
-    });
-
-    r_handlers.put(GET_TYPE(T_ASSIGN), [](g_ptr<r_node> result, r_context& ctx) {
-        result->type = GET_TYPE(R_ASSIGNMENT);
-        result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-        result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
-    });
+   
 
     r_handlers.put(GET_TYPE(T_IF), [](g_ptr<r_node> result, r_context& ctx) {
         result->type = GET_TYPE(R_IF);
@@ -695,23 +812,7 @@ static void r_function_blob() {
         result->type = GET_TYPE(R_BREAK);
     });
 
-    // Arithmetic operators - shared pattern
-    auto binary_op_handler = [](uint32_t r_type) {
-        return [r_type](g_ptr<r_node> result, r_context& ctx) {
-            result->type = r_type;
-            if(ctx.node->left) 
-                result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-            if(ctx.node->right)
-                result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
-        };
-    };
-
-    r_handlers.put(GET_TYPE(T_ADD), binary_op_handler(GET_TYPE(R_ADD)));
-    r_handlers.put(GET_TYPE(T_SUBTRACT), binary_op_handler(GET_TYPE(R_SUBTRACT)));
-    r_handlers.put(GET_TYPE(T_MULTIPLY), binary_op_handler(GET_TYPE(R_MULTIPLY)));
-    r_handlers.put(GET_TYPE(T_DIVIDE), binary_op_handler(GET_TYPE(R_DIVIDE)));
-    r_handlers.put(GET_TYPE(T_GREATER_THAN), binary_op_handler(GET_TYPE(R_GREATER_THAN)));
-    r_handlers.put(GET_TYPE(T_LESS_THAN), binary_op_handler(GET_TYPE(R_LESS_THAN)));
+    
 
     r_handlers.put(GET_TYPE(T_PRINT), [](g_ptr<r_node> result, r_context& ctx) {
         result->type = GET_TYPE(R_PRINT_CALL);
@@ -721,7 +822,6 @@ static void r_function_blob() {
         }
     });
 }
-
 
 static void exec_function_blob() {
     
@@ -743,33 +843,6 @@ static void exec_function_blob() {
             toPrint.append(r->value.to_string());
         }
         print(toPrint);
-        return ctx.node;
-    });
-
-    auto arithmetic_handler = [](auto operation, uint32_t result_type) {
-        return [operation, result_type](exec_context& ctx) -> g_ptr<r_node> {
-            execute_r_operation(ctx.node, operation, result_type, ctx.frame);
-            return ctx.node;
-        };
-    };
-
-    exec_handlers.put(GET_TYPE(R_ADD), arithmetic_handler([](auto a, auto b){ return a+b; }, GET_TYPE(INT)));
-    exec_handlers.put(GET_TYPE(R_SUBTRACT), arithmetic_handler([](auto a, auto b){ return a-b; }, GET_TYPE(INT)));
-    exec_handlers.put(GET_TYPE(R_MULTIPLY), arithmetic_handler([](auto a, auto b){ return a*b; }, GET_TYPE(INT)));
-    exec_handlers.put(GET_TYPE(R_DIVIDE), arithmetic_handler([](auto a, auto b){ return a/b; }, GET_TYPE(INT)));
-    exec_handlers.put(GET_TYPE(R_GREATER_THAN), arithmetic_handler([](auto a, auto b){ return a>b; }, GET_TYPE(BOOL)));
-    exec_handlers.put(GET_TYPE(R_LESS_THAN), arithmetic_handler([](auto a, auto b){ return a<b; }, GET_TYPE(BOOL)));
-
-    exec_handlers.put(GET_TYPE(R_PROP_ACCESS), [](exec_context& ctx) -> g_ptr<r_node> {
-        if(ctx.node->frame) {
-            ctx.node->value.data = Type::get(ctx.node->value.address, 
-                ctx.node->frame->slots.get(ctx.node->slot, "execute_r_node::prop_access"), 
-                ctx.node->value.size);
-            // print(ctx.node->value.address, "-", 
-            //     ctx.node->frame->slots.get(ctx.node->slot, "execute_r_node::prop_access"), 
-            //     " -> ", ctx.node->value.to_string());
-        }
-        else print("execute_r_node::1970 No frame in node for prop access");
         return ctx.node;
     });
 

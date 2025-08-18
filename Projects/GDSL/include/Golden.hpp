@@ -106,7 +106,7 @@ class Token : public Object {
 };
 
 static bool token_is_split(char c) {
-    return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<');
+    return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<'||c=='['||c==']');
 }
 
 static map<std::string,t_info> t_keys;
@@ -118,6 +118,9 @@ static void reg_t_key(std::string name,const t_info& info) {
 static void reg_t_key(std::string name,uint32_t enum_key,size_t size, uint32_t family_key) {
     reg_t_key(name,t_info(enum_key,size,family_key));
 }
+
+//Consider adding this in the future, if it's ever really needed
+//map<char,std::function<void()>> tokenizer_functions;
 
 
 static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') {
@@ -314,6 +317,14 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
                         token = make<Token>(GET_TYPE(RANGLE),">");
                         result << token;
                     break;
+                case '[':
+                        token = make<Token>(GET_TYPE(LBRACKET),"[");
+                        result << token;
+                break;
+                case ']':
+                        token = make<Token>(GET_TYPE(RBRACKET),"]");
+                        result << token;
+                break;
                 case '{':
                         token = make<Token>(GET_TYPE(LBRACE),"{");
                         result << token;

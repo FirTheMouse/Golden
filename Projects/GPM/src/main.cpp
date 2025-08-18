@@ -135,7 +135,8 @@ int main()
 {
     using namespace Golden;
 
-    Window window = Window(1280, 768, "GPM 0.1.0");
+    //Window window = Window(1280, 768, "GPM 0.1.0");
+    Window window = Window(100, 70, "GPM 0.1.0");
     auto scene = make<Scene>(window,1);
     scene->camera.speedMod = 0.01f;
 

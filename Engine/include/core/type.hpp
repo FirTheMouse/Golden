@@ -29,6 +29,8 @@ struct byte32_t { uint8_t data[32]; };
 struct byte64_t { uint8_t data[64]; };
 
 class Type : public q_object {
+private:
+    bool isArray = false; //Strategy flip default is MAP
 public:
     Type() {
         free_stack_top.store(0);
@@ -36,9 +38,12 @@ public:
 
     ~Type() {}
 
+    bool is_array() {return isArray;}
+
     list<g_ptr<Object>> objects;
 
     map<std::string,_note> notes; // Where reflection info is stored
+    list<_note> array; //Ordered array for usage of Type as a MultiArray
 
 
     list<list<uint8_t>> byte1_columns;     // bool, char (1 byte)
@@ -48,39 +53,49 @@ public:
     list<list<byte32_t>> byte32_columns; // strings, medium objects (32 bytes)
     list<list<byte64_t>> byte64_columns; // mat4, large objects (64 bytes)
 
+
     //In the future, add a fallback path for larger data sizes, similar to Bevy's system by not using list but instead manual
     //managment and a size tab in the column itself
 
+    //May want to make an "expand" function, objects alreay do this via store, but adding a value to each so set has data to copy onto
+    //when doing raw opperation via the ARRAY or MAP strategy
 
-    void note_value(size_t size, const std::string& name) {
-        value_ value(size,name);
-        note_value(value);
-    }
+    //Consider splitting the stratgeies into their own types of Type via inhereitence, I'm doing it manual right now because I prefer
+    //composition, but it may be better to have all this in constructers and private methods.
 
+
+    /// @brief For use in the MAP strategy
     void note_value(value_& value) {
         switch(value.size) {
             case 1: 
-            {_note note(byte1_columns.length(),1); byte1_columns.push(list<uint8_t>()); notes.put(value.name,note);}
+            {_note note(byte1_columns.length(),1); byte1_columns.push(list<uint8_t>()); notes.put(value.name,note); array<<note;}
             break;
             case 4: 
-            {_note note(byte4_columns.length(),4); byte4_columns.push(list<uint32_t>()); notes.put(value.name,note);}
+            {_note note(byte4_columns.length(),4); byte4_columns.push(list<uint32_t>()); notes.put(value.name,note); array<<note;}
             break;
             case 8: 
-            {_note note(byte8_columns.length(),8); byte8_columns.push(list<uint64_t>()); notes.put(value.name,note);}
+            {_note note(byte8_columns.length(),8); byte8_columns.push(list<uint64_t>()); notes.put(value.name,note); array<<note;}
             break;
             case 16: 
-            {_note note(byte16_columns.length(),16); byte16_columns.push(list<byte16_t>()); notes.put(value.name,note);}
+            {_note note(byte16_columns.length(),16); byte16_columns.push(list<byte16_t>()); notes.put(value.name,note); array<<note;}
             break;
             case 32: 
-            {_note note(byte32_columns.length(),32); byte32_columns.push(list<byte32_t>()); notes.put(value.name,note);}
+            {_note note(byte32_columns.length(),32); byte32_columns.push(list<byte32_t>()); notes.put(value.name,note); array<<note;}
             break;
             case 64: 
-            {_note note(byte64_columns.length(),64); byte64_columns.push(list<byte64_t>()); notes.put(value.name,note);}
+            {_note note(byte64_columns.length(),64); byte64_columns.push(list<byte64_t>()); notes.put(value.name,note); array<<note;}
             break;
             default: print("note_value::170 Invalid value size, name: ",value.name," size: ",value.size); break;
         }
     }
 
+    /// @brief For use in the MAP strategy
+    void note_value(size_t size, const std::string& name) {
+        value_ value(size,name);
+        note_value(value);
+    }
+
+    /// @brief For use in the MAP strategy
     void* adress_column(const std::string& name) {
         _note note = notes.getOrDefault(name,note_fallback);
         switch(note.size) {
@@ -148,6 +163,74 @@ public:
         
         return *(T*)data_ptr;
     }
+
+    /// @brief Primes all of the columns so this Type can be used as an array
+    void to_array() {
+        byte1_columns.push(list<uint8_t>());
+        byte4_columns.push(list<uint32_t>());
+        byte8_columns.push(list<uint64_t>());
+        byte16_columns.push(list<byte16_t>());
+        byte32_columns.push(list<byte32_t>());
+        byte64_columns.push(list<byte64_t>());
+        isArray = true;
+    }
+
+    /// @brief For use in the ARRAY strategy
+    void push(void* value, size_t size,int t = 0) {
+        //Add saftey checks around if this isArray stratgey is active, and if t<list size
+        switch(size) {
+            case 1: 
+            {_note note(byte1_columns[t].length(),1); byte1_columns[t].push(*(uint8_t*)value); array<<note;}
+            break;
+            case 4: 
+            {_note note(byte4_columns[t].length(),4); byte4_columns[t].push(*(uint32_t*)value); array<<note;}
+            break;
+            case 8: 
+            {_note note(byte8_columns[t].length(),8); byte8_columns[t].push(*(uint64_t*)value); array<<note;}
+            break;
+            case 16: 
+            {_note note(byte16_columns[t].length(),16); byte16_columns[t].push(*(byte16_t*)value); array<<note;}
+            break;
+            case 32: 
+            {_note note(byte32_columns[t].length(),32); byte32_columns[t].push(*(byte32_t*)value); array<<note;}
+            break;
+            case 64: 
+            {_note note(byte64_columns[t].length(),64); byte64_columns[t].push(*(byte64_t*)value); array<<note;}
+            break;
+            default: print("grow_one::75 Invalid value size: ",size); break;
+        }
+    }
+    
+    template<typename T>
+    void push(T value) {
+        push(&value,sizeof(T));
+    }
+
+
+
+     /// @brief For use in the ARRAY strategy
+     void* get(int index,int t = 0) {
+            _note note = array.get(index);
+            // print("S: ",note.size," I:",note.index);
+            switch(note.size) {
+                case 0: return nullptr; //print("adress_column::84 Note not found for ",name); 
+                case 1: return &byte1_columns[t][note.index];
+                case 4: return &byte4_columns[t][note.index];
+                case 8: return &byte8_columns[t][note.index];
+                case 16: return &byte16_columns[t][note.index];
+                case 32: return &byte32_columns[t][note.index];
+                case 64: return &byte64_columns[t][note.index];
+                default: print("adress_column::91 Invalid note size ",note.size); return nullptr;
+            }
+    }
+
+    /// @brief For use in the ARRAY strategy
+    template<typename T>
+    T& get(int index) {
+        return *(T*)get(index);
+    }
+
+    
 
     std::string type_name = "bullets";
     list< std::function<void(g_ptr<Object>)> > init_funcs;

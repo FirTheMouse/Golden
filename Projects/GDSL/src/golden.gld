@@ -1,6 +1,1 @@
-type person {
-    string name = "noname";
-}
-
-person joe;
-joe.name = "Joe";
+int(3);

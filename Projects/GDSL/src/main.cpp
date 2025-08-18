@@ -137,19 +137,26 @@ void benchmark_bulk_operations() {
     std::cout << "Speed speedup: " << (double)cpp_speed_time.count() / type_speed_time.count() << "x\n";
 }
 
-struct man {
-    std::string name = "noname";
-};
+double time_function(int ITERATIONS,std::function<void(int)> process) {
+    auto start = std::chrono::high_resolution_clock::now();
+    for(int i=0;i<ITERATIONS;i++) {
+        process(i);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+    return (double)time.count();
+}
 
 int main() {
 
-    int mode = 0; //0 == Compile and run, 1 == benchmark // 2 == testing
+    int mode = 2; //0 == Compile and run, 1 == benchmark // 2 == testing
 
     if(mode==0) {
         base_module::initialize();
-        opperator_module::initialize();
         variables_module::initialize();
         literals_module::initialize();
+        opperator_module::initialize();
+        property_module::initialize();
         reg_b_types();
         init_t_keys();
         std::string code = readFile("../Projects/GDSL/src/golden.gld");
@@ -171,80 +178,373 @@ int main() {
         r_function_blob();
         exec_function_blob();
         g_ptr<Frame> frame = resolve_symbols(root);
-
-        const int ITERATIONS = 1000; // Run multiple times for statistical validity
-
-        // C++ baseline
-        auto start = std::chrono::high_resolution_clock::now();
-            struct person {
-                std::string name = "noname";
-            };
-            person joe;
-            joe.name = "Joe";
-        auto end = std::chrono::high_resolution_clock::now();
-        auto cpp_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-
-        start = std::chrono::high_resolution_clock::now();
-            execute_r_nodes(frame); 
-        end = std::chrono::high_resolution_clock::now();
-        auto golden_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-
-        print("C++: ", cpp_time.count()," ns per execution\n");
-        print("Golden: ", golden_time.count()," ns per execution\n");
-        print("Slowdown: ", (double)golden_time.count() / cpp_time.count(), "x\n");
-
+        execute_r_nodes(frame); 
     }
     else if (mode==1) {
         benchmark_performance();
         benchmark_bulk_operations();
+        // g_ptr<Type> test = make<Type>();
+        // test->to_array();
+        // bool a = 1;
+        // bool b = 0;
+        // test->push<bool>(a);
+        // test->push<bool>(b);
+        // print(test->get<bool>(0));
+        // print(test->get<bool>(1));
     }
     else if (mode==2) {
-       volatile size_t c = 0;
-       int ITERATIONS = 100;
-       int MAP_SIZE = 500;
-       map<int,int> test_map;
-       for(size_t i = 0; i < MAP_SIZE; i++) {
-          test_map.put(i,i);
-       }
-       auto process_get = [&](volatile size_t& c) {
-        int k = c+1;
-        if(test_map.hasKey(k)) {
-            c = test_map.get(k);
-        }
-        else {
-            //Do nothing
-        }
-       };
-       auto start = std::chrono::high_resolution_clock::now();
-       for(int i=0;i<ITERATIONS;i++) {
-            process_get(c);
-       }
-       auto end = std::chrono::high_resolution_clock::now();
-       auto get_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        #define USE_BOOL 0
+        #define USE_INT 1
+        for(int m = 0;m<2;m++) {
 
-       size_t t = reg::new_type("TEST");
-       auto process_direct = [&](volatile size_t& c) {
-        int k = c+1;
-        try {
-            c = test_map.get(k);
-        }
-        catch(std::exception e) {
-            //Do nothing
-        }
-       };
-       start = std::chrono::high_resolution_clock::now();
-       for(int i=0;i<ITERATIONS;i++) {
-            process_direct(c);
-       }
-       end = std::chrono::high_resolution_clock::now();
-       auto direct_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        double vector_time_push_avg = 0;
+        double vector_time_avg = 0;
+        double list_time_push_avg = 0;
+        double list_time_avg = 0;
+        double type_time_push_avg = 0;
+        double type_time_avg = 0;
 
-       print("GET_TYPE: ",get_time.count()," ns (" ,get_time.count() / ITERATIONS," ns per operation)\n");
-       print("DIRECT: ",direct_time.count()," ns (" ,direct_time.count() / ITERATIONS," ns per operation)\n");
-       print("Slowdown factor: ",(double)get_time.count() / direct_time.count(),"x\n");
+        int ITERATIONS = 1000;
+        int C_ITERATIONS = m==0?1:500;
 
+        for(int c = 0;c<C_ITERATIONS;c++)
+        {
+        int value = 0;
+        #if USE_BOOL
+        std::vector<bool> v_test;
+        #endif
+        #if USE_INT
+        std::vector<int> v_test_2;
+        #endif
+        double vector_time_push = time_function(ITERATIONS,[&](int i){
+            #if USE_BOOL
+            v_test.push_back(i%2);
+            #endif
+            #if USE_INT
+            v_test_2.push_back(i);
+            #endif
+        });
+        vector_time_push_avg+=vector_time_push;
+        vector_time_push_avg/=(c+1);
+        double vector_time = time_function(ITERATIONS,[&](int i){
+            #if USE_BOOL
+            volatile bool b = v_test[i];
+            b=!b;
+            #endif
+            #if USE_INT
+            volatile int a = v_test_2[i];
+            value+=a;
+            #endif
+        });
+        vector_time_avg+=vector_time;
+        vector_time_avg/=(c+1);
+
+        #if USE_BOOL
+        list<bool> l_test;
+        #endif
+        #if USE_INT
+        list<int> l_test_2;
+        #endif
+        double list_time_push = time_function(ITERATIONS,[&](int i){
+            #if USE_BOOL
+            l_test << i%2;
+            #endif
+            #if USE_INT
+            l_test_2 << i;
+            #endif
+        });
+        list_time_push_avg+=list_time_push;
+        list_time_push_avg/=(c+1);
+        double list_time = time_function(ITERATIONS,[&](int i){
+            #if USE_BOOL
+            volatile bool b = l_test[i];
+            b=!b;
+            #endif
+            #if USE_INT
+            volatile int a = l_test_2[i];
+            value+=a;
+            #endif
+        });
+        list_time_avg+=list_time;
+        list_time_avg/=(c+1);
+        
+        //Lunchbox pattern
+        g_ptr<Type> t_test = make<Type>();
+        #if USE_BOOL
+        t_test->note_value(1,"bool");
+        #endif
+        #if USE_INT
+        t_test->note_value(4,"int");
+        #endif
+        #if USE_BOOL
+        auto* bool_list = (list<uint8_t>*)t_test->adress_column("bool");
+        #endif
+        #if USE_INT
+        auto* int_list = (list<uint32_t>*)t_test->adress_column("int");
+        #endif
+        list<g_ptr<Object>> t_objs;
+        double type_time_push = time_function(ITERATIONS,[&](int i){
+            //auto object = t_test->create();
+            #if USE_BOOL
+                t_test->byte4_columns[0].push(uint8_t{});
+                bool b = false;
+                t_test->set(bool_list,&b,i,1);
+            #endif
+            #if USE_INT
+                t_test->byte4_columns[0].push(uint16_t{});
+                int j = 4;
+                t_test->set(int_list,&j,i,4);
+            #endif
+            //t_objs << object;
+        });
+        type_time_push_avg+=type_time_push;
+        type_time_push_avg/=(c+1);
+        double type_time = time_function(ITERATIONS,[&](int i){
+            #if USE_BOOL
+            volatile bool b = *(bool*)&bool_list[i]; //Lunchbox pattern
+            b=!b;
+            #endif
+            #if USE_INT
+            volatile int a = *(int*)&int_list[i]; //Lunchbox pattern
+            value+=a;
+            #endif
+        });
+        type_time_avg+=type_time;
+        type_time_avg/=(c+1);
+
+        //Array pattern
+        // g_ptr<Type> t_test = make<Type>();
+        // t_test->to_array();
+        // double type_time_push = time_function(ITERATIONS,[&](int i){
+        //     #if USE_BOOL
+        //         t_test->push<bool>(1);
+        //     #endif
+        //     #if USE_INT
+        //         t_test->push<int>(4);
+        //     #endif
+        // });
+        // type_time_push_avg+=type_time_push;
+        // type_time_push_avg/=(c+1);
+        // double type_time = time_function(ITERATIONS,[&](int i){
+        //     #if USE_BOOL
+        //     volatile bool b = t_test->get<bool>(i); //Array pattern
+        //     b=!b;
+        //     #endif
+        //     #if USE_INT
+        //     volatile int a = t_test->get<int>(i); //Array pattern
+        //     a=(a+1);
+        //     #endif
+        // });
+        // type_time_avg+=type_time;
+        // type_time_avg/=(c+1);
+
+        //Map pattern
+        // g_ptr<Type> t_test = make<Type>();
+        // #if USE_BOOL
+        // t_test->note_value(1,"bool");
+        // #endif
+        // #if USE_INT
+        // t_test->note_value(4,"int");
+        // #endif
+        // list<g_ptr<Object>> t_objs;
+        // double type_time_push = time_function(ITERATIONS,[&](int i){
+        //     auto object = t_test->create();
+        //     #if USE_BOOL
+        //         t_test->set<bool>("bool",1,object->ID);
+        //     #endif
+        //     #if USE_INT
+        //         t_test->set<int>("int",4,object->ID);
+        //     #endif
+        //     t_objs << object;
+        // });
+        // type_time_push_avg+=type_time_push;
+        // type_time_push_avg/=(c+1);
+        // double type_time = time_function(ITERATIONS,[&](int i){
+        //     #if USE_BOOL
+        //     volatile bool b = t_test->get<bool>("bool",t_objs[i]->ID); //Map pattern
+        //     b=!b;
+        //     #endif
+        //     #if USE_INT
+        //     volatile int a = t_test->get<int>("int",t_objs[i]->ID); //Map pattern
+        //     a=(a+1);
+        //     #endif
+        // });
+        // type_time_avg+=type_time;
+        // type_time_avg/=(c+1);
+    }
+
+    print(m==0 ? "==COLD==" : "==WARM==");
+    print(" VECTOR_PUSH: ",vector_time_push_avg," ns (" ,vector_time_push_avg / ITERATIONS," ns per operation)");
+    print(" LIST_PUSH: ",list_time_push_avg," ns (" ,list_time_push_avg / ITERATIONS," ns per operation)");
+    print(" TYPE_PUSH: ",type_time_push_avg," ns (" ,type_time_push_avg / ITERATIONS," ns per operation)");
+    print(" Slowdown L/V factor push: ",list_time_push_avg / vector_time_push_avg,"x");
+    print(" Slowdown T/L factor push: ",type_time_push_avg / list_time_push_avg,"x");
+    print(" Slowdown T/V factor push: ",type_time_push_avg / vector_time_push_avg,"x\n");
+    
+    print(" VECTOR: ",vector_time_avg," ns (" ,vector_time_avg / ITERATIONS," ns per operation)");
+    print(" LIST: ",list_time_avg," ns (" ,list_time_avg / ITERATIONS," ns per operation)");
+    print(" TYPE: ",type_time_avg," ns (" ,type_time_avg / ITERATIONS," ns per operation)");
+    print(" Slowdown L/V factor: ",list_time_avg / vector_time_avg,"x");
+    print(" Slowdown T/L factor: ",type_time_avg / list_time_avg,"x");
+    print(" Slowdown T/V factor: ",type_time_avg / vector_time_avg,"x\n");
+    }
     }
 
     print("==DONE==");
     return 0;
 }
+
+
+// g_ptr<Type> data
+//         template<typename T = std::string>
+//         T get(const std::string& label)
+//         { return data->get<T>(label, 0); }
+
+//         template<typename T = std::string>
+//         void add(const std::string& label, T info)
+//         { 
+//             if (!data->notes.hasKey(label)) {
+//                 data->note_value(sizeof(T), label);
+//             }
+//             data->set<T>(label, info, 0);
+//         }
+
+//         template<typename T = std::string>
+//         void set(const std::string& label, T info)
+//         { 
+//             if (!data->notes.hasKey(label)) {
+//                 data->note_value(sizeof(T), label);
+//             }
+//             data->set<T>(label, info, 0);
+//         }
+
+//         bool has(const std::string& label)
+//         { return data->notes.hasKey(label); }
+
+//         /// @brief  starts false, switches on each call
+//         bool toggle(const std::string& label) {
+//             if (!has(label)) set<bool>(label, true);
+//             bool toReturn = !get<bool>(label);
+//             set<bool>(label, toReturn);
+//             return toReturn;
+//         }
+
+//         bool check(const std::string& label) {
+//             if (!has(label)) return false;
+//             try {
+//                 return get<bool>(label);
+//             }
+//             catch(std::exception e) {
+//                 print("Object::check Attempted to check a non-bool");
+//                 return false;
+//             }
+//         }
+
+//         void flagOn(const std::string& label) { set<bool>(label, true); }
+//         void flagOff(const std::string& label) { set<bool>(label, false); }
+
+//         template<typename T = int>
+//         T inc(const std::string& label, T by)
+//         { 
+//             if (has(label)) {
+//                 T current = get<T>(label);
+//                 set<T>(label, current + by);
+//             } else {
+//                 add<T>(label, by);
+//             }
+//             return get<T>(label);
+//         }
+
+
+// g_ptr<Type> t_test = make<Type>();
+//         t_test->to_array();
+//         double type_time_push = time_function(ITERATIONS,[&](int i){
+//             #if USE_BOOL
+//             t_test->push<bool>(i%2);
+//             #endif
+//             #if USE_INT
+//             t_test->push<int>(i);
+//             #endif
+//         });
+//         type_time_push_avg+=type_time_push;
+//         type_time_push_avg/=(c+1);
+//         double type_time = time_function(ITERATIONS,[&](int i){
+//             #if USE_BOOL
+//             volatile bool b = t_test->get<bool>(i);
+//             b=!b;
+//             #endif
+//             #if USE_INT
+//             volatile int a = t_test->get<int>(i);
+//             a=(a+1);
+//             #endif
+//         });
+//         type_time_avg+=type_time;
+//         type_time_avg/=(c+1);
+
+
+// #if USE_BOOL
+// list<bool> l_test;
+// #endif
+// #if USE_INT
+// list<int> l_test_2;
+// #endif
+// list<g_ptr<Object>> objs;
+// double list_time_push = time_function(ITERATIONS,[&](int i){
+//     auto object = make<Object>();
+//     #if USE_BOOL
+//         object->set<bool>("bool",1);
+//     #endif
+//     #if USE_INT
+//         object->set<int>("int",4);
+//     #endif
+//     objs << object;
+// });
+// list_time_push_avg+=list_time_push;
+// list_time_push_avg/=(c+1);
+// double list_time = time_function(ITERATIONS,[&](int i){
+//     #if USE_BOOL
+//     volatile bool b = objs[i]->get<bool>("bool");
+//     b=!b;
+//     #endif
+//     #if USE_INT
+//     volatile int a = objs[i]->get<int>("int");
+//     a=(a+1);
+//     #endif
+// });
+// list_time_avg+=list_time;
+// list_time_avg/=(c+1);
+
+
+    // print("VECTOR_PUSH: ",vector_time_push," ns (" ,vector_time_push / ITERATIONS," ns per operation)");
+    // print("LIST_PUSH: ",list_time_push," ns (" ,list_time_push / ITERATIONS," ns per operation)");
+    // print("TYPE_PUSH: ",type_time_push," ns (" ,type_time_push / ITERATIONS," ns per operation)");
+    // print("Slowdown L/V factor push: ",list_time_push / vector_time_push,"x");
+    // print("Slowdown T/L factor push: ",type_time_push / list_time_push,"x\n");
+    
+    // print("VECTOR: ",vector_time," ns (" ,vector_time / ITERATIONS," ns per operation)");
+    // print("LIST: ",list_time," ns (" ,list_time / ITERATIONS," ns per operation)");
+    // print("TYPE: ",type_time," ns (" ,type_time / ITERATIONS," ns per operation)");
+    // print("Slowdown L/V factor: ",list_time / vector_time,"x");
+    // print("Slowdown T/L factor: ",type_time / list_time,"x\n");
+
+    //    const int ITERATIONS = 1000; // Run multiple times for statistical validity
+
+    //     // C++ baseline
+    //     auto start = std::chrono::high_resolution_clock::now();
+    //         struct person {
+    //             std::string name = "noname";
+    //         };
+    //         person joe;
+    //         joe.name = "Joe";
+    //     auto end = std::chrono::high_resolution_clock::now();
+    //     auto cpp_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+    //     start = std::chrono::high_resolution_clock::now();
+    //         execute_r_nodes(frame); 
+    //     end = std::chrono::high_resolution_clock::now();
+    //     auto golden_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+
+    //     print("C++: ", cpp_time.count()," ns per execution\n");
+    //     print("Golden: ", golden_time.count()," ns per execution\n");
+    //     print("Slowdown: ", (double)golden_time.count() / cpp_time.count(), "x\n");
+
