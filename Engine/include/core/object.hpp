@@ -7,14 +7,10 @@
 #include<util/q_map.hpp>
 #include<util/q_any.hpp>
 
-#define IS_LANG 1
-
 
 namespace Golden {
 
-#if IS_LANG
-   class Type;
-#endif
+class Type;
 
 
 class q_data : public q_object {
@@ -212,9 +208,7 @@ class Object : virtual public q_object {
             for(auto s : scripts.getAll(type)) s.run(ctx);
         }
     
-        #if IS_LANG 
-            Type* type_ = nullptr;
-        #endif
+        Type* type_ = nullptr;
 
         Object() {
             data = make<q_data>();

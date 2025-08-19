@@ -105,9 +105,11 @@ class Token : public Object {
          }
 };
 
-static bool token_is_split(char c) {
-    return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<'||c=='['||c==']');
-}
+// static bool token_is_split(char c) {
+//     return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<'||c=='['||c==']');
+// }
+
+map<char,bool> char_is_split;
 
 static map<std::string,t_info> t_keys;
 
@@ -155,7 +157,7 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
             ++it;
         }
         else if(state==IN_IDENTIFIER) {
-            if(c==end_char||c=='.'||token_is_split(c)) {
+            if(c==end_char||c=='.'||char_is_split.hasKey(c)) {
                 state=OPEN;
                 check_type();
                 continue;
@@ -170,7 +172,7 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
             ++it;
         }
         else if(state==IN_NUMBER) {
-            if(c==end_char||token_is_split(c)) {
+            if(c==end_char||char_is_split.hasKey(c)) {
                 state=OPEN;
                 continue;
             }
@@ -1061,11 +1063,11 @@ static void discover_var_decleration(g_ptr<t_node> node, g_ptr<s_node> root,size
             root->type_map.put(node->name,type);
         }
         root->slot_map.put(node->name,root->slot_map.size());
-        root->type_ref->note_value(sizeof(size_t), node->name); 
+        root->type_ref->note_value(node->name,sizeof(size_t)); 
         //Need size map entry here too?
     }
     else {
-        root->type_ref->note_value(node->value.size,node->name);
+        root->type_ref->note_value(node->name,node->value.size);
         root->size_map.put(node->name,node->value.size);
         root->o_type_map.put(node->name,node->value.type);
     }

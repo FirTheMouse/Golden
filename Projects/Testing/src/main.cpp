@@ -1,9 +1,166 @@
 #include <chrono>
 #include <iostream>
 
+#include<core/type.hpp>
+
+
+double time_function(int ITERATIONS,std::function<void(int)> process) {
+    auto start = std::chrono::high_resolution_clock::now();
+    for(int i=0;i<ITERATIONS;i++) {
+        process(i);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+    return (double)time.count();
+}
+
+void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps) {
+    list<list<double>> t_table;
+
+    for(int c=0;c<f_table.length();c++) {
+        t_table.push(list<double>{});
+        for(int r=0;r<f_table[c].length();r++) {
+            t_table[c].push(0.0);
+        }
+    }
+
+    for(int m = 0;m<2;m++) {
+        int ITERATIONS = 1000;
+        int C_ITERATIONS = m==0?1:500;
+
+        for(int c=0;c<t_table.length();c++) {
+            for(int r=0;r<t_table[c].length();r++) {
+                t_table[c][r]=0.0;
+            }
+        }
+
+        for(int i = 0;i<C_ITERATIONS;i++)
+        {
+            for(int c=0;c<f_table.length();c++) {
+                for(int r=0;r<f_table[c].length();r++) {
+                    double time = time_function(ITERATIONS,f_table[c][r]);
+                    t_table[c][r]+=time;
+                }
+            }
+        }
+        print(m==0 ? "      ==COLD==" : "       ==WARM==");
+        print("-------------------------");
+        for(int c=0;c<t_table.length();c++) {
+            for(int r=0;r<t_table[c].length();r++) {
+                t_table[c][r]/=C_ITERATIONS;
+                print(s_table[c][r],": ",t_table[c][r],"ns (",t_table[c][r] / ITERATIONS," ns per operation)");
+            }
+            print("-------------------------");
+        }
+        for(auto v : comps) {
+            double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
+            std::string sfs;
+            double tolerance = 5.0;
+            if (std::abs(factor - 1.0) < tolerance/100.0) {
+                sfs = "around the same as ";
+            } else if (factor > 1.0) {
+                double percentage = (factor - 1.0) * 100.0;
+                sfs = std::to_string(percentage) + "% slower than ";
+            } else {
+                double percentage = (1.0/factor - 1.0) * 100.0;
+                sfs = std::to_string(percentage) + "% faster than ";
+            }
+            print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
+            "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
+        }
+        print("-------------------------");
+
+    }
+}
+
+
+
 int main() {
 
-    // //g_ptr<s_node> test_script = compile_script("../Projects/Testing/src/golden.gld");
+
+    list<list<std::function<void(int)>>> f_table;
+    list<list<std::string>> s_table;
+    list<vec4> comps;
+
+    int z = 0;
+    f_table << list<std::function<void(int)>>{};
+    s_table << list<std::string>{};
+    g_ptr<Type> data = make<Type>();
+    z = 0;
+    s_table[z] << "T(A)-push";
+    f_table[z] << [data](int i){
+        data->push<int>(i);
+    };
+    s_table[z] << "T-mGet";
+    f_table[z] << [data](int i){
+        volatile int a = data->get<int>(std::to_string(i));
+    };
+    s_table[z] << "T-aGet";
+    f_table[z] << [data](int i){
+        volatile int a = data->get<int>(i);
+    };
+
+    f_table << list<std::function<void(int)>>{};
+    s_table << list<std::string>{};
+    g_ptr<Type> data2 = make<Type>();
+    z = 1;
+    s_table[z] << "T-add_alt";
+    f_table[z] << [data2](int i){
+        data2->add<int>(std::to_string(i),i,i%2);
+    };
+    s_table[z] << "T-mGet_alt";
+    f_table[z] << [data2](int i){
+        volatile int a = data2->get<int>(std::to_string(i));
+    };
+    s_table[z] << "T-aGet_alt";
+    f_table[z] << [data2](int i){
+        volatile int a = data2->get<int>(i);
+    };
+    comps << vec4(0,0 , 1,0);
+    comps << vec4(0,1 , 1,1);
+    comps << vec4(0,2 , 1,2);
+    run_rig(f_table,s_table,comps);
+
+    // g_ptr<Type> t = make<Type>();
+    // //Universal push
+    // t->add<int>("num",4);
+    // t->add<int>("num2",8);
+    // t->add<double>("num3",8.0001);
+    // t->add<std::string>("string","word");
+
+    // //Data pattern
+    // print("Num: ",t->get<int>("num"));
+    // print("Num2: ",t->get<int>("num2"));
+    // print("Num3: ",t->get<double>("num3"));
+    // print("String: ",t->get<std::string>("string"));
+
+    // //Array pattern
+    // print("0: ",t->get<int>(0));
+    // print("1: ",t->get<int>(1));
+    // print("2: ",t->get<double>(2));
+    // print("3: ",t->get<std::string>(3),"\n");
+
+    // //Map pattern
+    // print(t->get<int>("num",0));
+
+    // //Lunchbox pattern
+    // auto* a_list = (list<uint32_t>*)t->adress_column("num");
+    // print((int)(*a_list)[0]);
+    // print((int)(*a_list)[1]);
+
+    // //Lunchbox/Map push
+    // t->add_rows(4);
+    // int j = 7;
+    // t->set(a_list,&j,0,4);
+
+    // //Array push
+    // t->push<int>(7);
+
+    return 0;
+}
+
+
+// //g_ptr<s_node> test_script = compile_script("../Projects/Testing/src/golden.gld");
 
     // reg_b_types();
     // init_t_keys();
@@ -52,10 +209,6 @@ int main() {
     // *people << joe; //Will be: people << joe;
     // auto man = (*people)[0]; //Will be: man people[0];
     // //print(man->get<int>("age")); //Will be: print(man.age);
-
-    return 0;
-}
-
 
 // struct Transpiler {
 //     map<std::string,std::string> symbols;

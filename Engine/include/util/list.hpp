@@ -6,6 +6,7 @@
 #include <string>
 #include <functional>
 
+#define DISABLE_BOUNDS_CHECK 1
 
 //In the future, review changing the increment levels for push to prevent runaway growth
 //and optimize performance
@@ -100,20 +101,20 @@ public:
     }
     
 
-    virtual ~list() {
+    ~list() {
         destroy();
     }
 
-    size_t length() const {return size_;}
-    size_t size() const {return size_;}
-    size_t space() const { return capacity_; }
-    size_t capacity() const { return capacity_; }
-    bool empty() const {return length()==0;}
-    T& last() {return ptr[size_-1];}
-    T& first() {return ptr[0];}
+    inline size_t length() const {return size_;}
+    inline size_t size() const {return size_;}
+    inline size_t space() const { return capacity_; }
+    inline size_t capacity() const { return capacity_; }
+    inline bool empty() const {return length()==0;}
+    inline T& last() {return ptr[size_-1];}
+    inline T& first() {return ptr[0];}
 
-    T* begin() {return ptr;}
-    T* end() {return ptr+size_;}
+    inline T* begin() {return ptr;}
+    inline T* end() {return ptr+size_;}
 
     void pushAll(const list<T>& input) {
         for(int i = 0;i<input.size_;i++)
@@ -260,7 +261,7 @@ public:
     }
 
     template<typename TT>
-    void push(TT&& value) {
+    inline void push(TT&& value) {
         if (size_ >= capacity_) 
         {
         capacity_ = capacity_ == 0 ? 4 : capacity_ * 2; 
@@ -338,34 +339,44 @@ public:
     }
 
     // T& rand() {return }
-
-    T& get(size_t index) {
+    
+    inline T& get(size_t index) {
         if(index >= size_) {
             throw std::out_of_range("Util 265: List out of Bounds");
         }
         return ptr[index];
     }
 
-    const T& get(size_t index) const {
+    inline const T& get(size_t index) const {
         if(index >= size_) {
             throw std::out_of_range("Util 268: List out of Bounds");
         }
         return ptr[index];
     }
 
-    T& get(size_t index,const std::string& from) {
+    inline T& get(size_t index,const std::string& from) {
         if(index >= size_) {
             throw std::out_of_range("Util 275: List out of Bounds from \n  "+from);
         }
         return ptr[index];
     }
 
-    T& operator[](size_t index) {
-      return get(index);
+    inline T& operator[](size_t index) {
+    #if !DISABLE_BOUNDS_CHECK
+    if(index >= size_) {
+        throw std::out_of_range("Util 265: List out of Bounds");
+    }
+    #endif
+      return ptr[index];
     }
 
-    const T& operator[](size_t index) const {
-        return get(index);
+    inline const T& operator[](size_t index) const {
+    #if !DISABLE_BOUNDS_CHECK
+        if(index >= size_) {
+            throw std::out_of_range("Util 268: List out of Bounds");
+        }
+    #endif
+        return ptr[index];
     }
 
     template<typename TT>

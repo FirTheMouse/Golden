@@ -112,7 +112,12 @@ namespace property_module {
 
 namespace opperator_module {
     static void initialize() {
-
+    //Consider instead a central registry system, wherein we encode information like split charchteristics and family in one struct
+    char_is_split.put('+',true); char_is_split.put('-',true); char_is_split.put('/',true); char_is_split.put('%',true);
+    char_is_split.put('(',true); char_is_split.put(')',true); char_is_split.put(',',true); char_is_split.put('=',true);
+    char_is_split.put('>',true); char_is_split.put('<',true); char_is_split.put('[',true); char_is_split.put(']',true);
+   
+    
 
     size_t plus_id = reg::new_type("PLUS"); 
     size_t minus_id = reg::new_type("MINUS"); 

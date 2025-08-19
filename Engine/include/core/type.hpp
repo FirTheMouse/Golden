@@ -1,7 +1,6 @@
 #pragma once
 
 #include <core/object.hpp>
-#include <util/group.hpp>
 #include <util/util.hpp>
 
 
@@ -18,14 +17,16 @@ struct value_ {
 struct _note {
     _note() {}
     _note(int _index, size_t _size) : index(_index), size(_size) {}
+    _note(int _index, size_t _size, int _sub_index) : index(_index), size(_size), sub_index(_sub_index) {}
     int index = 0;
+    int sub_index = 0;
     size_t size = 0;
 };
 
 static _note note_fallback;
 
 struct byte16_t { uint8_t data[16]; };
-struct byte32_t { uint8_t data[32]; };
+struct byte24_t { uint8_t data[24]; };
 struct byte64_t { uint8_t data[64]; };
 
 class Type : public q_object {
@@ -42,57 +43,170 @@ public:
 
     list<g_ptr<Object>> objects;
 
+    //Consider making notes be uint32_t,_note, and have all the puts pre-hash, this will allow us to do enum notes and avoid the string stuff
     map<std::string,_note> notes; // Where reflection info is stored
     list<_note> array; //Ordered array for usage of Type as a MultiArray
 
-
+    size_t sizes[6] = {1,4,8,16,24,64};
     list<list<uint8_t>> byte1_columns;     // bool, char (1 byte)
     list<list<uint32_t>> byte4_columns;    // int, float (4 bytes)  
     list<list<uint64_t>> byte8_columns;    // double, pointers (8 bytes)
     list<list<byte16_t>> byte16_columns; // vec4, padded vec3 (16 bytes)
-    list<list<byte32_t>> byte32_columns; // strings, medium objects (32 bytes)
+    list<list<byte24_t>> byte24_columns; // strings, list, medium objects (24 bytes)
     list<list<byte64_t>> byte64_columns; // mat4, large objects (64 bytes)
 
 
     //In the future, add a fallback path for larger data sizes, similar to Bevy's system by not using list but instead manual
     //managment and a size tab in the column itself
 
-    //May want to make an "expand" function, objects alreay do this via store, but adding a value to each so set has data to copy onto
-    //when doing raw opperation via the ARRAY or MAP strategy
-
     //Consider splitting the stratgeies into their own types of Type via inhereitence, I'm doing it manual right now because I prefer
     //composition, but it may be better to have all this in constructers and private methods.
 
-
-    /// @brief For use in the MAP strategy
-    void note_value(value_& value) {
-        switch(value.size) {
-            case 1: 
-            {_note note(byte1_columns.length(),1); byte1_columns.push(list<uint8_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            case 4: 
-            {_note note(byte4_columns.length(),4); byte4_columns.push(list<uint32_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            case 8: 
-            {_note note(byte8_columns.length(),8); byte8_columns.push(list<uint64_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            case 16: 
-            {_note note(byte16_columns.length(),16); byte16_columns.push(list<byte16_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            case 32: 
-            {_note note(byte32_columns.length(),32); byte32_columns.push(list<byte32_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            case 64: 
-            {_note note(byte64_columns.length(),64); byte64_columns.push(list<byte64_t>()); notes.put(value.name,note); array<<note;}
-            break;
-            default: print("note_value::170 Invalid value size, name: ",value.name," size: ",value.size); break;
+    //Adds a new place to all the rows in a column
+    void add_rows(size_t size = 0) {
+        switch(size) {
+        case 0:
+            for(int i=0;i<6;i++) add_rows(sizes[i]);
+        break;
+        case 1:
+            for(auto& list : byte1_columns) {
+                list.push(uint8_t{}); 
+            }
+        break;
+        case 4:
+            for(auto& list : byte4_columns) {
+                list.push(uint32_t{});   
+            }
+        break;
+        case 8:
+            for(auto& list : byte8_columns) {
+                list.push(uint64_t{}); 
+            }
+        break;
+        case 16:
+            for(auto& list : byte16_columns) {
+                list.push(byte16_t{});  
+            }
+        break;
+        case 24:
+            for(auto& list : byte24_columns) {
+                list.push(byte24_t{});  
+            }
+        break;
+        case 64:
+            for(auto& list : byte64_columns) {
+                list.push(byte64_t{});  
+            }
+        break;
+        default: print("add_rows::100 invalid size ",size); break;
         }
     }
 
+    // Adds a new place to the indicated row in a column
+    void add_row(int index, size_t size = 0) {
+        switch(size) {
+        case 0:
+            for(int i=0;i<6;i++) add_row(index,sizes[i]);
+        break;
+        case 1:
+            byte1_columns[index].push(uint8_t{}); 
+        break;
+        case 4:
+            byte4_columns[index].push(uint32_t{});   
+        break;
+        case 8:
+            byte8_columns[index].push(uint64_t{}); 
+        break;
+        case 16:
+            byte16_columns[index].push(byte16_t{});  
+        break;
+        case 24:
+            byte24_columns[index].push(byte24_t{});  
+        break;
+        case 64:
+            byte64_columns[index].push(byte64_t{});  
+        break;
+        default: print("add_row::130 invalid size ",size); break;
+        }
+    }
+
+    // Adds a new row to a column
+    void add_column(size_t size = 0) {
+        switch(size) {
+        case 0:
+            for(int i=0;i<6;i++) add_column(sizes[i]);
+        break;
+        case 1:
+            byte1_columns.push(list<uint8_t>());
+        break;
+        case 4:
+            byte4_columns.push(list<uint32_t>());
+        break;
+        case 8:
+            byte8_columns.push(list<uint64_t>());
+        break;
+        case 16:
+            byte16_columns.push(list<byte16_t>());
+        break;
+        case 24:
+            byte24_columns.push(list<byte24_t>());
+        break;
+        case 64:
+            byte64_columns.push(list<byte64_t>());
+        break;
+        default: print("add_column::130 invalid size ",size); break;
+        }
+    }
+
+    // Returns the ammount of rows in a column
+    size_t column_length(size_t size) {
+        switch(size) {
+            case 1: return byte1_columns.length();
+            case 4: return byte4_columns.length();
+            case 8: return byte8_columns.length();
+            case 16: return byte16_columns.length();
+            case 24: return byte24_columns.length();
+            case 64: return byte64_columns.length();
+            default: print("column_length::130 invalid size ",size); return 0;
+        }
+    }
+
+    //Returns the amount of places in a row
+    size_t row_length(int index,size_t size) {
+        switch(size) {
+            case 1: return byte1_columns[index].length();
+            case 4: return byte4_columns[index].length();
+            case 8: return byte8_columns[index].length();
+            case 16: return byte16_columns[index].length();
+            case 24: return byte24_columns[index].length();
+            case 64: return byte64_columns[index].length();
+            default: print("row_length::180 invalid size ",size); return 0;
+        }
+    }
+
+    inline bool has(int index) {return array.length()<index;}
+    inline bool has(const std::string& label) {return notes.hasKey(label);}
+    bool validate(list<std::string> check) {
+        for(auto c : check) {
+            if(!notes.hasKey(c)) {
+                print("validate::190 type missing ",c);
+                return false;
+            }
+        }
+        return true;
+    }
+    //Maybe add some more explcitness to validate, like listing *what* is actually missing
+
+    _note& get_note(const std::string& label) {
+        return notes.getOrDefault(label,note_fallback);
+    }
+    _note& get_note(int index) {
+        return array[index];
+    }
+
     /// @brief For use in the MAP strategy
-    void note_value(size_t size, const std::string& name) {
-        value_ value(size,name);
-        note_value(value);
+    void note_value(const std::string& name, size_t size) {
+        _note note(column_length(size),size); add_column(size); notes.put(name,note);
     }
 
     /// @brief For use in the MAP strategy
@@ -104,7 +218,7 @@ public:
             case 4: return &byte4_columns[note.index];
             case 8: return &byte8_columns[note.index];
             case 16: return &byte16_columns[note.index];
-            case 32: return &byte32_columns[note.index];
+            case 24: return &byte24_columns[note.index];
             case 64: return &byte64_columns[note.index];
             default: print("adress_column::180 Invalid note size ",note.size); return nullptr;
         }
@@ -116,7 +230,7 @@ public:
             case 4: memcpy(&(*(list<uint32_t>*)ptr)[index], value, 4); break;
             case 8: memcpy(&(*(list<uint64_t>*)ptr)[index], value, 8); break;
             case 16: memcpy(&(*(list<byte16_t>*)ptr)[index].data, value, 16); break;
-            case 32: memcpy(&(*(list<byte32_t>*)ptr)[index].data, value, 32); break;
+            case 24: memcpy(&(*(list<byte24_t>*)ptr)[index].data, value, 24); break;
             case 64: memcpy(&(*(list<byte64_t>*)ptr)[index].data, value, 64); break;
             default: print("type::set::200 Bad size for type value: ",size); break;
         }
@@ -141,7 +255,7 @@ public:
             case 4: return &(*(list<uint32_t>*)ptr)[index]; 
             case 8: return &(*(list<uint64_t>*)ptr)[index];
             case 16: return &(*(list<byte16_t>*)ptr)[index].data;
-            case 32: return &(*(list<byte32_t>*)ptr)[index].data;
+            case 24: return &(*(list<byte24_t>*)ptr)[index].data;
             case 64: return &(*(list<byte64_t>*)ptr)[index].data;
             default: 
                 print("type::set::200 Bad size for type value: ",size);
@@ -156,81 +270,196 @@ public:
     }
     
     template<typename T>
-    T get(const std::string& label, size_t index) {
+    T& get(const std::string& label, size_t index) {
         size_t size = sizeof(T);
         void* data_ptr = get(label, index, size);
-        if (!data_ptr) return T{}; 
+        if (!data_ptr) print("get::270 value not found");
         
         return *(T*)data_ptr;
     }
 
-    /// @brief Primes all of the columns so this Type can be used as an array
-    void to_array() {
-        byte1_columns.push(list<uint8_t>());
-        byte4_columns.push(list<uint32_t>());
-        byte8_columns.push(list<uint64_t>());
-        byte16_columns.push(list<byte16_t>());
-        byte32_columns.push(list<byte32_t>());
-        byte64_columns.push(list<byte64_t>());
-        isArray = true;
+    template<typename T>
+    T& get(void* ptr, size_t index) {
+        size_t size = sizeof(T);
+        void* data_ptr = get(ptr, index, size);
+        if (!data_ptr) print("get::285 value not found");
+        return *(T*)data_ptr;
     }
+
+    //We're keeping these methods verbose for performance, drawing out every possible case means less indirection from method calls and switches
+
+    /// @brief for use in the DATA strategy
+    void push(const std::string& name,void* value,size_t size,int t = 0) {
+        switch(size) {
+            case 1: 
+            {
+                _note note(t,1,byte1_columns[t].length()); byte1_columns[t].push(*(uint8_t*)value); notes.put(name,note); array<<note;
+            }
+            break;
+            case 4: 
+            {
+                _note note(t,4,byte4_columns[t].length()); byte4_columns[t].push(*(uint32_t*)value); notes.put(name,note); array<<note;
+            }
+            break;
+            case 8: 
+            {
+                _note note(t,8,byte8_columns[t].length()); byte8_columns[t].push(*(uint64_t*)value);  notes.put(name,note); array<<note;
+            }
+            break;
+            case 16: 
+            {
+                _note note(t,16,byte16_columns[t].length()); byte16_columns[t].push(*(byte16_t*)value); notes.put(name,note); array<<note;
+            }
+            break;
+            case 24: 
+            {
+                _note note(t,24,byte24_columns[t].length()); byte24_columns[t].push(*(byte24_t*)value); notes.put(name,note); array<<note;
+            }
+            break;
+            case 64: 
+            {
+                _note note(t,64,byte64_columns[t].length()); byte64_columns[t].push(*(byte64_t*)value);  notes.put(name,note); array<<note;
+            }
+            break;
+            default: print("push::230 Invalid value size, name: ",name," size: ",size); break;
+        }
+    }
+
+    void add(const std::string& name, void* value,size_t size,int t) {
+        while(column_length(size)<=t) {
+            add_column(size);
+        }
+        push(name,value,size,t);
+    }
+
+    template<typename T>
+    void add(const std::string& name,T value,int t = 0) {
+        add(name,&value,sizeof(T),t);
+    }
+
+
+    inline void* get(int index,int sub_index,size_t size) {
+        switch(size) {
+            case 0: return nullptr; 
+            case 1: return &byte1_columns[index][sub_index];
+            case 4: return &byte4_columns[index][sub_index];
+            case 8: return &byte8_columns[index][sub_index];
+            case 16: return &byte16_columns[index][sub_index];
+            case 24: return &byte24_columns[index][sub_index];
+            case 64: return &byte64_columns[index][sub_index];
+            default: print("get::330 Invalid size ",size); return nullptr;
+        }
+    }
+
+    void* get_from_note(const _note& note) {
+        return get(note.index,note.sub_index,note.size);
+    }
+
+    void* data_get(const std::string& name) {
+        return get_from_note(notes.getOrDefault(name,note_fallback));
+    }
+
+    void* array_get(int index) {
+        return get_from_note(array[index]);
+    }
+
+   template<typename T>
+   T& get(const std::string& label) {
+    return *(T*)data_get(label);
+   }
+
+   template<typename T>
+   T& get(int index) {
+    return *(T*)array_get(index);
+   }
+
+   void set(int index,int sub_index,size_t size,void* value) {
+    switch(size) {
+        case 1: memcpy(&(byte1_columns[index])[sub_index], value, 1); break;
+        case 4: memcpy(&(byte4_columns[index])[sub_index], value, 4); break;
+        case 8: memcpy(&(byte8_columns[index])[sub_index], value, 8); break;
+        case 16: memcpy(&(byte16_columns[index])[sub_index], value, 16); break;
+        case 24: memcpy(&(byte24_columns[index])[sub_index], value, 24); break;
+        case 64: memcpy(&(byte64_columns[index])[sub_index], value, 64); break;
+        default: print("set::360 Invalid size ",size); break;
+    }
+    }
+
+   void set_from_note(const _note& note,void* value) {
+        set(note.index,note.sub_index,note.size,value);
+    }
+
+    void data_set(const std::string& name,void* value) {
+        set_from_note(notes.getOrDefault(name,note_fallback),value);
+    }
+
+    void array_set(int index,void* value) {
+        set_from_note(array[index],value);
+    }
+
+    template<typename T>
+    void set(const std::string& label,T value) {
+     data_set(label,&value);
+    }
+
+    //Uses array set
+    template<typename T>
+    void set(int index,T value) {
+     array_set(index,&value);
+    }
+
+    //Directly sets the value of a place
+    template<typename T>
+    void set(int index,int sub_index,T value) {
+     set(index,sub_index,sizeof(T),&value);
+    }
+    
+
 
     /// @brief For use in the ARRAY strategy
     void push(void* value, size_t size,int t = 0) {
-        //Add saftey checks around if this isArray stratgey is active, and if t<list size
+        while(column_length(size)<=t) {
+            add_column(size);
+        }
         switch(size) {
             case 1: 
-            {_note note(byte1_columns[t].length(),1); byte1_columns[t].push(*(uint8_t*)value); array<<note;}
+            {
+                _note note(t,1,byte1_columns[t].length()); byte1_columns[t].push(*(uint8_t*)value); array<<note;
+            }
             break;
             case 4: 
-            {_note note(byte4_columns[t].length(),4); byte4_columns[t].push(*(uint32_t*)value); array<<note;}
+            {
+                _note note(t,4,byte4_columns[t].length()); byte4_columns[t].push(*(uint32_t*)value); array<<note;
+            }
             break;
             case 8: 
-            {_note note(byte8_columns[t].length(),8); byte8_columns[t].push(*(uint64_t*)value); array<<note;}
+            {
+                _note note(t,8,byte8_columns[t].length()); byte8_columns[t].push(*(uint64_t*)value); array<<note;
+            }
             break;
             case 16: 
-            {_note note(byte16_columns[t].length(),16); byte16_columns[t].push(*(byte16_t*)value); array<<note;}
+            {
+                _note note(t,16,byte16_columns[t].length()); byte16_columns[t].push(*(byte16_t*)value); array<<note;
+            }
             break;
-            case 32: 
-            {_note note(byte32_columns[t].length(),32); byte32_columns[t].push(*(byte32_t*)value); array<<note;}
+            case 24: 
+            {
+                _note note(t,24,byte24_columns[t].length()); byte24_columns[t].push(*(byte24_t*)value); array<<note;
+            }
             break;
             case 64: 
-            {_note note(byte64_columns[t].length(),64); byte64_columns[t].push(*(byte64_t*)value); array<<note;}
+            {
+                _note note(t,64,byte64_columns[t].length()); byte64_columns[t].push(*(byte64_t*)value); array<<note;
+            }
             break;
             default: print("grow_one::75 Invalid value size: ",size); break;
         }
     }
     
     template<typename T>
-    void push(T value) {
-        push(&value,sizeof(T));
-    }
-
-
-
-     /// @brief For use in the ARRAY strategy
-     void* get(int index,int t = 0) {
-            _note note = array.get(index);
-            // print("S: ",note.size," I:",note.index);
-            switch(note.size) {
-                case 0: return nullptr; //print("adress_column::84 Note not found for ",name); 
-                case 1: return &byte1_columns[t][note.index];
-                case 4: return &byte4_columns[t][note.index];
-                case 8: return &byte8_columns[t][note.index];
-                case 16: return &byte16_columns[t][note.index];
-                case 32: return &byte32_columns[t][note.index];
-                case 64: return &byte64_columns[t][note.index];
-                default: print("adress_column::91 Invalid note size ",note.size); return nullptr;
-            }
-    }
-
-    /// @brief For use in the ARRAY strategy
-    template<typename T>
-    T& get(int index) {
-        return *(T*)get(index);
-    }
-
-    
+    void push(T value,int t = 0) {
+        push(&value,sizeof(T),t);
+    }    
 
     std::string type_name = "bullets";
     list< std::function<void(g_ptr<Object>)> > init_funcs;
@@ -292,24 +521,7 @@ public:
     void store(g_ptr<Object> object)
     {
         object->ID = objects.size();
-        for(auto& list : byte1_columns) {
-            list.push(uint8_t{}); 
-        }
-        for(auto& list : byte4_columns) {
-            list.push(uint32_t{});   
-        }
-        for(auto& list : byte8_columns) {
-            list.push(uint64_t{}); 
-        }
-        for(auto& list : byte16_columns) {
-            list.push(byte16_t{});  
-        }
-        for(auto& list : byte32_columns) {
-            list.push(byte32_t{});  
-        }
-        for(auto& list : byte64_columns) {
-            list.push(byte64_t{});  
-        }
+        add_rows();
         objects.push(object);
     }
     public:

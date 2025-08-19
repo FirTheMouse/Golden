@@ -10,8 +10,6 @@
 #include<fstream>
 
 
-//Fir's Flock, the proof of concept for how Firian Concurrency works in applied opperations.
-//Left this thing running on 8 threads, got up to 12 million opperations before I had to go to bed (I started late)
 
 //  6/27/25 Record:
 // [2801154402] Main loop ended, shutting down
