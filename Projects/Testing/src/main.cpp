@@ -1,5 +1,7 @@
 #include <chrono>
 #include <iostream>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include<core/type.hpp>
 
@@ -38,17 +40,19 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
         {
             for(int c=0;c<f_table.length();c++) {
                 for(int r=0;r<f_table[c].length();r++) {
+                    // if(r==0) print("Running: ",s_table[c][r]);
                     double time = time_function(ITERATIONS,f_table[c][r]);
                     t_table[c][r]+=time;
                 }
             }
         }
+        print("-------------------------");
         print(m==0 ? "      ==COLD==" : "       ==WARM==");
         print("-------------------------");
         for(int c=0;c<t_table.length();c++) {
             for(int r=0;r<t_table[c].length();r++) {
                 t_table[c][r]/=C_ITERATIONS;
-                print(s_table[c][r],": ",t_table[c][r],"ns (",t_table[c][r] / ITERATIONS," ns per operation)");
+                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / ITERATIONS," ns per operation)");
             }
             print("-------------------------");
         }
@@ -77,88 +81,98 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 int main() {
 
+    g_ptr<Type> t = make<Type>();
+    int x = 5;
+    int y = 3;
+    //Push the values as raw pointer
+    t->push(&x,4,0);
+    t->push(&y,4,0);
+    void* vars = &t->byte4_columns[0]; //There's a number of ways to do this
+    void* x_addr = Type::get(vars, 0, 4);  // &byte4_columns[0][0]
+    void* y_addr = Type::get(vars, 1, 4);  // &byte4_columns[0][1]
+    //Could use insertion order as well via array_get in some cases
+    //But the compiler stores direct address so I'll use them
 
+
+    list<std::function<void()>> exec_handlers;
+    exec_handlers << [x_addr,y_addr,t](){
+        int a = *(int*)(x_addr);
+        int b = *(int*)(y_addr);
+        std::function<void()> f = [a,b](){ //We would check the node here, if it has a index, it's arleady in the stream
+            print(a+b);                    //don't resolve it again, just keep the index that's already there
+        };
+        t->push(&f,32,1);
+        int f_address = t->row_length(1,32)-1;
+    };
+    for(int i=0;i<exec_handlers.length();i++) exec_handlers[i]();
+    void* funcs = &t->byte32_columns[1];
+    list<byte32_t>* func_list = (list<byte32_t>*)funcs;
+    for(int i=0;i<t->row_length(1,32);i++) {
+        (*(std::function<void()>*)&(*func_list)[i])();
+    }
+        
+    
+
+    print("==DONE==");
     list<list<std::function<void(int)>>> f_table;
     list<list<std::string>> s_table;
     list<vec4> comps;
-
     int z = 0;
     f_table << list<std::function<void(int)>>{};
     s_table << list<std::string>{};
-    g_ptr<Type> data = make<Type>();
+    g_ptr<Type> type = make<Type>();
     z = 0;
-    s_table[z] << "T(A)-push";
-    f_table[z] << [data](int i){
-        data->push<int>(i);
+    type->add_column(4);
+    s_table[z] << "setup"; //0
+    f_table[z] << [type](int i){
+       type->add_row(0,4);
     };
-    s_table[z] << "T-mGet";
-    f_table[z] << [data](int i){
-        volatile int a = data->get<int>(std::to_string(i));
+    void* address = &type->byte4_columns[0];
+    s_table[z] << "method-get"; //1
+    f_table[z] << [type,address](int i){
+       volatile int a = *(int*)Type::get(address,i,4);
     };
-    s_table[z] << "T-aGet";
-    f_table[z] << [data](int i){
-        volatile int a = data->get<int>(i);
+    s_table[z] << "dir-get"; //2
+    f_table[z] << [type,address](int i){
+        volatile int a = (int)(*(list<uint32_t>*)address)[i];
     };
 
+    z=1;
     f_table << list<std::function<void(int)>>{};
     s_table << list<std::string>{};
-    g_ptr<Type> data2 = make<Type>();
-    z = 1;
-    s_table[z] << "T-add_alt";
-    f_table[z] << [data2](int i){
-        data2->add<int>(std::to_string(i),i,i%2);
+    list<int> list;
+    s_table[z] << "list-push"; //0
+    f_table[z] << [&list](int i){
+       list << i;
     };
-    s_table[z] << "T-mGet_alt";
-    f_table[z] << [data2](int i){
-        volatile int a = data2->get<int>(std::to_string(i));
+    s_table[z] << "list-get"; //1
+    f_table[z] << [&list](int i){
+       volatile int a = list[i];
     };
-    s_table[z] << "T-aGet_alt";
-    f_table[z] << [data2](int i){
-        volatile int a = data2->get<int>(i);
-    };
+   
     comps << vec4(0,0 , 1,0);
+    comps << vec4(0,1 , 0,2);
     comps << vec4(0,1 , 1,1);
-    comps << vec4(0,2 , 1,2);
-    run_rig(f_table,s_table,comps);
+    comps << vec4(0,2 , 1,1);
 
-    // g_ptr<Type> t = make<Type>();
-    // //Universal push
-    // t->add<int>("num",4);
-    // t->add<int>("num2",8);
-    // t->add<double>("num3",8.0001);
-    // t->add<std::string>("string","word");
-
-    // //Data pattern
-    // print("Num: ",t->get<int>("num"));
-    // print("Num2: ",t->get<int>("num2"));
-    // print("Num3: ",t->get<double>("num3"));
-    // print("String: ",t->get<std::string>("string"));
-
-    // //Array pattern
-    // print("0: ",t->get<int>(0));
-    // print("1: ",t->get<int>(1));
-    // print("2: ",t->get<double>(2));
-    // print("3: ",t->get<std::string>(3),"\n");
-
-    // //Map pattern
-    // print(t->get<int>("num",0));
-
-    // //Lunchbox pattern
-    // auto* a_list = (list<uint32_t>*)t->adress_column("num");
-    // print((int)(*a_list)[0]);
-    // print((int)(*a_list)[1]);
-
-    // //Lunchbox/Map push
-    // t->add_rows(4);
-    // int j = 7;
-    // t->set(a_list,&j,0,4);
-
-    // //Array push
-    // t->push<int>(7);
+    //run_rig(f_table,s_table,comps);
 
     return 0;
 }
 
+//Pointer Lunchbox
+// auto* int_list = (list<uint32_t>*)&data->byte4_columns[0];
+// s_table[z] << "T(A)-d-ptr_get"; //2
+// f_table[z] << [int_list](int i){
+//     volatile int a = (int)(*int_list)[i];
+// };
+
+//Direct Lunchbox
+// list<uint32_t>& int_list_d = data->byte4_columns[0];
+// s_table[z] << "T(A)-d-dir_get"; //3
+// f_table[z] << [&int_list_d](int i){
+//     volatile int a = int_list_d[i];
+// };
 
 // //g_ptr<s_node> test_script = compile_script("../Projects/Testing/src/golden.gld");
 

@@ -8,10 +8,12 @@ add_compile_definitions(GL_SILENCE_DEPRECATION)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+
 # Add engine and all games as subdirectories
 add_subdirectory(Engine)
 add_subdirectory(Projects/GPM)
 
 # ACTIVE_PROJECT_HERE
-add_subdirectory(Projects/Testing)
+add_subdirectory(Projects/GDSL)
 

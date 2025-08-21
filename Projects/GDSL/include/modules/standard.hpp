@@ -49,10 +49,30 @@ namespace property_module {
             
             size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
                 ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
-            
             Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
                                    target_index, ctx.node->right->value.size);
             return ctx.node;
+        });
+        stream_handlers.put(r_assignment_id, [](exec_context& ctx) -> std::function<void()>{
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
+            
+            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
+                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
+            
+            void* l_addr = ctx.node->left->value.address;
+                if(!l_addr) print("r_assignment::stream_handler: l_addr not resolved");
+            void** r_data = &ctx.node->right->value.data;
+                if(!r_data) print("r_assignment::stream_handler: r_data not resolved");
+            size_t r_size = ctx.node->right->value.size;
+            //Can turn this into a switch statment returning functions so we bake size in here to gain about 27% more performance
+            //by not using Type's API
+            //(*(list<uint32_t>*)l_addr)[target_index] = *(uint32_t*)r_data;
+            //Though in testing it doesn't make that much of a difference
+            std::function<void()> func = [l_addr,r_data,target_index,r_size]() {
+                Type::set(l_addr, *r_data, target_index, r_size);
+            };
+            return func;
         });
 
         size_t prop_access_id = reg::new_type("PROP_ACCESS"); 
@@ -100,12 +120,25 @@ namespace property_module {
                 ctx.node->value.data = Type::get(ctx.node->value.address, 
                     ctx.node->frame->slots.get(ctx.node->slot), 
                     ctx.node->value.size);
+                // if(!ctx.node->value.data) print("Data failed");
+                // else print("Data success");
                 // print(ctx.node->value.address, "-", 
                 //     ctx.node->frame->slots.get(ctx.node->slot, "execute_r_node::prop_access"), 
                 //     " -> ", ctx.node->value.to_string());
             }
             else print("execute_r_node::1970 No frame in node for prop access");
             return ctx.node;
+        });
+        stream_handlers.put(r_prop_access_id, [](exec_context& ctx) -> std::function<void()>{ 
+            void** l_data = &ctx.node->value.data; 
+            //Also: t_value* result_location = &ctx.node->value;
+            void* l_address = ctx.node->value.address;
+            size_t slot = ctx.node->frame->slots.get(ctx.node->slot);
+            size_t size = ctx.node->value.size;      
+            std::function<void()> func = [l_data,l_address,slot,size](){
+                *l_data = Type::get(l_address,slot,size);
+            };
+            return func;
         });
     }
 }
@@ -257,6 +290,20 @@ namespace variables_module {
             }
             return ctx.node;
         });
+        stream_handlers.put(r_var_decl_id, [object_id](exec_context& ctx) -> std::function<void()>{
+            if(ctx.node->value.type == object_id) {
+                g_ptr<Type> resolved_type = ctx.node->resolved_type;
+                size_t slot = ctx.node->slot;
+                g_ptr<Frame> frame = ctx.frame;
+                g_ptr<Object> obj = resolved_type->create();
+                frame->slots[slot] = obj->ID;
+                std::function<void()> func = [resolved_type,frame,slot](){
+                   //Run constructor
+                };
+                return func;
+            }
+            else return nullptr;
+        });
 
         
         size_t identifier_id = reg::new_type("IDENTIFIER");
@@ -285,7 +332,7 @@ namespace variables_module {
             resolve_identifier(ctx.node, result, ctx.scope, ctx.frame);
         });
         exec_handlers.put(r_identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            ctx.node->value.data = ctx.frame->context->get(ctx.node->value.address, ctx.index, ctx.node->value.size);
+            ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
             return ctx.node;
         });
 
@@ -345,7 +392,7 @@ namespace literals_module {
         });
         
         size_t string_key_id = reg::new_type("STRING_KEY");
-        reg_t_key("string", string_key_id, 32, GET_TYPE(F_TYPE_KEY)); 
+        reg_t_key("string", string_key_id, 24, GET_TYPE(F_TYPE_KEY)); 
         a_functions.put(string_key_id, type_key_handler);
         size_t string_id = reg::new_type("STRING");
         value_to_string.put(string_id,[](void* data){
@@ -358,7 +405,7 @@ namespace literals_module {
             node->type = t_literal_id;
             node->value.type = string_id;
             node->value.set<std::string>(token->content);
-            node->value.size = 32;
+            node->value.size = 24;
             return node;
         });
 
@@ -850,11 +897,31 @@ static void exec_function_blob() {
         print(toPrint);
         return ctx.node;
     });
+    stream_handlers.put(GET_TYPE(R_PRINT_CALL), [](exec_context& ctx) -> std::function<void()>{
+        list<uint32_t> types;
+        list<void**> datas; //Not sure if this is nessecary
+        for(auto r : ctx.node->children) {
+            execute_r_node(r, ctx.frame, ctx.index);
+            types << r->value.type;
+            datas << &r->value.data;
+        }
+        std::function<void()> func = [types,datas](){
+            std::string toPrint = "";
+            for(int i=0;i<types.length();i++) {
+                toPrint.append(data_to_string(types[i],*datas[i]));
+            }
+            print(toPrint);
+        };
+        return func;
+    });
 
     exec_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> g_ptr<r_node> {
         // Probably do nothing for now
         // execute_r_nodes(ctx.node->frame);
         return ctx.node;
+    });
+    stream_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> std::function<void()>{
+       return nullptr;
     });
 
     exec_handlers.put(GET_TYPE(R_METHOD_CALL), [](exec_context& ctx) -> g_ptr<r_node> {

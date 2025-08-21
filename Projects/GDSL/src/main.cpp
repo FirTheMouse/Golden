@@ -14,9 +14,70 @@ double time_function(int ITERATIONS,std::function<void(int)> process) {
     return (double)time.count();
 }
 
+
+void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int ITERATIONS,int C_ITS) {
+    list<list<double>> t_table;
+
+    for(int c=0;c<f_table.length();c++) {
+        t_table.push(list<double>{});
+        for(int r=0;r<f_table[c].length();r++) {
+            t_table[c].push(0.0);
+        }
+    }
+
+    for(int m = 0;m<(warm_up?2:1);m++) {
+        int C_ITERATIONS = m==0?1:C_ITS;
+
+        for(int c=0;c<t_table.length();c++) {
+            for(int r=0;r<t_table[c].length();r++) {
+                t_table[c][r]=0.0;
+            }
+        }
+
+        for(int i = 0;i<C_ITERATIONS;i++)
+        {
+            for(int c=0;c<f_table.length();c++) {
+                for(int r=0;r<f_table[c].length();r++) {
+                    // if(r==0) print("Running: ",s_table[c][r]);
+                    double time = time_function(ITERATIONS,f_table[c][r]);
+                    t_table[c][r]+=time;
+                }
+            }
+        }
+        print("-------------------------");
+        print(m==0 ? "      ==COLD==" : "       ==WARM==");
+        print("-------------------------");
+        for(int c=0;c<t_table.length();c++) {
+            for(int r=0;r<t_table[c].length();r++) {
+                t_table[c][r]/=C_ITERATIONS;
+                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / ITERATIONS," ns per operation)");
+            }
+            print("-------------------------");
+        }
+        for(auto v : comps) {
+            double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
+            std::string sfs;
+            double tolerance = 5.0;
+            if (std::abs(factor - 1.0) < tolerance/100.0) {
+                sfs = "around the same as ";
+            } else if (factor > 1.0) {
+                double percentage = (factor - 1.0) * 100.0;
+                sfs = std::to_string(percentage) + "% slower than ";
+            } else {
+                double percentage = (1.0/factor - 1.0) * 100.0;
+                sfs = std::to_string(percentage) + "% faster than ";
+            }
+            print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
+            "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
+        }
+        print("-------------------------");
+
+    }
+}
+
 int main() {
 
-    int mode = 2; //0 == Compile and run, 1 == benchmark // 2 == testing
+    int mode = 0; //0 == Compile and run, 1 == benchmark // 2 == testing
 
     if(mode==0) {
         base_module::initialize();
@@ -24,332 +85,89 @@ int main() {
         literals_module::initialize();
         opperator_module::initialize();
         property_module::initialize();
+        control_module::initialize();
         reg_b_types();
         init_t_keys();
-        std::string code = readFile("../Projects/GDSL/src/golden.gld");
-        list<g_ptr<Token>> tokens = tokenize(code);
         reg_a_types();
         reg_s_types();
         reg_t_types();
         a_function_blob();
-        list<g_ptr<a_node>> nodes = parse_tokens(tokens);
-        balance_precedence(nodes);
         scope_function_blob();
-        g_ptr<s_node> root = parse_scope(nodes);
         t_function_blob_top();
         t_function_blob_bottom();
-        parse_nodes(root);
         reg_r_types();
         discover_function_blob();
-        discover_symbols(root);
         r_function_blob();
         exec_function_blob();
+        std::string code = readFile("../Projects/GDSL/src/golden.gld");
+        list<g_ptr<Token>> tokens = tokenize(code);
+        list<g_ptr<a_node>> nodes = parse_tokens(tokens);
+        balance_precedence(nodes);
+        g_ptr<s_node> root = parse_scope(nodes);
+        parse_nodes(root);
+        discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
-        execute_r_nodes(frame); 
+        //execute_r_nodes(frame); 
+        //Streaming
+        // stream_r_nodes(frame);
+        // execute_stream(frame);
+
+        list<list<std::function<void(int)>>> f_table;
+        list<list<std::string>> s_table;
+        list<vec4> comps;
+        int z = 0;
+        f_table << list<std::function<void(int)>>{};
+        s_table << list<std::string>{};
+        z = 0;
+        // s_table[z] << "execute_r_nodes"; //0
+        // f_table[z] << [frame](int i){
+        //     execute_r_nodes(frame); 
+        // };
+
+        s_table[z] << "CPP"; //1
+        f_table[z] << [](int i){
+        struct person {
+            std::string name = "noname";
+        };
+            person joe;
+            person mary;
+            joe.name = "Joe";
+            std::string word;
+            word = joe.name;
+            print("Word is: ",word,"!");
+            joe.name = "Not Joe";
+            print("The name of Joe is: ", joe.name);
+            mary.name = "Mary";
+            print("The name of Mary is: ", mary.name);
+        };
+
+        s_table[z] << "stream_r_nodes"; //2
+        f_table[z] << [frame](int i){
+            if(frame->stored_functions.length()==0) {
+                stream_r_nodes(frame);
+            }
+        };
+        s_table[z] << "execute_stream"; //3
+        f_table[z] << [frame](int i){
+            execute_stream(frame); 
+        };
+
+
+        
+        // comps << vec4(0,0 , 0,2);
+        // comps << vec4(0,0 , 0,3);
+        comps << vec4(0,2 , 0,0);
+        run_rig(f_table,s_table,comps,true,1,50);
+        
     }
     else if (mode==1) {
-        // benchmark_performance();
-        // benchmark_bulk_operations();
+
+    }
+    else if (mode==2) {
         g_ptr<Type> test = make<Type>();
         test->note_value("test",16);
         auto obj = test->create();
         test->get("test",obj->ID,16);
-    }
-    else if (mode==2) {
-        #define USE_BOOL 0
-        #define USE_INT 1
-        #define USE_MULTI 1
-        for(int m = 0;m<2;m++) {
-
-        double vector_time_push_avg = 0;
-        double vector_time_avg = 0;
-        double list_time_push_avg = 0;
-        double list_time_avg = 0;
-        double type_time_push_avg = 0;
-        double type_time_avg = 0;
-
-        int ITERATIONS = 1000;
-        int C_ITERATIONS = m==0?1:500;
-
-        for(int c = 0;c<C_ITERATIONS;c++)
-        {
-        int value = 0;
-        #if USE_BOOL
-        std::vector<bool> v_test;
-        #endif
-        #if USE_INT
-        std::vector<int> v_test_2;
-        #endif
-        #if USE_MULTI
-        std::vector<float> v_test_float;
-        std::vector<float> v_test_float_2;
-        std::vector<float> v_test_float_3;
-        std::vector<std::string> v_test_string;
-        std::vector<std::string> v_test_string_2;
-        #endif
-        double vector_time_push = time_function(ITERATIONS,[&](int i){
-            #if USE_BOOL
-            v_test.push_back(i%2);
-            #endif
-            #if USE_INT
-            v_test_2.push_back(i);
-            #endif
-            #if USE_MULTI
-            v_test_float.push_back(0.3f);
-            v_test_float_2.push_back(8.4f);
-            v_test_float_3.push_back(132.18f);
-            v_test_string.push_back("Hello");
-            v_test_string_2.push_back("World");
-            #endif
-        });
-        vector_time_push_avg+=vector_time_push;
-
-        double vector_time = time_function(ITERATIONS,[&](int i){
-            #if USE_BOOL
-            volatile bool b = v_test[i];
-            b=!b;
-            #endif
-            #if USE_INT
-            volatile int a = v_test_2[i];
-            //value+=a;
-            #endif
-            #if USE_MULTI
-            volatile float f = v_test_float[i];
-            //float x = f*2.0f;
-            //v_test_float_2[i] = x;
-            volatile float f2 = v_test_float_2[i];
-            //v_test_float_3[i] = f2;
-            volatile float f3 = v_test_float_3[i];
-            // volatile std::string s = v_test_string[i];
-            // volatile std::string s2 = v_test_string_2[i];
-            #endif
-        });
-        vector_time_avg+=vector_time;
-
-
-        #if USE_BOOL
-        list<bool> l_test;
-        #endif
-        #if USE_INT
-        list<int> l_test_2;
-        #endif
-        #if USE_MULTI
-        list<float> l_test_float;
-        list<float> l_test_float_2;
-        list<float> l_test_float_3;
-        list<std::string> l_test_string;
-        list<std::string> l_test_string_2;
-        #endif
-
-        double list_time_push = time_function(ITERATIONS,[&](int i){
-            #if USE_BOOL
-            l_test << i%2;
-            #endif
-            #if USE_INT
-            l_test_2 << i;
-            #endif
-            #if USE_MULTI
-            l_test_float << 0.3;
-            l_test_float_2 << 8.4;
-            l_test_float_3 << 132.18;
-            l_test_string << "Hello";
-            l_test_string_2 << "World";
-            #endif
-        });
-        list_time_push_avg+=list_time_push;
-
-        double list_time = time_function(ITERATIONS,[&](int i){
-            #if USE_BOOL
-            volatile bool b = l_test[i];
-            b=!b;
-            #endif
-            #if USE_INT
-            volatile int a = l_test_2[i];
-            //value+=a;
-            #endif
-            #if USE_MULTI
-            float f = l_test_float[i];
-            //float x = f*2.0f;
-            //l_test_float_2[i] = x;
-            volatile float f2 = l_test_float_2[i];
-            //l_test_float_3[i] = f2;
-            volatile float f3 = l_test_float_3[i];
-            // volatile std::string s = l_test_string[i];
-            // volatile std::string s2 = l_test_string_2[i];
-            #endif
-        });
-        list_time_avg+=list_time;
-        
-        //Lunchbox pattern
-        g_ptr<Type> t_test = make<Type>();
-        #if USE_BOOL
-        t_test->note_value("bool",1);
-        #endif
-        #if USE_INT
-        t_test->note_value("int",4);
-        #endif
-        #if USE_MULTI
-        t_test->note_value("float1",4);
-        t_test->note_value("float2",4);
-        t_test->note_value("float3",4);
-        t_test->note_value("string1",24);
-        t_test->note_value("string2",24);
-        #endif
-        #if USE_BOOL
-        auto* bool_list = (list<uint8_t>*)t_test->adress_column("bool");
-        #endif
-        #if USE_INT
-        auto* int_list = (list<uint32_t>*)t_test->adress_column("int");
-        #endif
-        #if USE_MULTI
-        auto* float_list = (list<uint32_t>*)t_test->adress_column("float1");
-        auto* float_list_2 = (list<uint32_t>*)t_test->adress_column("float2");
-        auto* float_list_3 = (list<uint32_t>*)t_test->adress_column("float3");
-        auto* string_list = (list<byte24_t>*)t_test->adress_column("string1");
-        auto* string_list_2 = (list<byte24_t>*)t_test->adress_column("string2");
-        #endif
-        //list<g_ptr<Object>> t_objs;
-        double type_time_push = time_function(ITERATIONS,[&](int i){
-            //auto object = t_test->create();
-            #if USE_BOOL
-                t_test->byte4_columns[0].push(uint8_t{});
-                bool b = false;
-                t_test->set(bool_list,&b,i,1);
-            #endif
-            #if USE_INT
-                t_test->add_rows(4);
-                int j = 4;
-                t_test->set(int_list,&j,i,4);
-            #endif
-            #if USE_MULTI
-                #if !USE_INT
-                    t_test->add_rows(4);
-                #endif
-                float a = 0.3f;
-                t_test->set(float_list,&a,i,4);
-                float a2 = 8.4f;
-                t_test->set(float_list_2,&a2,i,4);
-                float a3 = 132.18f;
-                t_test->set(float_list_3,&a3,i,4);
-                std::string s1 = "Hello";
-                t_test->byte24_columns[0].push(byte24_t{});
-                t_test->set(string_list,&s1,i,24);
-                std::string s2 = "World";
-                t_test->byte24_columns[1].push(byte24_t{});
-                t_test->set(string_list,&s2,i,24);
-            #endif
-            //t_objs << object;
-        });
-        type_time_push_avg+=type_time_push;
-        double type_time = time_function(ITERATIONS,[&](int i){
-            #if USE_BOOL
-            volatile bool b = (int)(*bool_list)[i]; //Lunchbox pattern
-            b=!b;
-            #endif
-            #if USE_INT
-            volatile int a = (int)(*int_list)[i]; //Lunchbox pattern
-            //value+=a;
-            #endif
-            #if USE_MULTI
-            float f = (float)(*float_list)[i];
-            //float x = f*2.0f;
-            //t_test->set(float_list_2,&x,i,4);
-            //memcpy(&(*(list<uint32_t>*)float_list_2)[i], &x, 4);
-            float f2 = (float)(*float_list_2)[i];
-            //t_test->set(float_list_3,&f2,i,4);
-            //memcpy(&(*(list<uint32_t>*)float_list_3)[i], &f2, 4);
-            volatile float f3 = (float)(*float_list_3)[i];
-            // volatile std::string s = (std::string)(*string_list)[i];
-            // volatile std::string s2 = (std::string)(*string_list_2)[i];
-            #endif
-        });
-        type_time_avg+=type_time;
-
-        //Array pattern
-        // g_ptr<Type> t_test = make<Type>();
-        // t_test->to_array();
-        // double type_time_push = time_function(ITERATIONS,[&](int i){
-        //     #if USE_BOOL
-        //         t_test->push<bool>(1);
-        //     #endif
-        //     #if USE_INT
-        //         t_test->push<int>(4);
-        //     #endif
-        // });
-        // type_time_push_avg+=type_time_push;
-        // double type_time = time_function(ITERATIONS,[&](int i){
-        //     #if USE_BOOL
-        //     volatile bool b = t_test->get<bool>(i); //Array pattern
-        //     b=!b;
-        //     #endif
-        //     #if USE_INT
-        //     volatile int a = t_test->get<int>(i); //Array pattern
-        //     a=(a+1);
-        //     #endif
-        // });
-        // type_time_avg+=type_time;
-
-       // Map pattern
-        // g_ptr<Type> t_test = make<Type>();
-        // #if USE_BOOL
-        // t_test->note_value(1,"bool");
-        // #endif
-        // #if USE_INT
-        // //t_test->note_value(4,"int");
-        // #endif
-        // list<g_ptr<Object>> t_objs;
-
-        // double type_time_push = time_function(ITERATIONS,[&](int i){
-        //     //auto object = t_test->create();
-        //     #if USE_BOOL
-        //         t_test->set<bool>("bool",1,object->ID);
-        //     #endif
-        //     #if USE_INT
-        //        // t_test->set<int>("int",4,object->ID);
-        //        //t_test->add<int>(std::to_string(i),4); //Data pattern
-        //        t_test->push<int>(4);
-        //     #endif
-        //     //t_objs << object;
-        // });
-        // type_time_push_avg+=type_time_push;
-        // t_test->add_row(4);
-        // double type_time = time_function(ITERATIONS,[&](int i){
-        //     #if USE_BOOL
-        //     volatile bool b = t_test->get<bool>("bool",t_objs[i]->ID); //Map pattern
-        //     b=!b;
-        //     #endif
-        //     #if USE_INT
-        //     //volatile int a = t_test->get<int>("int",t_objs[i]->ID); //Map pattern
-        //     //a=(a+1);
-        //     // volatile int a = t_test->get<int>(std::to_string(i)); //Data pattern
-        //     volatile int a = t_test->get<int>(i); //Data pattern
-        //     //t_test->set<int>(std::to_string(i),8);
-        //     #endif
-        // });
-        // type_time_avg+=type_time;
-    }
-    vector_time_push_avg/=C_ITERATIONS;
-    list_time_push_avg/=C_ITERATIONS;
-    type_time_push_avg/=C_ITERATIONS;
-    vector_time_avg/=C_ITERATIONS;
-    list_time_avg/=C_ITERATIONS;
-    type_time_avg/=C_ITERATIONS;
-
-    print(m==0 ? "==COLD==" : "==WARM==");
-    print(" VECTOR_PUSH: ",vector_time_push_avg," ns (" ,vector_time_push_avg / ITERATIONS," ns per operation)");
-    print(" LIST_PUSH: ",list_time_push_avg," ns (" ,list_time_push_avg / ITERATIONS," ns per operation)");
-    print(" TYPE_PUSH: ",type_time_push_avg," ns (" ,type_time_push_avg / ITERATIONS," ns per operation)");
-    print(" Slowdown L/V factor push: ",list_time_push_avg / vector_time_push_avg,"x");
-    print(" Slowdown T/L factor push: ",type_time_push_avg / list_time_push_avg,"x");
-    print(" Slowdown T/V factor push: ",type_time_push_avg / vector_time_push_avg,"x\n");
-    
-    print(" VECTOR: ",vector_time_avg," ns (" ,vector_time_avg / ITERATIONS," ns per operation)");
-    print(" LIST: ",list_time_avg," ns (" ,list_time_avg / ITERATIONS," ns per operation)");
-    print(" TYPE: ",type_time_avg," ns (" ,type_time_avg / ITERATIONS," ns per operation)");
-    print(" Slowdown L/V factor: ",list_time_avg / vector_time_avg,"x");
-    print(" Slowdown T/L factor: ",type_time_avg / list_time_avg,"x");
-    print(" Slowdown T/V factor: ",type_time_avg / vector_time_avg,"x\n");
-    }
     }
 
     print("==DONE==");
@@ -416,97 +234,4 @@ int main() {
 //             }
 //             return get<T>(label);
 //         }
-
-
-// g_ptr<Type> t_test = make<Type>();
-//         t_test->to_array();
-//         double type_time_push = time_function(ITERATIONS,[&](int i){
-//             #if USE_BOOL
-//             t_test->push<bool>(i%2);
-//             #endif
-//             #if USE_INT
-//             t_test->push<int>(i);
-//             #endif
-//         });
-//         type_time_push_avg+=type_time_push;
-//         type_time_push_avg/=(c+1);
-//         double type_time = time_function(ITERATIONS,[&](int i){
-//             #if USE_BOOL
-//             volatile bool b = t_test->get<bool>(i);
-//             b=!b;
-//             #endif
-//             #if USE_INT
-//             volatile int a = t_test->get<int>(i);
-//             a=(a+1);
-//             #endif
-//         });
-//         type_time_avg+=type_time;
-//         type_time_avg/=(c+1);
-
-
-// #if USE_BOOL
-// list<bool> l_test;
-// #endif
-// #if USE_INT
-// list<int> l_test_2;
-// #endif
-// list<g_ptr<Object>> objs;
-// double list_time_push = time_function(ITERATIONS,[&](int i){
-//     auto object = make<Object>();
-//     #if USE_BOOL
-//         object->set<bool>("bool",1);
-//     #endif
-//     #if USE_INT
-//         object->set<int>("int",4);
-//     #endif
-//     objs << object;
-// });
-// list_time_push_avg+=list_time_push;
-// list_time_push_avg/=(c+1);
-// double list_time = time_function(ITERATIONS,[&](int i){
-//     #if USE_BOOL
-//     volatile bool b = objs[i]->get<bool>("bool");
-//     b=!b;
-//     #endif
-//     #if USE_INT
-//     volatile int a = objs[i]->get<int>("int");
-//     a=(a+1);
-//     #endif
-// });
-// list_time_avg+=list_time;
-// list_time_avg/=(c+1);
-
-
-    // print("VECTOR_PUSH: ",vector_time_push," ns (" ,vector_time_push / ITERATIONS," ns per operation)");
-    // print("LIST_PUSH: ",list_time_push," ns (" ,list_time_push / ITERATIONS," ns per operation)");
-    // print("TYPE_PUSH: ",type_time_push," ns (" ,type_time_push / ITERATIONS," ns per operation)");
-    // print("Slowdown L/V factor push: ",list_time_push / vector_time_push,"x");
-    // print("Slowdown T/L factor push: ",type_time_push / list_time_push,"x\n");
-    
-    // print("VECTOR: ",vector_time," ns (" ,vector_time / ITERATIONS," ns per operation)");
-    // print("LIST: ",list_time," ns (" ,list_time / ITERATIONS," ns per operation)");
-    // print("TYPE: ",type_time," ns (" ,type_time / ITERATIONS," ns per operation)");
-    // print("Slowdown L/V factor: ",list_time / vector_time,"x");
-    // print("Slowdown T/L factor: ",type_time / list_time,"x\n");
-
-    //    const int ITERATIONS = 1000; // Run multiple times for statistical validity
-
-    //     // C++ baseline
-    //     auto start = std::chrono::high_resolution_clock::now();
-    //         struct person {
-    //             std::string name = "noname";
-    //         };
-    //         person joe;
-    //         joe.name = "Joe";
-    //     auto end = std::chrono::high_resolution_clock::now();
-    //     auto cpp_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-
-    //     start = std::chrono::high_resolution_clock::now();
-    //         execute_r_nodes(frame); 
-    //     end = std::chrono::high_resolution_clock::now();
-    //     auto golden_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-
-    //     print("C++: ", cpp_time.count()," ns per execution\n");
-    //     print("Golden: ", golden_time.count()," ns per execution\n");
-    //     print("Slowdown: ", (double)golden_time.count() / cpp_time.count(), "x\n");
 

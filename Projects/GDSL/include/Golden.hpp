@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-
+#define PRINT_ALL 0
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -367,11 +367,13 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
         }
     }
 
+    #if PRINT_ALL
     for(auto t : result) {
         if(t->getType()) {
             print(TO_STRING(t->getType()));
         }
     }
+    #endif
     return result;
 }
 
@@ -392,6 +394,14 @@ public:
 
 map<uint32_t,std::function<std::string(void*)>> value_to_string;
 
+static std::string data_to_string(uint32_t type,void* data) {    
+    try {
+        return value_to_string.get(type)(data);
+    }
+    catch(std::exception e) {
+        return "[missing value_to_string for type "+TO_STRING(type)+"]";
+    }
+}
 
 
 /// @brief BIG WARNING! These leak right now and we need to add cleanup for data in the future!
@@ -583,7 +593,9 @@ auto type_key_handler = [](a_context& ctx) {
 };
 
 static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = false) {
+        #if PRINT_ALL
         print("==PARSE TOKENS PASS==");
+        #endif
         list<g_ptr<a_node>> result;
         uint32_t state = GET_TYPE(UNTYPED);
         g_ptr<a_node> node = make<a_node>();
@@ -643,6 +655,7 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
             ++pos;
         }
 
+        #if PRINT_ALL
         if(!local)
         {
             int i = 0;
@@ -650,6 +663,7 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                 print_a_node(node, 0, i++);
             }
         }
+        #endif
 
         return result;
 }
@@ -695,11 +709,13 @@ static void balance_precedence(list<g_ptr<a_node>>& result) {
         changed = balance_nodes(result);
     }
 
+    #if PRINT_ALL
     print("Finished balancing");
     int i = 0;
     for (auto& node : result) {
         print_a_node(node, 0, i++);
     }
+    #endif
 }
 
 map<uint32_t, std::function<void(g_ptr<s_node>, g_ptr<s_node>, g_ptr<a_node>)>> scope_link_handlers;
@@ -820,8 +836,10 @@ static g_ptr<s_node> parse_scope(list<g_ptr<a_node>> nodes) {
         }
     }
 
+    #if PRINT_ALL
     print("=== PARSE SCOPE PASS ===");
     print_scope(root_scope);
+    #endif
     return root_scope;
 }
 
@@ -988,7 +1006,9 @@ void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
  }
 
 static void parse_nodes(g_ptr<s_node> root) {
+    #if PRINT_ALL
     print("==PARSE NODES PASS==");
+    #endif
     g_ptr<t_node> result = nullptr;
     for(int i = 0; i < root->a_nodes.size(); i++) {
         auto node = root->a_nodes[i];
@@ -1002,9 +1022,11 @@ static void parse_nodes(g_ptr<s_node> root) {
         }
     }
 
+    #if PRINT_ALL
     for(auto t : root->t_nodes) {
         print_t_node(t,0,0);
     }
+    #endif
     
     for(auto child_scope : root->children) {
         parse_nodes(child_scope);
@@ -1019,6 +1041,7 @@ class Frame : public Object {
     list<g_ptr<r_node>> nodes;
     list<size_t> slots;
     t_value return_val;
+    list<std::function<void()>> stored_functions;
 };
 
 class r_node : public Object {
@@ -1030,6 +1053,7 @@ class r_node : public Object {
     t_value value;
     g_ptr<Type> resolved_type = nullptr;
     size_t slot = 0;
+    int index = -1;
     std::string name;
     g_ptr<Frame> frame;
 };
@@ -1195,7 +1219,8 @@ static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr
         r_handlers.get(node->type)(result,ctx);
     }
     catch(std::exception e) {
-        print("resolve_symbol::1454 Missing case for t_type: ",TO_STRING(node->type));
+        if(!r_handlers.hasKey(node->type)) print("resolve_symbol::1222 Missing case for t_type: ",TO_STRING(node->type));
+        else  print("resolve_symbol::1223 crash on t_type: ",TO_STRING(node->type));
         return nullptr;
     }
     return result;
@@ -1234,7 +1259,9 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
  }
 
 static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
+    #if PRINT_ALL
     print("==RESOLVE SYMBOLS PASS==");
+    #endif
     g_ptr<Frame> frame = make<Frame>();
     frame->type = root->scope_type;
     frame->context = root->type_ref; //This should've been filled in during discovery
@@ -1246,14 +1273,16 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
         if(rnode) frame->nodes << rnode;
     }
 
+    #if PRINT_ALL
     print("==RESOLVED SYMBOLS==");
     for(auto r : frame->nodes) {
         print_r_node(r);
     }
+    #endif
     
-    // for(auto child_scope : root->children) {
-    //     resolve_symbols(child_scope);
-    // }
+    for(auto child_scope : root->children) {
+        resolve_symbols(child_scope);
+    }
     return frame;
 }   
 
@@ -1314,7 +1343,9 @@ static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t
 }
 
 static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
-    if(!context) {
+    if(!context) { 
+        //This is bassicly just to push rows and mark them as usable or not to a thread
+        //Want to replace this later with something more efficent, or, make more use of context
         context = frame->context->create();
     }
     for(int i = 0; i < frame->nodes.size(); i++) {
@@ -1329,6 +1360,50 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
     }
     frame->context->recycle(context);
 }   
+
+map<uint32_t, std::function<std::function<void()>(exec_context&)>> stream_handlers;
+
+static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
+    exec_context ctx(node,frame,index);
+    try {
+        std::function<void()> func = stream_handlers.get(node->type)(ctx);
+        //frame->context->push(&func,32,1);
+        if(func)
+            frame->stored_functions << func;
+    }
+    catch(std::exception e) {
+        print("stream_r_node::1300 Missing case for r_type: ",TO_STRING(node->type));
+    }
+}
+
+static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
+    if(!context) { 
+        context = frame->context->create();
+    }
+    for(int i = 0; i < frame->nodes.size(); i++) {
+        auto node = frame->nodes[i];
+        stream_r_node(node,frame,context->ID);
+    }
+    frame->context->recycle(context);
+}   
+
+static void execute_stream(g_ptr<Frame> frame) {
+    for(int i =0;i<frame->stored_functions.length();i++) {
+        frame->stored_functions[i]();
+    }
+    // if(frame->context->byte32_columns.length()>0) {
+    //     void* stream_addr = &frame->context->byte32_columns[1];
+    //     list<byte32_t>* stream = (list<byte32_t>*)stream_addr;
+    //     for(int i=0;i<frame->context->row_length(1,32);i++) {
+    //         print("A");
+    //         (*(std::function<void()>*)&(*stream)[i])();
+    //         print("B");
+    //     }
+    // } else {
+    //     print("execute_stream::1380 frame context is missing execution functions");
+    // }
+}   
+
 
 // g_ptr<s_node> compile_script(const std::string& file) {
 //     //"../Projects/Testing/src/golden.gld"
