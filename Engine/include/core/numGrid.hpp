@@ -24,9 +24,7 @@ public:
         cells.reserve(mapArea);
         for(int i=0;i<mapArea;i++)
         {
-            auto cell = make<d_list<g_ptr<Object>>>();
-            cell->set<int>("id",cells.length());
-            cells.push(cell);
+            cells.push(list<int>());
         }
         half = cellMap/2;
     }
@@ -87,8 +85,8 @@ public:
         return vec3((float)gridX, y_level, (float)gridZ);
     }
 
-    list<list<int>> cellsAround(const vec3& center, float radius) {
-        static thread_local list<list<int>> cachedCells;
+    list<int> cellsAround(const vec3& center, float radius) {
+        static thread_local list<int> cachedCells;
 
         int gridRadius = static_cast<int>(radius / cellSize + 0.5f);
         int size = (gridRadius * 2 + 1) * (gridRadius * 2 + 1);
@@ -106,7 +104,7 @@ public:
 
                 int index = cellIndex(x, z);
                 if (index >= 0 && index < cells.length()) {
-                    cachedCells.push(cells[index]);
+                    cachedCells.push(index);
                 }
             }
         }

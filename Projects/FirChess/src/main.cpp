@@ -1,5 +1,5 @@
 #include<core/helper.hpp>
-#include<core/grid.hpp>
+#include<core/numGrid.hpp>
 #include<util/meshBuilder.hpp>
 #include<core/type.hpp>
 
@@ -7,7 +7,7 @@ using namespace Golden;
 
 
 g_ptr<Scene> scene = nullptr;
-g_ptr<Grid> grid = nullptr;
+g_ptr<NumGrid> grid = nullptr;
 
 
 list<g_ptr<Single>> white_losses;
@@ -21,7 +21,7 @@ list<int> values;
 list<int> specialRules;
 list<list<vec2>> moves;
 
-void type_define_objects(g_ptr<Grid> level = nullptr,const std::string& project_name = "FirChess") {
+void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
 
     auto is_model = [](const std::string& filename) -> std::string{ 
@@ -134,12 +134,12 @@ void type_define_objects(g_ptr<Grid> level = nullptr,const std::string& project_
             if(level)
             {
                 part->setPosition(level->snapToGrid(scene->getMousePos()));
-                list<Cell> myCells = level->cellsAround(part->getPosition(),((part->model->localBounds.getSize().x-1)/2));
+                list<int> myCells = level->cellsAround(part->getPosition(),((part->model->localBounds.getSize().x-1)/2));
                 for(auto cell : myCells)
                 {
-                    cell->push(part);
+                    grid->cells[cell].push(part->ID);
                 }
-                part->set<list<Cell>>("_cells",myCells);
+                part->set<list<int>>("_cells",myCells);
             }
             ctx.set<g_ptr<Object>>("toReturn",part);
     });
@@ -155,18 +155,18 @@ bool isMultiple(vec2 move, vec2 pattern) {
            (move.x() / pattern.x()) == (move.y() / pattern.y()) && (move.x() / pattern.x()) > 0;
 }
 
-void update_cells(g_ptr<Single> selected,g_ptr<Grid> grid) {
-    list<Cell> myCells = grid->cellsAround(selected->getPosition(),((selected->model->localBounds.getSize().x-1)/2));
-    list<Cell> oldCells = selected->get<list<Cell>>("_cells");
+void update_cells(g_ptr<Single> selected) {
+    list<int> myCells = grid->cellsAround(selected->getPosition(),((selected->model->localBounds.getSize().x-1)/2));
+    list<int> oldCells = selected->get<list<int>>("_cells");
     for(auto cell : oldCells)
     {
-        cell->erase(selected);
+        grid->cells[cell].erase(selected->ID);
     }
     for(auto cell : myCells)
     {
-        cell->push(selected);
+        grid->cells[cell].push(selected->ID);
     }
-    selected->set<list<Cell>>("_cells",myCells);
+    selected->set<list<int>>("_cells",myCells);
 }
 
 //poached code from the Physics class meant to be use multi-threaded but just raw here
@@ -244,9 +244,9 @@ vec2 world_to_board(const vec3& pos) {
 
 
 void takePiece(g_ptr<Single> piece) {
-    int color = piece->get<int>("color");
+    int color = colors[piece->ID];
     for(int i=0;i<grid->cells.length();i++) {
-        grid->cells[i]->erase(piece);
+        grid->cells[i].erase(piece->ID);
     }
     captured[piece->ID] = true;
     if(color==0) {
@@ -261,7 +261,7 @@ void takePiece(g_ptr<Single> piece) {
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
     piece->setPosition(board_to_world(file,rank));
-    update_cells(piece,grid);
+    update_cells(piece);
     colors << piece->get<int>("color");
     values << piece->get<int>("value");
     specialRules << piece->get<int>("specialRule");
@@ -276,14 +276,14 @@ int main() {
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.0.9");
+    Window window = Window(1280, 768, "FirChess 0.1.0");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     scene->camera.lock = true;
     Data d = make_config(scene,K);
     // load_gui(scene, "FirChess", "firchessgui.fab");
 
-    grid = make<Grid>(2.0f,21.0f);
+    grid = make<NumGrid>(2.0f,21.0f);
     
     //Define the objects, this pulls in the models and uses the CSV to code them
     type_define_objects(grid);
@@ -317,7 +317,7 @@ int main() {
     // scene->lights.push_back(l2);
     int turn_color = 1; //0 = White, 1 = Black
     g_ptr<Single> selected = nullptr;
-    g_ptr<Single> selected_last = nullptr;
+    int s_id = 0;
     vec2 start(0,0);
     list<g_ptr<Single>> drop;
     start::run(window,d,[&]{
@@ -340,18 +340,14 @@ int main() {
             if(!selected) {
                  auto clickPos = grid->snapToGrid(scene->getMousePos());
                  auto clickedCell = grid->getCell(clickPos);
-                 if(!clickedCell) {
-                    print("FirChess::218 No cell at click point");
-                 }
-                 else if(!clickedCell->empty()) {
-                    if(clickedCell->length()>1) print("More than one piece in cell");
-                     if(auto g = g_dynamic_pointer_cast<Single>(clickedCell->list::get(0,"main_click_selection"))) {
+                if(!clickedCell.empty()) {
+                    if(clickedCell.length()>1) print("More than one piece in cell");
+                     if(auto g = ref[clickedCell[0]]) {
                          selected = g;
-                         selected_last = g;
-                         clickedCell->erase(g);
+                         s_id = clickedCell[0];
+                         clickedCell.erase(0);
                          //Start the move here
                          start = world_to_board(clickPos);
-                         print("Color as retrived of ",g->get<std::string>("dtype")," is ",colors[g->ID]," ID: ",g->ID);
                      }
                  }
              }
@@ -362,11 +358,10 @@ int main() {
               vec2 end = world_to_board(newPos);
               bool legal = false;
               vec2 move = vec2((int)(end.x()-start.x()),(int)(end.y()-start.y()));
-              int color = selected->get<int>("color");
+              int color = colors[s_id];
               bool can_take = true;
-              if(selected->has("moves")) {
-                int rule = selected->get<int>("specialRule");
-                for(auto m : selected->get<list<vec2>>("moves")) {
+                int rule = specialRules[s_id];
+                for(auto m : moves[s_id]) {
                     bool meets_special = false;
                     switch(rule) {
                         case 4: //King
@@ -385,9 +380,9 @@ int main() {
                             //and a Type table for quick refrences of positions and type
                             vec2 d_l = vec2(-1,m.y());
                             if(d_l == move) {
-                                Cell c = grid->getCell(board_to_world(start+d_l));
-                                if(!c->empty()) {
-                                    if(c->list::get(0)->get<int>("color")!=color) {
+                                auto c = grid->getCell(board_to_world(start+d_l));
+                                if(!c.empty()) {
+                                    if(colors[c[0]]!=color) {
                                         meets_special=true;
                                         can_take = true;
                                     }
@@ -395,9 +390,9 @@ int main() {
                             }
                             vec2 d_r = vec2(1,m.y());
                             if(d_r == move) {
-                                Cell c = grid->getCell(board_to_world(start+d_r));
-                                if(!c->empty()) {
-                                    if(c->list::get(0)->get<int>("color")!=color) {
+                                auto c = grid->getCell(board_to_world(start+d_l));
+                                if(!c.empty()) {
+                                    if(colors[c[0]]!=color) {
                                         meets_special=true;
                                         can_take = true;
                                     }
@@ -421,24 +416,15 @@ int main() {
                         break;
                     }
                 }
-              }
-              else {
-                print("FirChess::run Piece missing moves");
-                legal = true;
-              }
-
-
               if(legal) {
-                Cell c = grid->getCell(newPos);
-                if(!c->empty()) {
-                    if(can_take) {
-                        auto other = c->list::get(0);
-                        if(other->get<int>("color")!=selected->get<int>("color")) {
-                            takePiece(g_dynamic_pointer_cast<Single>(other));
+                auto c = grid->getCell(newPos);
+                if(!c.empty()) {
+                    if(can_take&&colors[c[0]]!=colors[s_id]) {
+                            takePiece(ref[c[0]]);
                             selected->flagOn("moved");
                             selected->setPosition(newPos);
                         }
-                    } else {
+                        else {
                         selected->setPosition(board_to_world(start));
                     }
                 }
@@ -452,7 +438,7 @@ int main() {
 
               selected->setLinearVelocity(vec3(0,-2.5f,0));
               drop << selected;
-              update_cells(selected,grid);
+              update_cells(selected);
               selected = nullptr;
              }
          }
