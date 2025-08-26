@@ -1,6 +1,7 @@
 #include<core/helper.hpp>
 #include<core/grid.hpp>
 #include<util/meshBuilder.hpp>
+#include<core/type.hpp>
 
 using namespace Golden;
 
@@ -8,29 +9,17 @@ using namespace Golden;
 g_ptr<Scene> scene = nullptr;
 g_ptr<Grid> grid = nullptr;
 
+
 list<g_ptr<Single>> white_losses;
 list<g_ptr<Single>> black_losses;
 
-void takePiece(g_ptr<Single> piece) {
-    //print(piece->get<std::string>("dtype")," was taken");
-    int color = piece->get<int>("color");
-    // list<Cell> oldCells = piece->get<list<Cell>>("_cells");
-    // for(auto cell : oldCells)
-    // {
-    //     cell->erase(piece);
-    // }
-    for(int i=0;i<grid->cells.length();i++) {
-        grid->cells[i]->erase(piece);
-    }
-    if(color==0) {
-        piece->setPosition(vec3(((int)white_losses.length()-4),1,-9));
-        white_losses << piece;
-    } else if(color==1) {
-        piece->setPosition(vec3(((int)black_losses.length()-4),1,11));
-        black_losses << piece;
-    }
-}
-
+list<std::string> dtypes;
+list<g_ptr<Single>> ref;
+list<bool> captured;
+list<int> colors;
+list<int> values;
+list<int> specialRules;
+list<list<vec2>> moves;
 
 void type_define_objects(g_ptr<Grid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
@@ -108,47 +97,12 @@ void type_define_objects(g_ptr<Grid> level = nullptr,const std::string& project_
         std::string type = entry.key;
         std::string path = entry.value;
         scene->set<g_ptr<Model>>("_"+type+"_model",make<Model>(path));
-        // auto data = make<q_data>();
-        // int has_definition = 2;
-        // for(int i=2;i<lines.length();i++)
-        // {
-        //     list<std::string> values = split_str(lines[i],',');
-        //     if(values[0]==type) {
-        //         for(int t = 0;t<values.length();t++)
-        //         {
-        //             std::string t_type = types[t];
-        //             if(values[t]=="") continue;
-        //             if(t_type=="string") data->add<std::string>(headers[t],values[t]);
-        //             else if (t_type=="int") data->add<int>(headers[t],std::stoi(values[t]));
-        //             else if (t_type=="float") data->add<float>(headers[t],std::stof(values[t]));
-        //             else if(t_type=="bool") data->add<bool>(headers[t],values[t]=="true"?1:0);
-        //             else if (t_type=="vec2list") {
-        //                 list<vec2> moves;
-        //                 list<std::string> sub = split_str(values[t],'|');
-        //                 for(int e = 0;e<sub.length();e++) {
-        //                     list<std::string> sub_sub = split_str(sub[e],':');
-        //                     vec2 v(std::stof(sub_sub[0]),std::stof(sub_sub[1]));
-        //                     moves << v;
-        //                 }
-        //                 data->add<list<vec2>>(headers[t],moves);
-        //             }
-        //         }
-        //     }
-        //     else {
-        //         has_definition++;
-        //     }
-        // }
-        // if(has_definition>lines.length()-1) {
-        //     //print("Missing defintion for ",type," in ",project_name," - data.csv");
-        // }
-        //scene->set<g_ptr<q_data>>("_"+type+"_data",data);
+        
         Script<> make_part("make_"+type,[level,type,lines,headers,types](ScriptContext& ctx){
             auto model = scene->get<g_ptr<Model>>("_"+type+"_model");
-            //auto data = scene->get<g_ptr<q_data>>("_"+type+"_data");
             auto modelCopy = make<Model>();
             modelCopy->copy(*model);
             auto part = make<Single>(modelCopy);
-            //part->data = data;
             scene->add(part);
 
             for(int i=2;i<lines.length();i++)
@@ -288,18 +242,41 @@ vec2 world_to_board(const vec3& pos) {
     return vec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
 }
 
+
+void takePiece(g_ptr<Single> piece) {
+    int color = piece->get<int>("color");
+    for(int i=0;i<grid->cells.length();i++) {
+        grid->cells[i]->erase(piece);
+    }
+    captured[piece->ID] = true;
+    if(color==0) {
+        piece->setPosition(vec3(((int)white_losses.length()-6),1,-9));
+        white_losses << piece;
+    } else if(color==1) {
+        piece->setPosition(vec3(((int)black_losses.length()-6),1,11));
+        black_losses << piece;
+    }
+}
+
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
     piece->setPosition(board_to_world(file,rank));
     update_cells(piece,grid);
+    colors << piece->get<int>("color");
+    values << piece->get<int>("value");
+    specialRules << piece->get<int>("specialRule");
+    moves << piece->get<list<vec2>>("moves");
+    captured << false;
+    ref << piece;
 }
+
 
 int main() {
     using namespace helper;
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.0.7");
+    Window window = Window(1280, 768, "FirChess 0.0.9");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     scene->camera.lock = true;
@@ -307,36 +284,10 @@ int main() {
     // load_gui(scene, "FirChess", "firchessgui.fab");
 
     grid = make<Grid>(2.0f,21.0f);
-    //Board painting
-    // vec3 l_pos = vec3(-1000,0,0);
-    // for(int r = -50;r<50;r++) {
-    //     for(int i = -50;i<50;i++) {
-    //        vec3 pos = grid->snapToGrid(vec3(r,0,i));
-    //        if(pos!=l_pos&&grid->getCell(pos)) {
-    //             auto box = make<Single>(makeTestBox(1.0f));
-    //             scene->add(box);
-    //             box->setPosition(pos);
-    //             l_pos = pos;
-    //        }
-          
     
-    //     }
-    // }
-
-    
-    //Make the little mouse to reperesnt the bot (Fir!)
-    auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
-    scene->add(Fir);
-    Fir->setPosition(vec3(1,-1,-9));
-
     //Define the objects, this pulls in the models and uses the CSV to code them
     type_define_objects(grid);
 
-    //Make the chess board and offset it so it works with the grid
-    auto board = make<Single>(scene->get<g_ptr<Model>>("_board_model"));
-    scene->add(board);
-    board->move(vec3(1,-1.4,1));
-    
     for(int k = 0;k<2;k++) {
     std::string col = k==0?"white":"black";
     int rank = k==0?1:8;
@@ -347,6 +298,15 @@ int main() {
         setup_piece("king_"+col,ctf('e'),rank);
         setup_piece("queen_"+col,ctf('d'),rank);
     }
+
+    //Make the little mouse to reperesnt the bot (Fir!)
+    auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
+    scene->add(Fir);
+    Fir->setPosition(vec3(1,-1,-9));
+        //Make the chess board and offset it so it works with the grid
+    auto board = make<Single>(scene->get<g_ptr<Model>>("_board_model"));
+    scene->add(board);
+    board->move(vec3(1,-1.3,1));
 
 
     //Setting up the lighting, ticking environment to 0 just makes it night
@@ -367,12 +327,12 @@ int main() {
         if(mousePos.z()>8.0f) mousePos.setZ(8.0f);
         if(mousePos.z()<-6.0f) mousePos.setZ(-6.0f);
 
-        scene->camera.setTarget(vec3(1,-2,1));
+        scene->camera.setTarget(vec3(1,-1,1));
         if(turn_color==1) {
-            scene->camera.setPosition(vec3(1,20,11));
+            scene->camera.setPosition(vec3(1,20,15));
         }
         else if(turn_color==0) {
-            scene->camera.setPosition(vec3(1,20,-9));
+            scene->camera.setPosition(vec3(1,20,-14));
         }
         if(pressed(SPACE)) turn_color = turn_color==0?1:0;
 
@@ -391,6 +351,7 @@ int main() {
                          clickedCell->erase(g);
                          //Start the move here
                          start = world_to_board(clickPos);
+                         print("Color as retrived of ",g->get<std::string>("dtype")," is ",colors[g->ID]," ID: ",g->ID);
                      }
                  }
              }
@@ -402,6 +363,7 @@ int main() {
               bool legal = false;
               vec2 move = vec2((int)(end.x()-start.x()),(int)(end.y()-start.y()));
               int color = selected->get<int>("color");
+              bool can_take = true;
               if(selected->has("moves")) {
                 int rule = selected->get<int>("specialRule");
                 for(auto m : selected->get<list<vec2>>("moves")) {
@@ -418,23 +380,26 @@ int main() {
                         break;
                         case 1: //Pawn
                         {
+                            can_take = false;
                             //Inefficent logic for checking pawn movment, fix this later, possibly by using a piece class to encode color
                             //and a Type table for quick refrences of positions and type
-                            vec2 d_l = vec2(-1,move.y());
-                            if(d_l == m) {
-                                Cell c = grid->getCell(board_to_world(d_l));
+                            vec2 d_l = vec2(-1,m.y());
+                            if(d_l == move) {
+                                Cell c = grid->getCell(board_to_world(start+d_l));
                                 if(!c->empty()) {
                                     if(c->list::get(0)->get<int>("color")!=color) {
                                         meets_special=true;
+                                        can_take = true;
                                     }
                                 }
                             }
-                            vec2 d_r = vec2(1,move.y());
-                            if(d_r == m) {
-                                Cell c = grid->getCell(board_to_world(d_r));
+                            vec2 d_r = vec2(1,m.y());
+                            if(d_r == move) {
+                                Cell c = grid->getCell(board_to_world(start+d_r));
                                 if(!c->empty()) {
                                     if(c->list::get(0)->get<int>("color")!=color) {
                                         meets_special=true;
+                                        can_take = true;
                                     }
                                 }
                             }
@@ -461,15 +426,25 @@ int main() {
                 print("FirChess::run Piece missing moves");
                 legal = true;
               }
+
+
               if(legal) {
-                selected->flagOn("moved");
-                selected->setPosition(newPos);
                 Cell c = grid->getCell(newPos);
                 if(!c->empty()) {
-                    auto other = c->list::get(0);
-                    if(other->get<int>("color")!=selected->get<int>("color")) {
-                        takePiece(g_dynamic_pointer_cast<Single>(other));
+                    if(can_take) {
+                        auto other = c->list::get(0);
+                        if(other->get<int>("color")!=selected->get<int>("color")) {
+                            takePiece(g_dynamic_pointer_cast<Single>(other));
+                            selected->flagOn("moved");
+                            selected->setPosition(newPos);
+                        }
+                    } else {
+                        selected->setPosition(board_to_world(start));
                     }
+                }
+                else {
+                    selected->flagOn("moved");
+                    selected->setPosition(newPos);
                 }
               }
               else 
