@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 0
+#define PRINT_ALL 1
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -390,6 +390,7 @@ public:
 
     list<g_ptr<a_node>> sub_nodes;
     s_node* owned_scope = nullptr;
+    s_node* in_scope = nullptr;
 };
 
 map<uint32_t,std::function<std::string(void*)>> value_to_string;
@@ -634,13 +635,15 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                 }
             }
             else {
-                if(token_to_opp.getOrDefault(token->getType(),GET_TYPE(UNTYPED))!=GET_TYPE(UNTYPED)) {
+                //This is unacceptable and needs to be cleaned up
+                uint32_t opp = token_to_opp.getOrDefault(token->getType(),GET_TYPE(UNTYPED));
+                if(opp!=GET_TYPE(UNTYPED)) {
                     if(state==GET_TYPE(LITERAL)||state==GET_TYPE(LITERAL_IDENTIFIER)||state==GET_TYPE(UNTYPED)) {
-                        state=token_to_opp.get(token->getType());
+                        state=opp;
                     }
                     else if(state_is_opp.getOrDefault(state,false)||state==GET_TYPE(VAR_DECL)||state==GET_TYPE(METHOD_CALL)||state==GET_TYPE(PROP_ACCESS)) {
                         end();
-                        state=token_to_opp.get(token->getType());
+                        state=opp;
                         if(state==GET_TYPE(PROP_ACCESS)||state==GET_TYPE(METHOD_CALL)) {
                             if(type_precdence.get(result.last()->type) < type_precdence.get(state)) {
                                 result.last()->sub_nodes << node;
@@ -650,6 +653,7 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                         }
                     }
                 }
+                
             }
             ++it;
             ++pos;
@@ -688,7 +692,8 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
             if(type_precdence.get(left->type)<type_precdence.get(state))
             {
                 left->sub_nodes << right;
-                right->tokens.insert(left->tokens.pop(),0);
+                if(!left->tokens.empty())
+                    right->tokens.insert(left->tokens.pop(),0);
                 result.removeAt(i);
                 corrections++;
             }
@@ -705,7 +710,9 @@ static void balance_precedence(list<g_ptr<a_node>>& result) {
     int depth = 0;
     while (changed&&depth<10) {
         depth++;
-        // print("==BALANCING PASS ",depth,"==");
+        #if PRINT_ALL
+        print("==BALANCING PASS ",depth,"==");
+        #endif
         changed = balance_nodes(result);
     }
 
@@ -774,6 +781,7 @@ static g_ptr<s_node> parse_scope(list<g_ptr<a_node>> nodes) {
             }
             else {
                 current_scope->a_nodes << node; 
+                node->in_scope = current_scope.getPtr();
                 //print("On ",a_type_string(node->type));
                 if(on_stack && !stack.last().deferred && !stack.last().explc) {
                     //print("Popping ",a_type_string(node->type));
@@ -786,6 +794,7 @@ static g_ptr<s_node> parse_scope(list<g_ptr<a_node>> nodes) {
         else {
             if(p<10) {
                 current_scope->a_nodes << node;
+                node->in_scope = current_scope.getPtr();
                 owner_node = node;
             }
 
@@ -863,25 +872,12 @@ auto t_literal_handler = [](t_context& ctx) -> g_ptr<t_node> {
 map<uint32_t, uint32_t> type_key_to_type;
 map<uint32_t,std::function<g_ptr<t_node>(t_context& ctx)>> t_functions;
 
-static void t_variable_decleration(g_ptr<t_node> result,g_ptr<a_node> node) {
-    result->type=GET_TYPE(T_VAR_DECL);
-    uint32_t type = node->tokens[0]->getType();
-    if(type==GET_TYPE(IDENTIFIER)) {
-        result->value.type = GET_TYPE(OBJECT); 
-        result->deferred_identifier = node->tokens[0]->content; //For later resolution
-    }
-    else
-    {
-        result->value.type = type_key_to_type.get(node->tokens[0]->type_info.type);
-        result->value.size = node->tokens[0]->type_info.size;
-    }
-    
-    result->name = node->tokens[1]->content;
-}
-
 static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nullptr) {
     g_ptr<t_node> result = make<t_node>();
-    result->type = t_opp_conversion.get(node->type);
+    result->type = t_opp_conversion.getOrDefault(node->type,GET_TYPE(UNDEFINED));
+    // if(result->type==GET_TYPE(UNDEFINED)) {
+    //     print("t_parse_expression::878 missing t_opp_conversion for: ",TO_STRING(node->type));
+    // }
     
     if (node->tokens.size() == 2) {
         // if(node->sub_nodes.size()>0) {
@@ -900,6 +896,12 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
             if(left) {
                 result->left = left;
                 result->right = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
+                if(node->in_scope) {
+                    if(node->in_scope->t_nodes.last()==left) {
+                        node->in_scope->t_nodes.last()=result;
+                        return nullptr;
+                    }
+                }
             }
             else
                 result = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
@@ -927,6 +929,12 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
         else if(node->sub_nodes.size()==1) {
             result->left = left;
             result->right = t_parse_expression(node->sub_nodes[0],nullptr); //By passing nullptr we stop the recursion
+            if(left&&node->in_scope) { //Not sure if this goes here or what this will do
+                if(node->in_scope->t_nodes.last()==left) {
+                    node->in_scope->t_nodes.last()=result;
+                    return nullptr;
+                }
+            }
         }
         else if(node->sub_nodes.size()>=2) {
             result->left = left;
@@ -971,7 +979,7 @@ void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
     
     // Print value if it exists
     if (node->value.type != GET_TYPE(UNDEFINED)) {
-        print(indent, "  Value: ", node->value.to_string(), " (type: ", node->value.type, ")");
+        print(indent, "  Value: ", node->value.to_string(), " (type: ", TO_STRING(node->value.type), ")");
     }
     
     // Print name if it exists
@@ -1012,13 +1020,13 @@ static void parse_nodes(g_ptr<s_node> root) {
     g_ptr<t_node> result = nullptr;
     for(int i = 0; i < root->a_nodes.size(); i++) {
         auto node = root->a_nodes[i];
-        auto left = (i > 0) ? root->a_nodes[i-1] : nullptr;
-        auto right = (i < root->a_nodes.size()-1) ? root->a_nodes[i+1] : nullptr;
+        // auto left = (i > 0) ? root->a_nodes[i-1] : nullptr;
+        // auto right = (i < root->a_nodes.size()-1) ? root->a_nodes[i+1] : nullptr;
 
         g_ptr<t_node> sub = parse_a_node(node,root,result);
         if(sub) {
-        result = sub;
-        root->t_nodes << result;
+            result = sub;
+            root->t_nodes << result;
         }
     }
 
@@ -1127,6 +1135,24 @@ struct d_context {
 };
 map<uint32_t, std::function<void(g_ptr<t_node>, d_context&)>> discover_handlers;
 
+static void discover_symbol(g_ptr<t_node> node,d_context& ctx) {
+    if(discover_handlers.hasKey(node->type)) {
+        auto func = discover_handlers.get(node->type);
+        func(node, ctx);
+    }
+    else {
+        if(node->left) {
+            discover_symbol(node->left,ctx);
+        }
+        if(node->right) {
+            discover_symbol(node->right,ctx);
+        }
+        for(auto c : node->children) {
+            discover_symbol(c,ctx);
+        }
+    }
+}
+
 static void discover_symbols(g_ptr<s_node> root) {
     if(!root->type_ref) {
         root->type_ref = make<Type>();
@@ -1136,13 +1162,7 @@ static void discover_symbols(g_ptr<s_node> root) {
     
     for(int i = 0; i < root->t_nodes.size(); i++) {
         auto node = root->t_nodes[i];
-        if(discover_handlers.hasKey(node->type)) {
-            auto func = discover_handlers.get(node->type);
-            func(node, ctx);
-        }
-        else {
-            //Default goes here
-        }
+        discover_symbol(node,ctx);
     }
     
     for(auto child_scope : root->children) {
@@ -1170,6 +1190,7 @@ static g_ptr<s_node> find_type_decl(g_ptr<Type> type, g_ptr<s_node> root) {
     return nullptr;
 }
 
+//This very much needs to be replaced and changed, cleaned up
 static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame) {
     void* ptr = nullptr;
     g_ptr<s_node> on_scope = scope;
@@ -1195,6 +1216,7 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             result->value.type = GET_TYPE(OBJECT);
         }
         result->value.address = ptr;
+        //print("Set address of ",result->name," to ",&ptr);
         if(on_scope->size_map.hasKey(node->name)) {
             result->value.size = on_scope->size_map.get(node->name);
             result->value.type = on_scope->o_type_map.get(node->name);
@@ -1232,7 +1254,7 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type));
 
     if (node->value.type != GET_TYPE(UNDEFINED)) {
-        print(indent, "  Value: ", node->value.to_string(), " (type: ", node->value.type, ")");
+        print(indent, "  Value: ", node->value.to_string(), " (type: ", TO_STRING(node->value.type), ")");
     }
     
     if (!node->name.empty()) {
@@ -1336,7 +1358,8 @@ static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t
         exec_handlers.get(node->type)(ctx);
     }
     catch(std::exception e) {
-        print("execute_r_node::1554 Missing case for r_type: ",TO_STRING(node->type));
+        if(!exec_handlers.hasKey(node->type)) print("execute_r_node::1343 Missing case for r_type: ",TO_STRING(node->type));
+        else  print("execute_r_node::1343 crash on r_type: ",TO_STRING(node->type));
         return nullptr;
     }
     return node;
@@ -1372,7 +1395,8 @@ static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
             frame->stored_functions << func;
     }
     catch(std::exception e) {
-        print("stream_r_node::1300 Missing case for r_type: ",TO_STRING(node->type));
+        if(!stream_handlers.hasKey(node->type)) print("stream_r_node::1380 Missing case for r_type: ",TO_STRING(node->type));
+        else  print("Stream_r_node::1381 crash on r_type: ",TO_STRING(node->type));
     }
 }
 

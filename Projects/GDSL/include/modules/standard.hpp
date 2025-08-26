@@ -17,7 +17,6 @@ namespace control_module {
     static void initialize() {
         reg::new_type("IF_KEY");
         reg::new_type("ELSE_KEY");
-        reg::new_type("RETURN_KEY");
         reg::new_type("WHILE_KEY"); 
         reg::new_type("BREAK_KEY"); 
         reg::new_type("DO_KEY");
@@ -25,60 +24,226 @@ namespace control_module {
 
 }
 
+namespace type_module {
+    static void initialize() {
+        size_t type_id = reg::new_type("TYPE"); 
+        size_t method_key_id = reg::new_type("METHOD_KEY");
+        size_t type_key_id =  reg::new_type("TYPE_KEY"); 
+        reg_t_key("type", GET_TYPE(TYPE_KEY), 8, GET_TYPE(F_TYPE_KEY)); 
+        size_t return_key_id = reg::new_type("RETURN_KEY");
+        reg_t_key("return", GET_TYPE(RETURN_KEY), 0, GET_TYPE(F_KEYWORD)); 
+        size_t method_call_id = reg::new_type("METHOD_CALL"); 
+        size_t method_decl_id = reg::new_type("METHOD_DECL");
+        size_t type_decl_id =  reg::new_type("TYPE_DECL"); 
+        size_t return_call_id = reg::new_type("RETURN_CALL"); 
+        //size_t argument_group_id = reg::new_type("ARGUMENT_GROUP"); 
+
+        size_t type_def_id =  reg::new_type("TYPE_DEF");
+        size_t method_id = reg::new_type("METHOD");
+        size_t function_id = reg::new_type("FUNCTION");
+
+        size_t t_method_decl_id = reg::new_type("T_METHOD_DECL");  
+        size_t t_method_call_id = reg::new_type("T_METHOD_CALL"); 
+        size_t t_return_id = reg::new_type("T_RETURN"); 
+        size_t t_type_decl_id = reg::new_type("T_TYPE_DECL");
+
+        size_t r_method_call_id =reg::new_type("R_METHOD_CALL");
+        size_t r_type_decl_id =reg::new_type("R_TYPE_DECL");
+        size_t r_method_decl_id =reg::new_type("R_METHOD_DECL"); 
+        size_t r_return_id =reg::new_type("R_RETURN");
+
+
+
+        t_opp_conversion.put(method_call_id, t_method_call_id); 
+        t_functions.put(method_call_id, [](t_context& ctx) -> g_ptr<t_node> {
+            g_ptr<t_node> result = t_parse_expression(ctx.node, ctx.left);
+            if(!ctx.node->sub_nodes.empty()) {
+                for(auto c : ctx.node->sub_nodes) {
+                    result->children << parse_a_node(c, ctx.root);
+                }
+            }
+            return result;
+        });
+        r_handlers.put(t_method_call_id, [r_method_call_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_method_call_id;
+            g_ptr<r_node> info = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            if(info->resolved_type) {
+                result->slot = info->slot;
+                if(ctx.frame->slots.length() <= result->slot) ctx.frame->slots << 0;
+                result->resolved_type = info->resolved_type;
+                result->name = ctx.node->right->name;
+                g_ptr<s_node> type_decl = find_type_decl(result->resolved_type, ctx.scope);
+                if(type_decl) {
+                    g_ptr<r_node> method_decl = type_decl->method_map.get(result->name);
+                    result->frame = method_decl->frame;
+                    
+                    for(int i = 0; i < ctx.node->children.size(); i++) {
+                        g_ptr<r_node> arg = resolve_symbol(ctx.node->children[i], ctx.scope, ctx.frame);
+                        g_ptr<r_node> param = method_decl->children[i];
+                        param->type = GET_TYPE(R_IDENTIFIER);
+                        g_ptr<r_node> assignment = make<r_node>();
+                        assignment->type = GET_TYPE(R_ASSIGNMENT);
+                        assignment->left = param;
+                        assignment->right = arg;
+                        result->children << assignment;
+                    }
+                }
+            }
+        });
+        exec_handlers.put(r_method_call_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            g_ptr<Object> context = ctx.node->frame->context->create();
+        
+            // Execute pre-wired parameter assignments
+            for(auto assignment : ctx.node->children) {
+                if(assignment->left->value.type == GET_TYPE(OBJECT)) {
+                    ctx.node->frame->slots[assignment->left->slot] = ctx.frame->slots[assignment->right->slot];
+                }
+                else {
+                    execute_r_node(assignment, ctx.node->frame, context->ID);
+                }
+            }
+        
+            execute_r_nodes(ctx.node->frame, context);
+            if(ctx.node->frame->return_val.type != GET_TYPE(UNDEFINED)) {
+                ctx.node->value = std::move(ctx.node->frame->return_val);
+            }
+            ctx.node->frame->return_val.type = GET_TYPE(UNDEFINED);
+            return ctx.node;
+        });
+        stream_handlers.put(r_method_call_id, [](exec_context& ctx) -> std::function<void()>{
+            g_ptr<Frame> frame = ctx.node->frame;
+            std::function<void()> func = [frame](){
+                g_ptr<Object> context = frame->context->create();
+                execute_stream(frame);
+            };
+            return func;
+        });
+        
+ 
+
+        a_functions.put(GET_TYPE(TYPE_KEY), [](a_context& ctx) {
+            ctx.state = GET_TYPE(TYPE_DECL);
+        });
+        scope_link_handlers.put(GET_TYPE(TYPE_DECL), [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
+            new_scope->scope_type = GET_TYPE(TYPE_DEF);
+            new_scope->owner = owner_node;
+            owner_node->owned_scope = new_scope.getPtr();
+        });
+        t_functions.put(GET_TYPE(TYPE_DECL), [](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = GET_TYPE(T_TYPE_DECL);
+            ctx.result->name = ctx.node->tokens.last()->content;
+            ctx.result->scope = ctx.node->owned_scope;
+            return ctx.result;
+        });
+        discover_handlers.put(GET_TYPE(T_TYPE_DECL), [](g_ptr<t_node> node, d_context& ctx) {
+            if(!node->scope->type_ref) node->scope->type_ref = make<Type>();
+            node->scope->type_ref->type_name = node->name;
+        });
+        r_handlers.put(GET_TYPE(T_TYPE_DECL), [](g_ptr<r_node> result, r_context& ctx) {
+            result->type = GET_TYPE(R_TYPE_DECL);
+            result->frame = resolve_symbols(ctx.node->scope);
+        });
+        exec_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> g_ptr<r_node> {
+            // Probably do nothing for now
+            // execute_r_nodes(ctx.node->frame);
+            return ctx.node;
+        });
+        stream_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> std::function<void()>{
+           return nullptr;
+        });
+
+
+        scope_link_handlers.put(GET_TYPE(METHOD_DECL), [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
+            if(current_scope->scope_type == GET_TYPE(TYPE_DEF))
+                new_scope->scope_type = GET_TYPE(METHOD);
+            else 
+                new_scope->scope_type = GET_TYPE(FUNCTION);
+            new_scope->owner = owner_node;
+            owner_node->owned_scope = new_scope.getPtr();
+        });
+        t_functions.put(GET_TYPE(METHOD_DECL), [](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = GET_TYPE(T_METHOD_DECL);
+            ctx.result->name = ctx.node->tokens.last()->content;
+            ctx.result->scope = ctx.node->owned_scope;
+            ctx.result->scope->t_owner = ctx.result;
+            if(!ctx.node->sub_nodes.empty()) {
+                for(auto c : ctx.node->sub_nodes) {
+                    ctx.result->children << parse_a_node(c, ctx.root);
+                }
+            }
+            return ctx.result;
+        });
+        discover_handlers.put(GET_TYPE(T_METHOD_DECL), [](g_ptr<t_node> node, d_context& ctx) {
+            if(node->scope) {
+                if(!node->scope->type_ref) node->scope->type_ref = make<Type>();
+                node->scope->type_ref->type_name = node->name;
+                
+                for(auto c : node->children) {
+                    if(c->type == GET_TYPE(T_VAR_DECL))
+                        discover_var_decleration(c, node->scope, ctx.idx);
+                }
+            }
+        });
+        r_handlers.put(GET_TYPE(T_METHOD_DECL), [](g_ptr<r_node> result, r_context& ctx) {
+            result->type = GET_TYPE(R_METHOD_DECL);
+            result->name = ctx.node->name;
+            result->frame = resolve_symbols(ctx.node->scope);
+            for(auto c : ctx.node->children) {
+                g_ptr<r_node> child = resolve_symbol(c, ctx.node->scope, result->frame);
+                resolve_identifier(c, child, ctx.node->scope, result->frame);
+                result->children << child;
+            }
+            ctx.scope->method_map.put(result->name, result);
+        });
+
+
+
+
+
+        t_opp_conversion.put(GET_TYPE(RETURN_CALL), GET_TYPE(T_RETURN));
+        t_functions.put(GET_TYPE(RETURN_CALL), [](t_context& ctx) -> g_ptr<t_node> {
+            return t_parse_expression(ctx.node, ctx.result);
+        });
+        r_handlers.put(GET_TYPE(T_RETURN), [](g_ptr<r_node> result, r_context& ctx) {
+            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+            g_ptr<s_node> on_scope = ctx.scope;
+            g_ptr<Frame> method_frame = nullptr;
+            while(!method_frame) {
+                if(on_scope->scope_type == GET_TYPE(METHOD) || on_scope->scope_type == GET_TYPE(FUNCTION)) {
+                    if(on_scope->frame) {
+                        method_frame = on_scope->frame;
+                    }
+                }
+                if(method_frame) break;
+                if(on_scope->parent) {
+                    on_scope = on_scope->parent;
+                } else break;
+            }
+            result->frame = method_frame;
+            result->type = GET_TYPE(R_RETURN);
+        });
+        exec_handlers.put(r_return_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
+            if(ctx.node->frame)
+                ctx.node->frame->return_val = std::move(ctx.node->right->value);
+            return ctx.node;
+        });
+        // stream_handlers.put(r_return_id, [](exec_context& ctx) -> std::function<void()>{
+        //     return nullptr;
+        //  });
+    }
+    
+}
 
 namespace property_module {
     static void initialize() {
         size_t equals_id = reg::new_type("EQUALS"); 
         size_t dot_id = reg::new_type("DOT");
 
-        size_t assignment_id = reg::new_type("ASSIGNMENT");
-        state_is_opp.put(assignment_id,true);
-        token_to_opp.put(equals_id,assignment_id);
-        type_precdence.put(assignment_id,1); 
-        size_t t_assignment_id = reg::new_type("T_ASSIGN"); 
-        t_opp_conversion.put(assignment_id, t_assignment_id);
-        size_t r_assignment_id = reg::new_type("R_ASSIGNMENT");
-        r_handlers.put(t_assignment_id, [r_assignment_id](g_ptr<r_node> result, r_context& ctx) {
-            result->type = r_assignment_id;
-            result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
-        });
-        exec_handlers.put(r_assignment_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
-            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
-            
-            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
-                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
-            Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
-                                   target_index, ctx.node->right->value.size);
-            return ctx.node;
-        });
-        stream_handlers.put(r_assignment_id, [](exec_context& ctx) -> std::function<void()>{
-            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
-            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
-            
-            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
-                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
-            
-            void* l_addr = ctx.node->left->value.address;
-                if(!l_addr) print("r_assignment::stream_handler: l_addr not resolved");
-            void** r_data = &ctx.node->right->value.data;
-                if(!r_data) print("r_assignment::stream_handler: r_data not resolved");
-            size_t r_size = ctx.node->right->value.size;
-            //Can turn this into a switch statment returning functions so we bake size in here to gain about 27% more performance
-            //by not using Type's API
-            //(*(list<uint32_t>*)l_addr)[target_index] = *(uint32_t*)r_data;
-            //Though in testing it doesn't make that much of a difference
-            std::function<void()> func = [l_addr,r_data,target_index,r_size]() {
-                Type::set(l_addr, *r_data, target_index, r_size);
-            };
-            return func;
-        });
-
         size_t prop_access_id = reg::new_type("PROP_ACCESS"); 
         state_is_opp.put(prop_access_id,true); 
         token_to_opp.put(dot_id,prop_access_id);
-        type_precdence.put(prop_access_id,3);
+        type_precdence.put(prop_access_id,8);
         size_t t_prop_access_id = reg::new_type("T_PROP_ACCESS");
         t_opp_conversion.put(prop_access_id, t_prop_access_id);
         size_t r_prop_access_id = reg::new_type("R_PROP_ACCESS");
@@ -140,6 +305,56 @@ namespace property_module {
             };
             return func;
         });
+
+        size_t assignment_id = reg::new_type("ASSIGNMENT");
+        state_is_opp.put(assignment_id,true);
+        token_to_opp.put(equals_id,assignment_id);
+        type_precdence.put(assignment_id,1); 
+        size_t t_assignment_id = reg::new_type("T_ASSIGN"); 
+        t_opp_conversion.put(assignment_id, t_assignment_id);
+        size_t r_assignment_id = reg::new_type("R_ASSIGNMENT");
+        r_handlers.put(t_assignment_id, [r_assignment_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_assignment_id;
+            result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+        });
+        exec_handlers.put(r_assignment_id, [r_prop_access_id](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
+
+            size_t target_index = (ctx.node->left->type == r_prop_access_id) ? 
+                ctx.frame->slots.get(ctx.node->left->slot) : ctx.index;
+
+                // print("T: ",target_index);
+                // print("ADD: ",&ctx.node->left->value.address);
+                // print("V: ",*(int*)ctx.node->right->value.data);
+                // print("S: ",ctx.node->right->value.size);
+            Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
+                                   target_index, ctx.node->right->value.size);
+
+            return ctx.node;
+        });
+        stream_handlers.put(r_assignment_id, [](exec_context& ctx) -> std::function<void()>{
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index);
+            
+            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
+                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
+            
+            void* l_addr = ctx.node->left->value.address;
+                if(!l_addr) print("r_assignment::stream_handler: l_addr not resolved");
+            void** r_data = &ctx.node->right->value.data;
+                if(!r_data) print("r_assignment::stream_handler: r_data not resolved");
+            size_t r_size = ctx.node->right->value.size;
+            //Can turn this into a switch statment returning functions so we bake size in here to gain about 27% more performance
+            //by not using Type's API
+            //(*(list<uint32_t>*)l_addr)[target_index] = *(uint32_t*)r_data;
+            //Though in testing it doesn't make that much of a difference
+            std::function<void()> func = [l_addr,r_data,target_index,r_size]() {
+                Type::set(l_addr, *r_data, target_index, r_size);
+            };
+            return func;
+        });
     }
 }
 
@@ -189,7 +404,7 @@ namespace opperator_module {
     size_t add_id = reg::new_type("ADD");
     state_is_opp.put(add_id,true);
     token_to_opp.put(plus_id,add_id);
-    type_precdence.put(add_id,1); 
+    type_precdence.put(add_id,2); 
     size_t t_add_id = reg::new_type("T_ADD"); 
     t_opp_conversion.put(add_id, t_add_id); 
     size_t r_add_id = reg::new_type("R_ADD"); 
@@ -199,7 +414,7 @@ namespace opperator_module {
     size_t subtract_id = reg::new_type("SUBTRACT"); 
     state_is_opp.put(subtract_id,true);
     token_to_opp.put(minus_id,subtract_id);
-    type_precdence.put(subtract_id,1); 
+    type_precdence.put(subtract_id,2); 
     size_t t_subtract_id = reg::new_type("T_SUBTRACT"); 
     t_opp_conversion.put(subtract_id, t_subtract_id);
     size_t r_subtract_id = reg::new_type("R_SUBTRACT");
@@ -209,7 +424,7 @@ namespace opperator_module {
     size_t multiply_id = reg::new_type("MULTIPLY"); 
     state_is_opp.put(multiply_id,true);
     token_to_opp.put(star_id,multiply_id); 
-    type_precdence.put(multiply_id,2);
+    type_precdence.put(multiply_id,4);
     size_t t_multiply_id = reg::new_type("T_MULTIPLY");
     t_opp_conversion.put(multiply_id, t_multiply_id);
     size_t r_multiply_id = reg::new_type("R_MULTIPLY"); 
@@ -219,7 +434,7 @@ namespace opperator_module {
     size_t divide_id = reg::new_type("DIVIDE");
     state_is_opp.put(divide_id,true);
     token_to_opp.put(slash_id,divide_id);
-    type_precdence.put(divide_id,2);
+    type_precdence.put(divide_id,4);
     size_t t_divide_id = reg::new_type("T_DIVIDE");
     t_opp_conversion.put(divide_id, t_divide_id); 
     size_t r_divide_id = reg::new_type("R_DIVIDE"); 
@@ -229,7 +444,7 @@ namespace opperator_module {
     size_t greater_than_id = reg::new_type("GREATER_THAN");
     state_is_opp.put(greater_than_id,true);
     token_to_opp.put(rangle_id,greater_than_id);
-    type_precdence.put(greater_than_id,1);
+    type_precdence.put(greater_than_id,2);
     size_t t_greater_than = reg::new_type("T_GREATER_THAN");
     t_opp_conversion.put(greater_than_id, t_greater_than);
     size_t r_greater_than_id = reg::new_type("R_GREATER_THAN");
@@ -239,7 +454,7 @@ namespace opperator_module {
     size_t less_than_id = reg::new_type("LESS_THAN");
     state_is_opp.put(less_than_id,true);
     token_to_opp.put(langle_id,less_than_id); 
-    type_precdence.put(less_than_id,1); 
+    type_precdence.put(less_than_id,2); 
     size_t t_less_than_id = reg::new_type("T_LESS_THAN");
     t_opp_conversion.put(less_than_id, t_less_than_id);
     size_t r_less_than_id = reg::new_type("R_LESS_THAN");
@@ -254,14 +469,25 @@ namespace variables_module {
         size_t var_decl_id = reg::new_type("VAR_DECL");
         type_precdence.put(var_decl_id,1);
         size_t t_var_decl_id = reg::new_type("T_VAR_DECL");
-        t_functions.put(var_decl_id, [](t_context& ctx) -> g_ptr<t_node> {
-            t_variable_decleration(ctx.result, ctx.node);
+        size_t object_id = reg::new_type("OBJECT");
+        t_functions.put(var_decl_id, [t_var_decl_id,object_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type=t_var_decl_id;
+            uint32_t type = ctx.node->tokens[0]->getType();
+            if(type==GET_TYPE(IDENTIFIER)) {
+                ctx.result->value.type = object_id; 
+                ctx.result->deferred_identifier = ctx.node->tokens[0]->content; //For later resolution
+            }
+            else
+            {
+                ctx.result->value.type = type_key_to_type.get(ctx.node->tokens[0]->type_info.type);
+                ctx.result->value.size = ctx.node->tokens[0]->type_info.size;
+            }
+            ctx.result->name = ctx.node->tokens[1]->content;
             return ctx.result;
         });
         discover_handlers.put(t_var_decl_id, [](g_ptr<t_node> node, d_context& ctx) {
             discover_var_decleration(node, ctx.root, ctx.idx);
         });    
-        size_t object_id = reg::new_type("OBJECT");
         value_to_string.put(object_id,[](void* data){
             return "OBJECT";
         });
@@ -271,6 +497,10 @@ namespace variables_module {
             result->value.type = ctx.node->value.type;
             result->value.size = ctx.node->value.size;
             result->name = ctx.node->name;
+            void* address = ctx.scope->type_ref->adress_column(ctx.node->name);
+            if(address) {
+                result->value.address = address;
+            } else print("r_var_decl::r_handler No address found");
             if(ctx.node->value.type == object_id) {
                 g_ptr<r_node> info = make<r_node>();
                 resolve_identifier(ctx.node, info, ctx.scope, ctx.frame);
@@ -447,53 +677,58 @@ namespace literals_module {
 
 static void reg_b_types() {
    
-    reg::new_type("TYPE"); reg::new_type("TYPE_KEY"); 
     reg::new_type("LBRACE"); reg::new_type("RBRACE"); 
     reg::new_type("LPAREN"); reg::new_type("RPAREN"); 
     reg::new_type("LBRACKET"); reg::new_type("RBRACKET"); 
-    reg::new_type("END");   reg::new_type("METHOD_KEY");
-    reg::new_type("PRINT_KEY");  reg::new_type("NOT"); reg::new_type("COMMA");
-   
-}
-static void init_t_keys() {
-    reg_t_key("type", GET_TYPE(TYPE_KEY), 8, GET_TYPE(F_TYPE_KEY)); 
-    reg_t_key("print", GET_TYPE(PRINT_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("return", GET_TYPE(RETURN_KEY), 0, GET_TYPE(F_KEYWORD)); 
-     reg_t_key("if", GET_TYPE(IF_KEY), 0, GET_TYPE(F_KEYWORD)); 
-    reg_t_key("else", GET_TYPE(ELSE_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("break", GET_TYPE(BREAK_KEY), 0, GET_TYPE(F_KEYWORD)); 
-    reg_t_key("while", GET_TYPE(WHILE_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("do", GET_TYPE(DO_KEY), 0, GET_TYPE(F_KEYWORD));
- }
-static void reg_a_types() {
-    reg::new_type("VAR_DECL_INIT"); reg::new_type("METHOD_CALL"); reg::new_type("METHOD_DECL");
-    reg::new_type("TYPE_DECL");  reg::new_type("ENTER_SCOPE"); reg::new_type("EXIT_SCOPE");
-    reg::new_type("PRINT_CALL"); reg::new_type("ENTER_PAREN"); reg::new_type("EXIT_PAREN");  
-    reg::new_type("RETURN_CALL"); reg::new_type("ARGUMENT_GROUP"); reg::new_type("IF_DECL"); reg::new_type("ELSE_DECL"); 
-    reg::new_type("BREAK_CALL"); reg::new_type("WHILE_DECL"); reg::new_type("DO_DECL");
- }
-static void reg_s_types() { 
-    reg::new_type("GLOBAL"); reg::new_type("TYPE_DEF"); reg::new_type("METHOD"); reg::new_type("FUNCTION");
-    reg::new_type("IF_BLOCK"); reg::new_type("BLOCK"); reg::new_type("WHILE_LOOP"); reg::new_type("FOR_LOOP");
-}
-static void reg_t_types() {
-    reg::new_type("T_METHOD_CALL"); reg::new_type("T_RETURN"); reg::new_type("T_METHOD_DECL"); reg::new_type("T_IF");
-    reg::new_type("T_ELSE"); reg::new_type("T_BLOCK");  reg::new_type("T_PRINT"); reg::new_type("T_TYPE_DECL");
-    reg::new_type("T_WHILE"); reg::new_type("T_BREAK"); reg::new_type("T_DO");
- }
-static void reg_r_types() {
-    reg::new_type("R_IF");   reg::new_type("R_METHOD_CALL");
-     reg::new_type("R_TYPE_DECL"); reg::new_type("R_METHOD_DECL"); 
-    reg::new_type("R_PRINT_CALL"); reg::new_type("R_RETURN"); reg::new_type("R_ELSE");  reg::new_type("R_BREAK");
-    reg::new_type("R_WHILE"); reg::new_type("R_DO");
- }
-
-static void a_function_blob() {
-    a_functions.put(GET_TYPE(END), [](a_context& ctx) {
+    size_t end_id = reg::new_type("END"); 
+    a_functions.put(end_id, [end_id](a_context& ctx) {
         if(ctx.state != GET_TYPE(UNTYPED)) {
+            ctx.end_lambda();
+            ctx.state = end_id;
             ctx.end_lambda();
             ctx.state = GET_TYPE(UNTYPED);
         }
         ctx.pos = 0;
     });
+    t_functions.put(end_id, [](t_context& ctx) -> g_ptr<t_node>{
+        return nullptr; //Do nothing
+    });  
+    
+    reg::new_type("PRINT_KEY");  reg::new_type("NOT"); reg::new_type("COMMA");
+   
+}
+static void init_t_keys() {
+    reg_t_key("print", GET_TYPE(PRINT_KEY), 0, GET_TYPE(F_KEYWORD)); 
+     reg_t_key("if", GET_TYPE(IF_KEY), 0, GET_TYPE(F_KEYWORD)); 
+    reg_t_key("else", GET_TYPE(ELSE_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("break", GET_TYPE(BREAK_KEY), 0, GET_TYPE(F_KEYWORD)); 
+    reg_t_key("while", GET_TYPE(WHILE_KEY), 0, GET_TYPE(F_KEYWORD)); reg_t_key("do", GET_TYPE(DO_KEY), 0, GET_TYPE(F_KEYWORD));
 
+    
+
+ }
+static void reg_a_types() {
+    reg::new_type("VAR_DECL_INIT");
+    reg::new_type("ENTER_SCOPE"); reg::new_type("EXIT_SCOPE");
+    reg::new_type("PRINT_CALL"); reg::new_type("ENTER_PAREN"); reg::new_type("EXIT_PAREN");  
+    reg::new_type("IF_DECL"); reg::new_type("ELSE_DECL"); 
+    reg::new_type("BREAK_CALL"); reg::new_type("WHILE_DECL"); reg::new_type("DO_DECL");
+ }
+static void reg_s_types() { 
+    reg::new_type("GLOBAL");
+    reg::new_type("IF_BLOCK"); reg::new_type("BLOCK"); reg::new_type("WHILE_LOOP"); reg::new_type("FOR_LOOP");
+}
+static void reg_t_types() {
+   reg::new_type("T_IF");
+    reg::new_type("T_ELSE"); reg::new_type("T_BLOCK");  reg::new_type("T_PRINT");  
+    reg::new_type("T_WHILE"); reg::new_type("T_BREAK"); reg::new_type("T_DO");
+ }
+static void reg_r_types() {
+    reg::new_type("R_IF");  
+    reg::new_type("R_PRINT_CALL");  reg::new_type("R_ELSE");  reg::new_type("R_BREAK");
+    reg::new_type("R_WHILE"); reg::new_type("R_DO");
+ }
+
+static void a_function_blob() {
     a_functions.put(GET_TYPE(LBRACE), [](a_context& ctx) {
         if(ctx.state != GET_TYPE(UNTYPED)) {
             ctx.end_lambda();
@@ -541,10 +776,7 @@ static void a_function_blob() {
         ctx.skip_inc = 1; // Can skip more if needed
     });
 
-    a_functions.put(GET_TYPE(TYPE_KEY), [](a_context& ctx) {
-        ctx.state = GET_TYPE(TYPE_DECL);
-    });
-
+   
     a_functions.put(GET_TYPE(PRINT_KEY), [](a_context& ctx) {
         ctx.state = GET_TYPE(PRINT_CALL);
     });
@@ -596,20 +828,7 @@ static void a_function_blob() {
 }
 
 static void scope_function_blob() {
-    scope_link_handlers.put(GET_TYPE(TYPE_DECL), [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
-        new_scope->scope_type = GET_TYPE(TYPE_DEF);
-        new_scope->owner = owner_node;
-        owner_node->owned_scope = new_scope.getPtr();
-    });
-    
-    scope_link_handlers.put(GET_TYPE(METHOD_DECL), [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
-        if(current_scope->scope_type == GET_TYPE(TYPE_DEF))
-            new_scope->scope_type = GET_TYPE(METHOD);
-        else 
-            new_scope->scope_type = GET_TYPE(FUNCTION);
-        new_scope->owner = owner_node;
-        owner_node->owned_scope = new_scope.getPtr();
-    });
+  
     
     auto if_handler = [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
         new_scope->scope_type = GET_TYPE(IF_BLOCK);
@@ -636,44 +855,9 @@ static void t_function_blob_top() {
 
      t_opp_conversion.put(GET_TYPE(IF_DECL), GET_TYPE(T_IF)); t_opp_conversion.put(GET_TYPE(ELSE_DECL), GET_TYPE(T_ELSE));
     t_opp_conversion.put(GET_TYPE(WHILE_DECL), GET_TYPE(T_WHILE)); t_opp_conversion.put(GET_TYPE(BREAK_CALL), GET_TYPE(T_BREAK)); 
-    t_opp_conversion.put(GET_TYPE(METHOD_CALL), GET_TYPE(T_METHOD_CALL)); t_opp_conversion.put(GET_TYPE(RETURN_CALL), GET_TYPE(T_RETURN));
  }
 
 static void t_function_blob_bottom() {
-
-    t_functions.put(GET_TYPE(TYPE_DECL), [](t_context& ctx) -> g_ptr<t_node> {
-        ctx.result->type = GET_TYPE(T_TYPE_DECL);
-        ctx.result->name = ctx.node->tokens.last()->content;
-        ctx.result->scope = ctx.node->owned_scope;
-        return ctx.result;
-    });
-
-    t_functions.put(GET_TYPE(METHOD_DECL), [](t_context& ctx) -> g_ptr<t_node> {
-        ctx.result->type = GET_TYPE(T_METHOD_DECL);
-        ctx.result->name = ctx.node->tokens.last()->content;
-        ctx.result->scope = ctx.node->owned_scope;
-        ctx.result->scope->t_owner = ctx.result;
-        if(!ctx.node->sub_nodes.empty()) {
-            for(auto c : ctx.node->sub_nodes) {
-                ctx.result->children << parse_a_node(c, ctx.root);
-            }
-        }
-        return ctx.result;
-    });
-
-    t_functions.put(GET_TYPE(METHOD_CALL), [](t_context& ctx) -> g_ptr<t_node> {
-        g_ptr<t_node> result = t_parse_expression(ctx.node, ctx.left);
-        if(!ctx.node->sub_nodes.empty()) {
-            for(auto c : ctx.node->sub_nodes) {
-                result->children << parse_a_node(c, ctx.root);
-            }
-        }
-        return result;
-    });
-
-    t_functions.put(GET_TYPE(RETURN_CALL), [](t_context& ctx) -> g_ptr<t_node> {
-        return t_parse_expression(ctx.node, ctx.result);
-    });
 
     t_functions.put(GET_TYPE(BREAK_CALL), [](t_context& ctx) -> g_ptr<t_node> {
         ctx.result->type = GET_TYPE(T_BREAK);
@@ -733,55 +917,8 @@ static void t_function_blob_bottom() {
     });
 }
 
-static void discover_function_blob() {
-    discover_handlers.put(GET_TYPE(T_TYPE_DECL), [](g_ptr<t_node> node, d_context& ctx) {
-        if(!node->scope->type_ref) node->scope->type_ref = make<Type>();
-        node->scope->type_ref->type_name = node->name;
-    });
-
-    discover_handlers.put(GET_TYPE(T_METHOD_DECL), [](g_ptr<t_node> node, d_context& ctx) {
-        if(node->scope) {
-            if(!node->scope->type_ref) node->scope->type_ref = make<Type>();
-            node->scope->type_ref->type_name = node->name;
-            
-            for(auto c : node->children) {
-                if(c->type == GET_TYPE(T_VAR_DECL))
-                    discover_var_decleration(c, node->scope, ctx.idx);
-            }
-        }
-    });
-}
 static void r_function_blob() {
-   
-    r_handlers.put(GET_TYPE(T_METHOD_CALL), [](g_ptr<r_node> result, r_context& ctx) {
-        result->type = GET_TYPE(R_METHOD_CALL);
-        g_ptr<r_node> info = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-        if(info->resolved_type) {
-            result->slot = info->slot;
-            if(ctx.frame->slots.length() <= result->slot) ctx.frame->slots << 0;
-            result->resolved_type = info->resolved_type;
-            result->name = ctx.node->right->name;
-            g_ptr<s_node> type_decl = find_type_decl(result->resolved_type, ctx.scope);
-            if(type_decl) {
-                g_ptr<r_node> method_decl = type_decl->method_map.get(result->name);
-                result->frame = method_decl->frame;
-                
-                for(int i = 0; i < ctx.node->children.size(); i++) {
-                    g_ptr<r_node> arg = resolve_symbol(ctx.node->children[i], ctx.scope, ctx.frame);
-                    g_ptr<r_node> param = method_decl->children[i];
-                    param->type = GET_TYPE(R_IDENTIFIER);
-                    g_ptr<r_node> assignment = make<r_node>();
-                    assignment->type = GET_TYPE(R_ASSIGNMENT);
-                    assignment->left = param;
-                    assignment->right = arg;
-                    result->children << assignment;
-                }
-            }
-        }
-    });
-
-   
-
+  
     r_handlers.put(GET_TYPE(T_IF), [](g_ptr<r_node> result, r_context& ctx) {
         result->type = GET_TYPE(R_IF);
         result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
@@ -810,41 +947,7 @@ static void r_function_blob() {
         result->type = GET_TYPE(R_DO);
     });
 
-    r_handlers.put(GET_TYPE(T_TYPE_DECL), [](g_ptr<r_node> result, r_context& ctx) {
-        result->type = GET_TYPE(R_TYPE_DECL);
-        result->frame = resolve_symbols(ctx.node->scope);
-    });
-
-    r_handlers.put(GET_TYPE(T_METHOD_DECL), [](g_ptr<r_node> result, r_context& ctx) {
-        result->type = GET_TYPE(R_METHOD_DECL);
-        result->name = ctx.node->name;
-        result->frame = resolve_symbols(ctx.node->scope);
-        for(auto c : ctx.node->children) {
-            g_ptr<r_node> child = resolve_symbol(c, ctx.node->scope, result->frame);
-            resolve_identifier(c, child, ctx.node->scope, result->frame);
-            result->children << child;
-        }
-        ctx.scope->method_map.put(result->name, result);
-    });
-
-    r_handlers.put(GET_TYPE(T_RETURN), [](g_ptr<r_node> result, r_context& ctx) {
-        result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
-        g_ptr<s_node> on_scope = ctx.scope;
-        g_ptr<Frame> method_frame = nullptr;
-        while(!method_frame) {
-            if(on_scope->scope_type == GET_TYPE(METHOD) || on_scope->scope_type == GET_TYPE(FUNCTION)) {
-                if(on_scope->frame) {
-                    method_frame = on_scope->frame;
-                }
-            }
-            if(method_frame) break;
-            if(on_scope->parent) {
-                on_scope = on_scope->parent;
-            } else break;
-        }
-        result->frame = method_frame;
-        result->type = GET_TYPE(R_RETURN);
-    });
+   
 
     r_handlers.put(GET_TYPE(T_BREAK), [](g_ptr<r_node> result, r_context& ctx) {
         g_ptr<s_node> on_scope = ctx.scope;
@@ -915,42 +1018,7 @@ static void exec_function_blob() {
         return func;
     });
 
-    exec_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> g_ptr<r_node> {
-        // Probably do nothing for now
-        // execute_r_nodes(ctx.node->frame);
-        return ctx.node;
-    });
-    stream_handlers.put(GET_TYPE(R_TYPE_DECL), [](exec_context& ctx) -> std::function<void()>{
-       return nullptr;
-    });
-
-    exec_handlers.put(GET_TYPE(R_METHOD_CALL), [](exec_context& ctx) -> g_ptr<r_node> {
-        g_ptr<Object> context = ctx.node->frame->context->create();
-
-        // Execute pre-wired parameter assignments
-        for(auto assignment : ctx.node->children) {
-            if(assignment->left->value.type == GET_TYPE(OBJECT)) {
-                ctx.node->frame->slots[assignment->left->slot] = ctx.frame->slots[assignment->right->slot];
-            }
-            else {
-                execute_r_node(assignment, ctx.node->frame, context->ID);
-            }
-        }
-
-        execute_r_nodes(ctx.node->frame, context);
-        if(ctx.node->frame->return_val.type != GET_TYPE(UNDEFINED)) {
-            ctx.node->value = std::move(ctx.node->frame->return_val);
-        }
-        ctx.node->frame->return_val.type = GET_TYPE(UNDEFINED);
-        return ctx.node;
-    });
-
-    exec_handlers.put(GET_TYPE(R_RETURN), [](exec_context& ctx) -> g_ptr<r_node> {
-        execute_r_node(ctx.node->right, ctx.frame, ctx.index);
-        if(ctx.node->frame)
-            ctx.node->frame->return_val = std::move(ctx.node->right->value);
-        return ctx.node;
-    });
+   
 
     exec_handlers.put(GET_TYPE(R_BREAK), [](exec_context& ctx) -> g_ptr<r_node> {
         if(ctx.node->frame)

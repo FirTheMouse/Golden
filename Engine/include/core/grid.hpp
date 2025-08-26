@@ -43,8 +43,9 @@ public:
     inline Cell getCell(int gridX, int gridZ) {
         int index = cellIndex(gridX,gridZ);
         if(index>=cells.length()) {
-        // print("Grid::52 implment cell addition in the future");
-        return make<d_list<g_ptr<Object>>>();
+        //print("Grid::52 implment cell addition in the future");
+        return nullptr;
+        //return make<d_list<g_ptr<Object>>>();
         }
         return cells.get(index);
     }
@@ -80,6 +81,7 @@ public:
         return dx + dz;
     }
 
+    //Does not work
     inline vec3 indexToLoc(int idx) const
     {
         int gridX = (idx % cellMap) - half;

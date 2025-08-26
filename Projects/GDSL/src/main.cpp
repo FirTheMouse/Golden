@@ -86,6 +86,7 @@ int main() {
         opperator_module::initialize();
         property_module::initialize();
         control_module::initialize();
+        type_module::initialize();
         reg_b_types();
         init_t_keys();
         reg_a_types();
@@ -96,7 +97,6 @@ int main() {
         t_function_blob_top();
         t_function_blob_bottom();
         reg_r_types();
-        discover_function_blob();
         r_function_blob();
         exec_function_blob();
         std::string code = readFile("../Projects/GDSL/src/golden.gld");
@@ -107,57 +107,57 @@ int main() {
         parse_nodes(root);
         discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
-        //execute_r_nodes(frame); 
+        execute_r_nodes(frame); 
         //Streaming
         // stream_r_nodes(frame);
         // execute_stream(frame);
 
-        list<list<std::function<void(int)>>> f_table;
-        list<list<std::string>> s_table;
-        list<vec4> comps;
-        int z = 0;
-        f_table << list<std::function<void(int)>>{};
-        s_table << list<std::string>{};
-        z = 0;
-        // s_table[z] << "execute_r_nodes"; //0
-        // f_table[z] << [frame](int i){
-        //     execute_r_nodes(frame); 
+        // list<list<std::function<void(int)>>> f_table;
+        // list<list<std::string>> s_table;
+        // list<vec4> comps;
+        // int z = 0;
+        // f_table << list<std::function<void(int)>>{};
+        // s_table << list<std::string>{};
+        // z = 0;
+        // // s_table[z] << "execute_r_nodes"; //0
+        // // f_table[z] << [frame](int i){
+        // //     execute_r_nodes(frame); 
+        // // };
+
+        // s_table[z] << "CPP"; //1
+        // f_table[z] << [](int i){
+        // struct person {
+        //     std::string name = "noname";
+        // };
+        //     person joe;
+        //     person mary;
+        //     joe.name = "Joe";
+        //     std::string word;
+        //     word = joe.name;
+        //     print("Word is: ",word,"!");
+        //     joe.name = "Not Joe";
+        //     print("The name of Joe is: ", joe.name);
+        //     mary.name = "Mary";
+        //     print("The name of Mary is: ", mary.name);
         // };
 
-        s_table[z] << "CPP"; //1
-        f_table[z] << [](int i){
-        struct person {
-            std::string name = "noname";
-        };
-            person joe;
-            person mary;
-            joe.name = "Joe";
-            std::string word;
-            word = joe.name;
-            print("Word is: ",word,"!");
-            joe.name = "Not Joe";
-            print("The name of Joe is: ", joe.name);
-            mary.name = "Mary";
-            print("The name of Mary is: ", mary.name);
-        };
-
-        s_table[z] << "stream_r_nodes"; //2
-        f_table[z] << [frame](int i){
-            if(frame->stored_functions.length()==0) {
-                stream_r_nodes(frame);
-            }
-        };
-        s_table[z] << "execute_stream"; //3
-        f_table[z] << [frame](int i){
-            execute_stream(frame); 
-        };
+        // s_table[z] << "stream_r_nodes"; //2
+        // f_table[z] << [frame](int i){
+        //     if(frame->stored_functions.length()==0) {
+        //         stream_r_nodes(frame);
+        //     }
+        // };
+        // s_table[z] << "execute_stream"; //3
+        // f_table[z] << [frame](int i){
+        //     execute_stream(frame); 
+        // };
 
 
         
-        // comps << vec4(0,0 , 0,2);
-        // comps << vec4(0,0 , 0,3);
-        comps << vec4(0,2 , 0,0);
-        run_rig(f_table,s_table,comps,true,1,50);
+        // // comps << vec4(0,0 , 0,2);
+        // // comps << vec4(0,0 , 0,3);
+        // comps << vec4(0,2 , 0,0);
+        // run_rig(f_table,s_table,comps,true,1,50);
         
     }
     else if (mode==1) {

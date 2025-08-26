@@ -81,37 +81,19 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 int main() {
 
+  
     g_ptr<Type> t = make<Type>();
-    int x = 5;
-    int y = 3;
-    //Push the values as raw pointer
-    t->push(&x,4,0);
-    t->push(&y,4,0);
-    void* vars = &t->byte4_columns[0]; //There's a number of ways to do this
-    void* x_addr = Type::get(vars, 0, 4);  // &byte4_columns[0][0]
-    void* y_addr = Type::get(vars, 1, 4);  // &byte4_columns[0][1]
-    //Could use insertion order as well via array_get in some cases
-    //But the compiler stores direct address so I'll use them
+    t->add_column(4);
+    void* addr = &t->byte4_columns[0];
 
-
-    list<std::function<void()>> exec_handlers;
-    exec_handlers << [x_addr,y_addr,t](){
-        int a = *(int*)(x_addr);
-        int b = *(int*)(y_addr);
-        std::function<void()> f = [a,b](){ //We would check the node here, if it has a index, it's arleady in the stream
-            print(a+b);                    //don't resolve it again, just keep the index that's already there
-        };
-        t->push(&f,32,1);
-        int f_address = t->row_length(1,32)-1;
-    };
-    for(int i=0;i<exec_handlers.length();i++) exec_handlers[i]();
-    void* funcs = &t->byte32_columns[1];
-    list<byte32_t>* func_list = (list<byte32_t>*)funcs;
-    for(int i=0;i<t->row_length(1,32);i++) {
-        (*(std::function<void()>*)&(*func_list)[i])();
+    for(int i=0;i<10000;i++) {
+        print(i,": ");
+        t->add_column(4); //We can't add more columns otherwise it breaks
+        //Perhaps a special resize that updates all addresses?
+        t->push<int>(i);
+        print(*(int*)Type::get(addr,i,4));
+        //Type::set(addr,&i,0,4);
     }
-        
-    
 
     print("==DONE==");
     list<list<std::function<void(int)>>> f_table;

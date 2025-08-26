@@ -141,11 +141,11 @@ int main()
     scene->camera.speedMod = 0.01f;
 
 
-    // std::string name = "GDSL";
+    // std::string name = "FirChess";
     // startProject(name);
     // addProjectToCMake(name);
 
-    std::string p1 = "GDSL";
+    std::string p1 = "FirChess";
     std::string p2 = "GUIDE";
     std::string p3 = "Testing";
     std::string p4 = "Gears";

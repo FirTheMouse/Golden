@@ -270,6 +270,8 @@ public:
     }
 
     static void set(void* ptr,void* value,size_t index,size_t size) {
+        // print("S: ",size," I: ",index);
+        // print("L: ",(*(list<uint32_t>*)ptr).length());
         switch(size) {
             case 1: memcpy(&(*(list<uint8_t>*)ptr)[index], value, 1); break;
             case 2: memcpy(&(*(list<uint16_t>*)ptr)[index], value, 2); break;

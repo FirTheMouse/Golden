@@ -150,6 +150,8 @@ public:
     vec2 operator*(float scalar) const { return vec2(impl * scalar); }
     vec2 operator/(float scalar) const { return vec2(impl / scalar); }
     vec2 operator/(const vec2& rh) const { return vec2(impl / rh.impl); }
+    bool operator==(const vec2& rh) const {return impl == rh.impl;}
+    bool operator!=(const vec2& rh) const {return impl != rh.impl;}
 
     float length() const { return glm::length(impl); }
 
@@ -216,6 +218,8 @@ class vec3 {
         vec3 operator*(float scalar) const { return vec3(impl * scalar); }
         vec3 operator*(const vec3& rhs) const { return vec3(impl * rhs.impl); }
         vec3 operator/(const vec3& rhs) const { return vec3(impl / rhs.impl); }
+        bool operator==(const vec3& rhs) const {return impl == rhs.impl;}
+        bool operator!=(const vec3& rhs) const {return impl != rhs.impl;}
     
         float length() const { return glm::length(impl); }
     
@@ -280,6 +284,9 @@ class vec4 {
         vec4 operator*(float scalar) const { return vec4(impl * scalar); }
         vec4 operator/(float scalar) const { return vec4(impl / scalar); }
         vec4 operator/(const vec4& rh) const { return vec4(impl / rh.impl); }
+
+        bool operator==(const vec4& rhs) const {return impl == rhs.impl;}
+        bool operator!=(const vec4& rhs) const {return impl != rhs.impl;}
     
         float length() const { return glm::length(impl); }
     
