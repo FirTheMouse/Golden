@@ -404,7 +404,7 @@ void unpromote(int id,bool real = true) {
 
 void castle(Move& move,bool real = true) {
     int king_id = move.id;
-    int rook_id = move.c_id!=-1?move.c_id:grid->cells[move.to][0];
+    int rook_id = grid->cells[move.to][0];
 
     move.c_from = move.to;
     move.c_id = rook_id;
@@ -424,6 +424,10 @@ void makeMove(Move& move,bool real = true) {
         hasMoved[move.id] = true;
     }
     if(move.rule != 2) {
+        if(move.to>100) {
+            print("ERROR invalid destination: ",move.to);
+            return;
+        }
         auto c = grid->cells[move.to];
         if(!c.empty()) {
             takePiece(ref[c[0]],real);
@@ -442,6 +446,8 @@ void makeMove(Move& move,bool real = true) {
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
+        // print("Original: "); print_move(move);
+        // print("Linked: "); print_move(linked);
         makeMove(linked,real);
     }
 
@@ -661,15 +667,15 @@ bool check_promotion(Move& move) {
     return false;
 }
 
-//-1 = Can't castle, 0 = castle queenside (long), 1 = castle kingside, 2 = castle both sides
-int can_castle(int color) {
-    if(hasMoved[color==0?white_king_id:black_king_id]) return -1;
+list<vec2> can_castle(int color) {
+    list<vec2> result;
+    if(hasMoved[color==0?white_king_id:black_king_id]) return result;
     int side = -1;
-    vec2 king_pos = world_to_board(grid->indexToLoc(cells[color==0?white_king_id:black_king_id]));
+    vec2 king_pos = board_pos_of(color==0?white_king_id:black_king_id);
     for(int i=0;i<2;i++) {
         if(!hasMoved[color==0?white_rook_ids[i]:black_rook_ids[i]]
             &&!captured[color==0?white_rook_ids[i]:black_rook_ids[i]]) {
-            vec2 rook_pos = world_to_board(grid->indexToLoc(cells[color==0?white_rook_ids[i]:black_rook_ids[i]]));
+            vec2 rook_pos = board_pos_of(color==0?white_rook_ids[i]:black_rook_ids[i]);
             vec2 dir = (rook_pos.x() > king_pos.x()) ? vec2(1,0) : vec2(-1,0);
             //bool is_long = king_pos.x()<rook_pos.x();
             int start = std::min(king_pos.x(), rook_pos.x()) + 1;
@@ -686,23 +692,27 @@ int can_castle(int color) {
                     break;
                 }
             }
+
             if(valid) {
-                if(side!=-1)
-                    side = 2;
-                else
-                    side = i;
+                result << (rook_pos-king_pos);
             }
         }
     }
-    return side;
+    return result;
 }
 
 
 list<Move> generateMoves(int color) {
+    // Line total;
+    // total.start();
+    // Line s;
+    // s.start();
     list<Move> result;
-    bool castling = false;
-    if(captured[color==0?white_king_id:black_king_id]) return result;
+    //if(captured[color==0?white_king_id:black_king_id]) return result;
     for(int i=(color==0?0:16);i<(color==0?16:32);i++) {
+        // Line inner;
+        // inner.start();
+        bool castling = false;
         if(captured[i]) continue;
         select_piece(i);
         list<vec2> special_moves;
@@ -735,14 +745,11 @@ list<Move> generateMoves(int color) {
             }
         }
         if(i==(colors[i]==0?white_king_id:black_king_id)) {
-            int side = can_castle(color);
-            if(side!=-1) {
+            list<vec2> side = can_castle(color);
+            if(!side.empty()) {
                 castling = true;
-                if(side==2) {
-                    special_moves << board_pos_of(color==0?white_rook_ids[0]:black_rook_ids[0]);
-                    special_moves << board_pos_of(color==0?white_rook_ids[1]:black_rook_ids[1]);
-                } else {
-                    special_moves << board_pos_of(color==0?white_rook_ids[side]:black_rook_ids[side]);
+                for(auto s : side) {
+                    special_moves << s;
                 }
             }
         }
@@ -769,8 +776,11 @@ list<Move> generateMoves(int color) {
                 result << move;
             }
         }
+        //print(dtypes[i]," time ",inner.end());
         selected = nullptr;
     }
+    // print("Loop time ",s.end());
+    // s.start();
     list<Move> final_result;
     for(auto& m : result) {
         makeMove(m, false);
@@ -788,6 +798,8 @@ list<Move> generateMoves(int color) {
             //print("Stalemate!");
         }
     }
+    // print("Final time ",s.end());
+    // print("Total time ",total.end());
     return result;
 }
 
@@ -912,6 +924,7 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
         for(auto move : moves) {
             makeMove(move, false);
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            // if(move.rule==2) eval+=20000;
             unmakeMove(move, false);
             
             maxEval = std::max(maxEval, eval);
@@ -924,6 +937,7 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
         for(auto move : moves) {
             makeMove(move, false);
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            // if(move.rule==2) eval-=20000;
             unmakeMove(move, false);
             
             minEval = std::min(minEval, eval);
@@ -940,6 +954,7 @@ Move findBestMove(int depth,int turn_color) {
     auto moves = generateMoves(turn_color);
     if(moves.empty()) print("Out of moves");
     Move bestMove;
+    bestMove.id = -1;
     int bestScore = turn_color == 0 ? -9999 : 9999;
     print("-----Finding move for ",turn_color==0?"white":"black","-----");
     for(auto& move : moves) {
@@ -957,7 +972,12 @@ Move findBestMove(int depth,int turn_color) {
             bestMove = move;
         }
     }
-    print("Cacls performed: ",calcs," time:",s.end()/1000000," Chosen score: ",bestMove.score);
+    if(bestMove.id==-1) {
+        print("Checkmate!");
+        return bestMove;
+    }
+
+    print("Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Chosen score: ",bestMove.score);
     calcs = 0;
     return bestMove;
 }
@@ -1010,8 +1030,12 @@ int main() {
     auto thread = make<Thread>();
     thread->run([&](ScriptContext& ctx){
             Move m = findBestMove(6,turn_color);
-            makeMove(m);
-            turn_color = turn_color==0?1:0;
+            if(m.id!=-1) {
+                makeMove(m);
+                turn_color = turn_color==0?1:0;
+            }
+            else
+                thread->pause();
         //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     },0.02f);
 
@@ -1057,14 +1081,16 @@ int main() {
             // makeMove(findBestMove(1,turn_color));
             // turn_color = turn_color==0?1:0;
             if(held(LSHIFT)) {
-                unmakeMove(madeMoves.pop());
+                generateMoves(turn_color);
             }
             else {
                 // list<Move> result = generateMoves(turn_color);
                 // Move m = result.get(randi(0,result.length()-1),"get_move");
-                Move m = findBestMove(5,turn_color);
-                makeMove(m);
-                madeMoves << m;
+                Move m = findBestMove(4,turn_color);
+                if(m.id!=-1) {
+                    makeMove(m);
+                    madeMoves << m;
+                }
             }
         }
         if(pressed(Y)) {
