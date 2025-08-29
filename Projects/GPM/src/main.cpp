@@ -147,7 +147,7 @@ int main()
 
     std::string p1 = "FirChess";
     std::string p2 = "GUIDE";
-    std::string p3 = "Testing";
+    std::string p3 = "GDSL";
     std::string p4 = "Gears";
     
     bool runningProject = false;

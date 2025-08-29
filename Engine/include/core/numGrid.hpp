@@ -77,12 +77,11 @@ public:
         return dx + dz;
     }
 
-    //Does not work
     inline vec3 indexToLoc(int idx) const
     {
         int gridX = (idx % cellMap) - half;
         int gridZ = (idx / cellMap) - half;
-        return vec3((float)gridX, y_level, (float)gridZ);
+        return vec3((float)gridX * cellSize, y_level, (float)gridZ * cellSize);
     }
 
     list<int> cellsAround(const vec3& center, float radius) {

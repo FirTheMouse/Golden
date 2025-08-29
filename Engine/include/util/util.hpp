@@ -304,6 +304,13 @@ class vec4 {
         void print() {std::cout << "(" << x() << "," << y() << "," << z() << "," << w() << ")" << std::endl;}
         void print() const {std::cout << "(" << x() << "," << y() << "," << z() << "," << w() << ")" << std::endl;}
     };
+
+inline vec3 vec2_to_vec3(const vec2& vec) {
+    return vec3(vec.x(),0,vec.y());
+}
+inline vec2 vec3_to_vec2(const vec3& vec) {
+    return vec2(vec.x(),vec.y());
+}
         
 class mat4 {
     private:
