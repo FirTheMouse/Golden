@@ -392,13 +392,8 @@ public:
 
     template<typename TT>
     /// @brief Compares two lists and returns false if they are equivalent.
-     bool operator!=(list<TT>& other) {
-        if(other.size_!=size_) return true;
-        for(size_t i=0;i<size_;i++)
-        {
-           if(other[i]==ptr[i]) return false;
-        }
-        return true;
+    bool operator!=(list<TT>& other) {
+        return !(*this == other);
     }
 
     /// @brief Returns if the list contains an instance of a given value

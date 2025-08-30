@@ -8,6 +8,7 @@
 using namespace Golden;
 
 #define EVALUATE 0
+#define LOG 0
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> num_grid = nullptr;
@@ -55,6 +56,9 @@ int pawn_value;
 int pawn_specialRule;
 
 list<list<int>> grid;
+list<list<int>> copyGrid() {
+    return grid;
+}
 
 void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
@@ -218,6 +222,11 @@ char file_to_char(int file) {
     }
 }
 
+//Board to string
+std::string bts(const ivec2& pos) {
+    return file_to_char(pos.x())+std::to_string(pos.y());
+}
+
 //File = column, rank = row
 vec3 board_to_world(int file, int rank) {
     return vec3((file-4)*2,0,(rank-4)*2);
@@ -233,11 +242,6 @@ vec3 board_to_world(const ivec2& pos) {
 
 ivec2 world_to_board(const vec3& pos) {
     return ivec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
-}
-
-//Board to string
-std::string bts(const ivec2& pos) {
-    return file_to_char(pos.x())+std::to_string(pos.y());
 }
 
 void update_num_grid(g_ptr<Single> selected,const vec3& pos) {
@@ -290,9 +294,18 @@ void update_physics() {
     
 }
 
+// Piece to string
+std::string pts(int id) {
+    return dtypes[id]+"-"+std::to_string(id);
+}
+
+// Move to string
+std::string mts(Move move) {
+    return pts(move.id)+" from "+bts(move.from)+" to "+bts(move.to)+(move.takes!=-1?" takes "+pts(move.takes):"");
+}
 
 void print_move(Move move) {
-    print(dtypes[move.id],"-",bts(move.from)," to ",bts(move.to),move.takes!=-1?" takes "+dtypes[move.takes]:"");
+    print(pts(move.id)," from ",bts(move.from)," to ",bts(move.to),move.takes!=-1?" takes "+pts(move.takes):"");
 }
 
 
@@ -571,8 +584,6 @@ bool isKingInCheck(int color) {
     return false;
 }
 
-
-
 int is_attacking(const ivec2& pos,int by_color) {
     //Looking at all the attack moves that can be made
     for(int i=(by_color==0?0:16);i<(by_color==0?16:32);i++) {
@@ -732,16 +743,21 @@ list<ivec2> can_castle(int color) {
             int start = std::min(king_pos.x(), rook_pos.x()) + 1;
             int end = std::max(king_pos.x(), rook_pos.x());
             bool valid = true;
-            for(int file = start; file < end; file++) {
-                ivec2 check_pos(file, king_pos.y());
-                if(square(check_pos)!=-1) {
-                    valid = false;
-                    break;
-                }
-                // Also checking check
-                if(can_attack(check_pos, 1-color)) {
-                    valid = false; 
-                    break;
+            if(can_attack(king_pos, 1-color)) {
+                valid = false;
+            }
+            else {
+                for(int file = start; file < end; file++) {
+                    ivec2 check_pos(file, king_pos.y());
+                    if(square(check_pos)!=-1) {
+                        valid = false;
+                        break;
+                    }
+                    // Also checking check
+                    if(can_attack(check_pos, 1-color)) {
+                        valid = false; 
+                        break;
+                    }
                 }
             }
 
@@ -752,7 +768,6 @@ list<ivec2> can_castle(int color) {
     }
     return result;
 }
-
 
 list<Move> generateMoves(int color) {
     // Line total;
@@ -771,7 +786,7 @@ list<Move> generateMoves(int color) {
         if(specialRules[i]==1) {
             ivec2 d_r = ivec2(1,moves[i][0].y());
             ivec2 d_l = ivec2(-1,moves[i][0].y());
-            if(square(start_pos+moves[i][0])!=-1) { 
+            if(square(start_pos+moves[i][0])==-1) { 
                 ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
                 special_moves << dd_m;
             }
@@ -857,7 +872,6 @@ list<Move> generateMoves(int color) {
     // print("Total time ",total.end());
     return final_result;
 }
-
 
 int getPositionalValue(int pieceId) {
     if(captured[pieceId]) return 0;
@@ -946,7 +960,6 @@ int evaluateKingSafety(int color) {
     return safety;
 }
 
-
 int evaluate() {  // 0 = white, 1 = black
     int score = 0;
     for(int i = 0; i < 32; i++) {
@@ -989,7 +1002,7 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
             
             maxEval = std::max(maxEval, eval);
             alpha = std::max(alpha, eval);
-            if(beta <= alpha) break;
+            if(alpha >= beta) break;
         }
         return maxEval;
     } else {  // Black minimizes
@@ -1009,12 +1022,11 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
             
             minEval = std::min(minEval, eval);
             beta = std::min(beta, eval);
-            if(beta <= alpha) break;
+            if(alpha >= beta) break;
         }
         return minEval;
     }
 }
-
 
 Move findBestMove(int depth,int color) {
     Line s; s.start();
@@ -1023,28 +1035,58 @@ Move findBestMove(int depth,int color) {
     Move bestMove;
     bestMove.id = -1;
     int bestScore = color == 0 ? -9999 : 9999;
+    list<Move> equal_moves;
+    bool new_equal = false;
+    #if LOG
     print("-----Finding move for ",color==0?"white":"black","-----");
+    #endif
+    int alpha = -9999;
+    int beta = 9999;
     for(auto& move : moves) {
         makeMove(move,false);
-        int score = minimax(depth-1, 1-color, -9999, 9999);
+        int score = minimax(depth-1, 1-color, alpha, beta);
         move.score = score;
         unmakeMove(move,false);
         calcs+=2;
         
+        
         bool isBetter = color == 0 ? (score > bestScore) : (score < bestScore);
         if(isBetter) {
             bestScore = score;
+            #if LOG
             print("New best: ",bestScore);
             print_move(move);
+            #endif
             bestMove = move;
+            new_equal = true;
+        } else if (score==bestScore) {
+            if(new_equal) {
+                new_equal = false;
+                equal_moves.clear();
+                equal_moves << bestMove;
+            }
+            equal_moves << move;
         }
+
+        if(color == 0) {
+            alpha = std::max(alpha, score);
+        } else {
+            beta = std::min(beta, score);
+        }
+        
+       if(alpha >= beta) break;
     }
     if(bestMove.id==-1) {
         print("Checkmate!");
         return bestMove;
     }
 
-    print("Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Chosen score: ",bestMove.score);
+    if(!equal_moves.empty()) {
+        //bestMove = equal_moves[randi(0,equal_moves.length()-1)];
+    }
+    #if LOG
+    print("From depth: ",depth," Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
+    #endif
     calcs = 0;
     return bestMove;
 }
@@ -1078,11 +1120,11 @@ int main() {
     std::string col = k==0?"white":"black";
     int rank = k==0?1:8;
         setup_piece("queen_"+col,ctf('d'),rank);
-        for(int i=0;i<2;i++) setup_piece("rook_"+col,ctf(i==0?'a':'h'),rank);
         for(int i=0;i<2;i++) setup_piece("bishop_"+col,ctf(i==0?'c':'f'),rank);
+        for(int i=0;i<2;i++) setup_piece("rook_"+col,ctf(i==0?'a':'h'),rank);
         for(int i=0;i<2;i++) setup_piece("knight_"+col,ctf(i==0?'b':'g'),rank);
-        setup_piece("king_"+col,ctf('e'),rank);
         for(int i=1;i<9;i++) setup_piece("pawn_"+col,i,k==0?2:7);
+        setup_piece("king_"+col,ctf('e'),rank);
     }
 
 
@@ -1105,7 +1147,7 @@ int main() {
     // scene->lights.push_back(l2);
     auto thread = make<Thread>();
     thread->run([&](ScriptContext& ctx){
-            Move m = findBestMove(4,turn_color);
+            Move m = findBestMove(8,turn_color);
             if(m.id!=-1) {
                 makeMove(m);
                 turn_color = turn_color==0?1:0;
@@ -1154,15 +1196,11 @@ int main() {
             else{print("Locked camera"); scene->camera.lock = false; free_camera=true;}
         }
         if(pressed(T)) {
-            // makeMove(findBestMove(1,turn_color));
-            // turn_color = turn_color==0?1:0;
             if(held(LSHIFT)) {
                 generateMoves(turn_color);
             }
             else {
-                // list<Move> result = generateMoves(turn_color);
-                // Move m = result.get(randi(0,result.length()-1),"get_move");
-                Move m = findBestMove(4,turn_color);
+                Move m = findBestMove(5,turn_color);
                 if(m.id!=-1) {
                     makeMove(m);
                     madeMoves << m;
@@ -1171,9 +1209,10 @@ int main() {
         }
         if(pressed(Y)) {
             vec3 clickPos = num_grid->snapToGrid(scene->getMousePos());
-            takePiece(square(world_to_board(clickPos)));
+            if(in_bounds(world_to_board(clickPos)))
+                takePiece(square(world_to_board(clickPos)));
         }
-        if(pressed(R)) unmakeMove(madeMoves.pop());
+        if(pressed(R)) if(!madeMoves.empty()) unmakeMove(madeMoves.pop());
         if(pressed(NUM_1)) scene->camera.toOrbit();
         if(pressed(NUM_2)) scene->camera.toIso();
         if(pressed(NUM_3)) scene->camera.toFirstPerson();
@@ -1181,12 +1220,14 @@ int main() {
         if(pressed(E)) {
             auto clickPos = num_grid->snapToGrid(scene->getMousePos());
             ivec2 v = world_to_board(clickPos);
+            if(in_bounds(v)) {
             //grid->toIndex(clickPos)
             print("----",bts(v),"----");
            if(square(v)!=-1) {
                 print("E:",dtypes[square(v)]," I:",square(v));
            }
            else print("EMPTY");
+            }
         }
         if(pressed(G)) {
             print(isKingInCheck(turn_color)==0?"No check":"In check");
@@ -1195,6 +1236,7 @@ int main() {
             if(!selected) {
                  auto clickPos = num_grid->snapToGrid(scene->getMousePos());
                  ivec2 v = world_to_board(clickPos);
+                if(in_bounds(v))
                 if(square(v)!=-1) {
                     int t_s_id = square(v);
                      if(auto g = ref[t_s_id]) {
@@ -1210,6 +1252,8 @@ int main() {
               //End the move here
               vec3 newPos = num_grid->snapToGrid(mousePos).addY(selected->getPosition().y());
               ivec2 v = world_to_board(newPos);
+              if(in_bounds(v))
+              {
               update_num_grid(selected,newPos);
               bool castling = false;
               if(validate_castle(s_id,v)) {
@@ -1244,6 +1288,7 @@ int main() {
               //update_grid(selected->ID,v);
               selected = nullptr;
              }
+            }
          }
 
          if(selected&&!bot_turn)
@@ -1251,7 +1296,7 @@ int main() {
             vec3 targetPos = num_grid->snapToGrid(mousePos).addY(1);
             vec3 direction = targetPos - selected->getPosition();
             float distance = direction.length();
-            float moveSpeed = distance>=4.0f?distance*2:4.0f;
+            float moveSpeed = distance>=6.0f?distance*2:6.0f;
             if (distance > 0.1f) {
                 selected->setLinearVelocity((direction / vec3(distance,distance,distance)) * moveSpeed);
             } else {
