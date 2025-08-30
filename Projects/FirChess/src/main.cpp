@@ -7,21 +7,23 @@
 
 using namespace Golden;
 
+#define EVALUATE 0
 
 g_ptr<Scene> scene = nullptr;
-g_ptr<NumGrid> grid = nullptr;
+g_ptr<NumGrid> num_grid = nullptr;
 bool debug_move = false;
 bool free_camera = true;
 bool bot_turn = false;
 
 struct Move {
-    int id, from, to, score;
+    int id, score;
+    ivec2 from, to;
     int takes=-1;
     bool first_move = false;
     int rule = 0;
     
     int c_id = -1;
-    int c_to,c_from;
+    ivec2 c_to,c_from;
     //0 == No rule
     //1 == Promotions
     //2 == Castling
@@ -36,14 +38,10 @@ list<bool> captured;
 list<int> colors;
 list<int> values;
 list<int> specialRules;
-list<int> cells;
-list<list<vec2>> moves;
+list<ivec2> cells;
+list<list<ivec2>> moves;
 list<bool> hasMoved;
 Move last_move;
-// bool canCastleKingside[2];
-// bool canCastleQueenside[2];    
-// vec2 enPassantTarget; //I'll fiqure this out one day
-// int halfmoveClock; 
 int white_king_id = -1;
 int black_king_id = -1;
 int white_queen_id = -1;
@@ -51,10 +49,12 @@ int black_queen_id = -1;
 int white_rook_ids[2] = {-1,-1};
 int black_rook_ids[2] = {-1,-1};
 
-list<vec2> white_pawn_moves;
-list<vec2> black_pawn_moves;
+list<ivec2> white_pawn_moves;
+list<ivec2> black_pawn_moves;
 int pawn_value;
 int pawn_specialRule;
+
+list<list<int>> grid;
 
 void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
@@ -153,14 +153,14 @@ void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& proje
                     else if (t_type=="float") part->add<float>(headers[t],std::stof(values[t]));
                     else if(t_type=="bool") part->add<bool>(headers[t],values[t]=="true"?1:0);
                     else if (t_type=="vec2list") {
-                        list<vec2> moves;
+                        list<ivec2> moves;
                         list<std::string> sub = split_str(values[t],'|');
                         for(int e = 0;e<sub.length();e++) {
                             list<std::string> sub_sub = split_str(sub[e],':');
-                            vec2 v(std::stof(sub_sub[0]),std::stof(sub_sub[1]));
+                            ivec2 v(std::stof(sub_sub[0]),std::stof(sub_sub[1]));
                             moves << v;
                         }
-                        part->add<list<vec2>>(headers[t],moves);
+                        part->add<list<ivec2>>(headers[t],moves);
                     }
                 }
             }
@@ -182,7 +182,7 @@ void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& proje
     }
 }
 
-bool isMultiple(vec2 move, vec2 pattern) {
+bool isMultiple(ivec2 move, ivec2 pattern) {
     if(pattern.x() == 0 && pattern.y() == 0) return false;
     if(pattern.x() == 0) return move.x() == 0 && ((int)move.y()%(int)pattern.y()) == 0 && (move.y() / pattern.y()) > 0;
     if(pattern.y() == 0) return move.y() == 0 &&(int)move.x() % (int)pattern.x() == 0 && (move.x() / pattern.x()) > 0;
@@ -190,48 +190,6 @@ bool isMultiple(vec2 move, vec2 pattern) {
            (move.x() / pattern.x()) == (move.y() / pattern.y()) && (move.x() / pattern.x()) > 0;
 }
 
-
-
-void update_cells(int selected,const vec3& pos) {
-    int myCell = grid->toIndex(pos);
-    grid->cells[cells[selected]].erase(selected);
-    grid->cells[myCell].push(selected);
-    cells[selected] = myCell;
-}
-
-void update_cells(g_ptr<Single> selected) {
-    update_cells(selected->ID,selected->getPosition());
-}
-
-//poached code from the Physics class meant to be use multi-threaded but just raw here
-void update_physics() {
-    //print(scene->active.length());
-    for(int i=0;i<scene->active.length();i++) {
-        if(scene->active[i]) {
-            glm::mat4& transform = scene->transforms.get(i,"physics::141");
-            Velocity& velocity = scene->velocities.get(i,"physics::142");
-            float velocityScale = 1.0f;
-            glm::vec3 pos = glm::vec3(transform[3]);
-            pos += vec3(velocity.position * 0.016f * velocityScale).toGlm();
-            transform[3] = glm::vec4(pos, 1.0f);
-            glm::vec3 rotVel = vec3(velocity.rotation * 0.016f * velocityScale).toGlm();
-            if (glm::length(rotVel) > 0.0001f) {
-                glm::mat4 rotationDelta = glm::mat4(1.0f);
-                rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                transform = transform * rotationDelta; // Apply rotation in object space
-            }
-            glm::vec3 scaleChange = vec3(velocity.scale * 0.016f * velocityScale).toGlm();
-            if (glm::length(scaleChange) > 0.0001f) {
-                glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                transform = transform * scaleDelta; // Apply after rotation
-            }
-        }
-    }
-    
-}
-//character to file
 int ctf(char c) {
     switch(c) {
         case 'h': return 1;
@@ -269,48 +227,98 @@ vec3 board_to_world(char file, int rank) {
     return board_to_world(ctf(file),rank);
 }
 
-vec3 board_to_world(const vec2& pos) {
+vec3 board_to_world(const ivec2& pos) {
     return board_to_world(int(pos.x()),int(pos.y()));
 }
 
-vec2 world_to_board(const vec3& pos) {
-    return vec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
+ivec2 world_to_board(const vec3& pos) {
+    return ivec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
 }
 
+//Board to string
+std::string bts(const ivec2& pos) {
+    return file_to_char(pos.x())+std::to_string(pos.y());
+}
+
+void update_num_grid(g_ptr<Single> selected,const vec3& pos) {
+    num_grid->getCell(selected->getPosition()).erase(selected->ID);
+    num_grid->getCell(pos) << selected->ID;
+}
+
+inline int& square(const ivec2& c) {
+    return grid[c.x()][c.y()];
+}
+
+inline void update_grid(int id,const ivec2& to) {
+    // print(dtypes[id],"-",id," removed from: ");
+    // print(bts(cells[id]));
+    // print(" to ");
+    // print(bts(to));
+
+    square(cells[id]) = -1;
+    square(to) = id;
+    cells[id] = to;
+}
+
+
+//poached code from the Physics class meant to be use multi-threaded but just raw here
+void update_physics() {
+    //print(scene->active.length());
+    for(int i=0;i<scene->active.length();i++) {
+        if(scene->active[i]) {
+            glm::mat4& transform = scene->transforms.get(i,"physics::141");
+            Velocity& velocity = scene->velocities.get(i,"physics::142");
+            float velocityScale = 1.0f;
+            glm::vec3 pos = glm::vec3(transform[3]);
+            pos += vec3(velocity.position * 0.016f * velocityScale).toGlm();
+            transform[3] = glm::vec4(pos, 1.0f);
+            glm::vec3 rotVel = vec3(velocity.rotation * 0.016f * velocityScale).toGlm();
+            if (glm::length(rotVel) > 0.0001f) {
+                glm::mat4 rotationDelta = glm::mat4(1.0f);
+                rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+                rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+                rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+                transform = transform * rotationDelta; // Apply rotation in object space
+            }
+            glm::vec3 scaleChange = vec3(velocity.scale * 0.016f * velocityScale).toGlm();
+            if (glm::length(scaleChange) > 0.0001f) {
+                glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+                transform = transform * scaleDelta; // Apply after rotation
+            }
+        }
+    }
+    
+}
+
+
 void print_move(Move move) {
-    vec2 v = world_to_board(grid->indexToLoc(move.to));
-    vec2 y = world_to_board(grid->indexToLoc(move.from));
-    print(dtypes[move.id],"-",file_to_char(y.x()),y.y()," to ",file_to_char(v.x()),v.y(),move.takes!=-1?" takes "+dtypes[move.takes]:"");
+    print(dtypes[move.id],"-",bts(move.from)," to ",bts(move.to),move.takes!=-1?" takes "+dtypes[move.takes]:"");
+}
+
+
+inline ivec2 pos_of(int piece) {
+    return cells[piece];
 }
 
 vec3 world_pos_of(int piece) {
-    return grid->indexToLoc(cells[piece]);
-}
-
-vec2 board_pos_of(int piece) {
-    return world_to_board(world_pos_of(piece));
+    return board_to_world(pos_of(piece));
 }
 
 bool in_bounds(const vec3& pos) {
     return(pos.x()<=8.0f&&pos.x()>=-6.0f&&pos.z()<=8.0f&&pos.z()>=-6.0f);
 }
 
-int piece_on(const vec3& pos) {
-    list<int> c = grid->getCell(pos);
-    if(!c.empty()) return c[0];
-    return -1;
-}
-
-bool has_piece(const vec3& pos) {
-    return piece_on(pos)!=-1;
+bool in_bounds(const ivec2& pos) {
+    return(pos.x()<=8&&pos.x()>=1&&pos.y()<=8&&pos.y()>=1);
 }
 
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
     piece->setPosition(board_to_world(file,rank));
-    list<int> myCells = grid->cellsAround(piece->getPosition(),((piece->model->localBounds.getSize().x-1)/2));
-    for(auto c : myCells) grid->cells[c] << piece->ID;
-    cells << myCells;
+    ivec2 mySquare{file,rank};
+    square(mySquare) = piece->ID;
+    cells << mySquare;
+
     //update_cells(piece);
     std::string dtype = piece->get<std::string>("dtype");
     if(dtype=="king_white") white_king_id = dtypes.length();
@@ -331,7 +339,7 @@ void setup_piece(const std::string& type,int file,int rank) {
     values << value;
     int specialRule = piece->get<int>("specialRule");
     specialRules << specialRule;
-    list<vec2> n_moves = piece->get<list<vec2>>("moves");
+    list<ivec2> n_moves = piece->get<list<ivec2>>("moves");
     moves << n_moves;
     captured << false;
     ref << piece;
@@ -351,32 +359,30 @@ void setup_piece(const std::string& type,int file,int rank) {
 int turn_color = 1; //0 = White, 1 = Black
 g_ptr<Single> selected = nullptr;
 int s_id = 0;
-vec2 start_pos(0,0);
+ivec2 start_pos(0,0);
 list<g_ptr<Single>> drop;
 long sleep_time = 0;
 
 void select_piece(int id) {
     selected = ref[id];
     s_id = id;
-    start_pos = board_pos_of(id);
+    start_pos = pos_of(id);
 }
 
-void takePiece(g_ptr<Single> piece,bool real = true) {
-    int color = colors[piece->ID];
-    for(int i=0;i<grid->cells.length();i++) {
-        grid->cells[i].erase(piece->ID);
-    }
-    //Not removing cells at all here, so it still maintains it's last cell
-    captured[piece->ID] = true;
+void takePiece(int id,bool real = true) {
+    //print(dtypes[id],"-",id," taken ");
+    int color = colors[id];
+    square(cells[id]) = -1;
+    captured[id] = true;
     if(color==0) {
         if(real) {
-            piece->setPosition(vec3(((int)white_losses.length()-6),1,-9));
-            white_losses << piece;
+            ref[id]->setPosition(vec3(((int)white_losses.length()-6),1,-9));
+            white_losses << ref[id];
         }
     } else if(color==1) {
         if(real) {
-            piece->setPosition(vec3(((int)black_losses.length()-6),1,11));
-            black_losses << piece;
+            ref[id]->setPosition(vec3(((int)black_losses.length()-6),1,11));
+            black_losses << ref[id];
         }
     }
 }
@@ -404,18 +410,31 @@ void unpromote(int id,bool real = true) {
 
 void castle(Move& move,bool real = true) {
     int king_id = move.id;
-    int rook_id = grid->cells[move.to][0];
+    int rook_id = square(move.to);
+    if(rook_id==-1) {
+        // if(move.to==ivec2(8,8))
+        //     rook_id = black_rook_ids[0];
+        print("No rook for castle at square: ");
+        move.to.print();
+        // print(bts({8,8}));
+        // print(square({8,8}));
+        // print(bts({8,1}));
+        // print(square({8,1}));
+        // print(bts({1,8}));
+        // print(square({1,8}));
+        // print(bts({1,1}));
+        // print(square({1,1}));
+    }
 
     move.c_from = move.to;
     move.c_id = rook_id;
 
-    vec2 rook_pos = board_pos_of(rook_id);
-    vec2 king_pos = world_to_board(grid->indexToLoc(move.from));
-    vec2 dir = (rook_pos.x() > king_pos.x()) ? vec2(1,0) : vec2(-1,0);
-    vec2 new_king_pos = king_pos+(dir*2);
-    int c = grid->toIndex(board_to_world(new_king_pos));
-    move.to = c;
-    move.c_to = grid->toIndex(board_to_world(new_king_pos-dir));
+    ivec2 rook_pos = pos_of(rook_id);
+    ivec2 king_pos = move.from;
+    ivec2 dir = (rook_pos.x() > king_pos.x()) ? ivec2(1,0) : ivec2(-1,0);
+    ivec2 new_king_pos = king_pos+(dir*2);
+    move.to = new_king_pos;
+    move.c_to = (new_king_pos-dir);
 }
 
 void makeMove(Move& move,bool real = true) {
@@ -424,43 +443,45 @@ void makeMove(Move& move,bool real = true) {
         hasMoved[move.id] = true;
     }
     if(move.rule != 2) {
-        if(move.to>100) {
-            print("ERROR invalid destination: ",move.to);
-            return;
-        }
-        auto c = grid->cells[move.to];
-        if(!c.empty()) {
-            takePiece(ref[c[0]],real);
-            move.takes = c[0];
+        int t = square(move.to);
+        if(t!=-1) {
+            takePiece(t,real);
+            move.takes = t;
         }
     }
-
+    
     //promotion
     if(move.rule == 1) {
         promote(move.id,real);
     } //castle
     else if(move.rule == 2) {
+        // print("-------");
+        // print("Pre-castle: ");
+        // print_move(move);
         if(move.c_id==-1)
             castle(move,real);
+
+        // print("Original: ");
+        // print_move(move);
         Move linked;
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
-        // print("Original: "); print_move(move);
-        // print("Linked: "); print_move(linked);
+        // print("Linked: ");
+        // print_move(linked);
         makeMove(linked,real);
     }
 
+    // if(move.from==ivec2{8,1}) {
+    //     print(dtypes[move.id],"-",move.id," left 8,1 ");
+    // }
+    update_grid(move.id,move.to);
     if(real) {
-        ref[move.id]->setPosition(grid->indexToLoc(move.to));
-        update_cells(ref[move.id]);
-        last_move = move;
+        update_num_grid(ref[move.id],board_to_world(move.to));
+        ref[move.id]->setPosition(board_to_world(move.to));
+        #if !EVALUATE
         print_move(move);
-    }
-    else {
-        grid->cells[cells[move.id]].erase(move.id);
-        grid->cells[move.to] << move.id;
-        cells[move.id] = move.to;
+        #endif
     }
     
     // if(bot_turn)
@@ -471,64 +492,65 @@ void unmakeMove(Move move,bool real = true) {
     if(move.first_move) {
         hasMoved[move.id] = false;
     }
-    if(move.takes!=-1) {
-        captured[move.takes] = false;
-        if(real) {
-            ref[move.takes]->setPosition(grid->indexToLoc(move.to));
-            update_cells(ref[move.takes]);
-        }
-        else {
-            grid->cells[move.to] << move.takes;
-            cells[move.takes] = move.to;
-        }
-    }
-
     //promotion
     if(move.rule == 1) {
         unpromote(move.id,real);
     }
     else if(move.rule == 2) {
+        // print("Unmake Original: ");
+        // print_move(move);
         Move linked;
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
         linked.first_move = true;
+        // print("Unmake Linked: ");
+        // print_move(linked);
         unmakeMove(linked,real);
     }
 
+    update_grid(move.id,move.from);
     if(real) {
-        ref[move.id]->setPosition(grid->indexToLoc(move.from));
-        update_cells(ref[move.id]);
+        update_num_grid(ref[move.id],board_to_world(move.from));
+        ref[move.id]->setPosition(board_to_world(move.from));
+        #if !EVALUATE
         print("Unmade move: "); print_move(move);
-    } else {
-        grid->cells[cells[move.id]].erase(move.id);
-        grid->cells[move.from] << move.id;
-        cells[move.id] = move.from;
+        #endif
+    } 
+
+    if(move.takes!=-1) {
+        captured[move.takes] = false;
+        //print(dtypes[move.takes],"-",move.takes," restored ");
+        update_grid(move.takes,move.to);
+        if(real) {
+            update_num_grid(ref[move.takes],board_to_world(move.to));
+            ref[move.takes]->setPosition(board_to_world(move.to));
+        }
     }
     // if(bot_turn)
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
+   //std::this_thread::sleep_for(std::chrono::seconds(1));
 }
 
-bool can_attack(const vec2& pos,int by_color) {
+bool can_attack(const ivec2& pos,int by_color) {
     //Looking at all the attack moves that can be made
     for(int i=(by_color==0?0:16);i<(by_color==0?16:32);i++) {
         if(captured[i]) continue;
-        vec2 place = board_pos_of(i);
+        ivec2 place = pos_of(i);
         int rule = specialRules[i];
         if(rule==1) {
-            vec2 d_r = vec2(1,moves[i][0].y());
-            vec2 d_l = vec2(-1,moves[i][0].y());
+            ivec2 d_r = ivec2(1,moves[i][0].y());
+            ivec2 d_l = ivec2(-1,moves[i][0].y());
             if((d_r+place)==pos) return true;
             if((d_l+place)==pos) return true;
         } 
         else if(rule==2) {
             for(int m=0;m<moves[i].length();m++) {
                 for(int d=1;d<=7;d++) {
-                    vec2 dir = moves[i][m]*d;
+                    ivec2 dir = moves[i][m]*d;
                     if((place+dir)==pos) return true;
                     vec3 nPos = board_to_world(place+dir);
-                    if(!in_bounds(nPos)) break;
-                    if(has_piece(nPos)) { //Raycasting
+                    if(!in_bounds(place+dir)) break;
+                    if(square(place+dir)!=-1) { //Raycasting
                         break;
                     }
                 }
@@ -544,37 +566,70 @@ bool can_attack(const vec2& pos,int by_color) {
 }
 
 bool isKingInCheck(int color) {
-    if(can_attack(board_pos_of(color==0?white_king_id:black_king_id),1-turn_color)) 
+    if(can_attack(pos_of(color==0?white_king_id:black_king_id),1-color)) 
         return true;
     return false;
 }
 
 
-bool validate_castle(int id,int to) {
+
+int is_attacking(const ivec2& pos,int by_color) {
+    //Looking at all the attack moves that can be made
+    for(int i=(by_color==0?0:16);i<(by_color==0?16:32);i++) {
+        if(captured[i]) continue;
+        ivec2 place = pos_of(i);
+        int rule = specialRules[i];
+        if(rule==1) {
+            ivec2 d_r = ivec2(1,moves[i][0].y());
+            ivec2 d_l = ivec2(-1,moves[i][0].y());
+            if((d_r+place)==pos) return i;
+            if((d_l+place)==pos) return i;
+        } 
+        else if(rule==2) {
+            for(int m=0;m<moves[i].length();m++) {
+                for(int d=1;d<=7;d++) {
+                    ivec2 dir = moves[i][m]*d;
+                    if((place+dir)==pos) return i;
+                    vec3 nPos = board_to_world(place+dir);
+                    if(!in_bounds(place+dir)) break;
+                    if(square(place+dir)!=-1) { //Raycasting
+                        break;
+                    }
+                }
+            }
+        }
+        else { //Normal moves only, because all special rules cover attacks they can do
+            for(auto v : moves[i]) {
+                if((place+v)==pos) return i;
+            }
+        }
+    }
+    return -1;
+}
+
+bool validate_castle(int id,const ivec2& to) {
     int color = colors[id];
     if(hasMoved[id]) return false;
     if(id==(color==0?white_king_id:black_king_id)) {
         //This is just for fun, there's way more efficent ways to do this... 
         //but none cooler!
-        if(grid->cells[to].find_if([color](const int i) -> bool{
-           return (i == color==0?white_rook_ids[0]:black_rook_ids[0]||
-            i == color==0?white_rook_ids[1]:black_rook_ids[1]);
-        })!=-1) {
-            int rook_id = grid->cells[to][0];
+        if(square(to)==color==0?white_rook_ids[0]:black_rook_ids[0]||
+           square(to)==color==0?white_rook_ids[1]:black_rook_ids[1])
+            {
+            int rook_id = square(to);
             if(hasMoved[rook_id]) return false;
-            vec2 king_pos = world_to_board(grid->indexToLoc(cells[id]));
-            vec2 rook_pos = world_to_board(grid->indexToLoc(cells[rook_id]));
-            vec2 dir = (rook_pos.x() > king_pos.x()) ? vec2(1,0) : vec2(-1,0);
+            ivec2 king_pos = cells[id];
+            ivec2 rook_pos = cells[rook_id];
+            ivec2 dir = (rook_pos.x() > king_pos.x()) ? ivec2(1,0) : ivec2(-1,0);
             int start = std::min(king_pos.x(), rook_pos.x()) + 1;
             int end = std::max(king_pos.x(), rook_pos.x());
             
             for(int file = start; file < end; file++) {
-                vec3 check_pos = board_to_world(file, king_pos.y());
-                if(!grid->getCell(check_pos).empty()) {
-                    return false; 
-                }
+                ivec2 check_pos(file, king_pos.y());
+                if(square(check_pos)!=-1) 
+                    return false;
                 // Also checking check
-                if(can_attack(vec2(file, king_pos.y()), 1-color)) {
+                if(can_attack(check_pos, 1-color)) {
                     return false; 
                 }
             }
@@ -589,11 +644,9 @@ bool validate_castle(int id,int to) {
     return false;
 }
 
-bool validate_move(const vec3& to) {
-    vec3 newPos = to;
-    if(!in_bounds(newPos)) return false;
-    vec2 end = world_to_board(newPos);
-    vec2 move = vec2((int)(end.x()-start_pos.x()),(int)(end.y()-start_pos.y()));
+bool validate_move(const ivec2& to) {
+    if(!in_bounds(to)) return false;
+    ivec2 move = ivec2(to-start_pos);
     int color = colors[s_id];
     bool can_take = true;
       int rule = specialRules[s_id];
@@ -607,21 +660,19 @@ bool validate_move(const vec3& to) {
               case 1: //Pawn
               {
                   can_take = false;
-                  vec2 d_l = vec2(-1,m.y());
+                  ivec2 d_l = ivec2(-1,m.y());
                   if(d_l == move) {
-                      auto c = grid->getCell(board_to_world(start_pos+d_l));
-                      if(!c.empty()) {
-                          if(colors[c[0]]!=color) {
+                      if(square(start_pos+d_l)!=-1) {
+                          if(colors[square(start_pos+d_l)]!=color) {
                               meets_special=true;
                               can_take = true;
                           }
                       }
                   }
-                  vec2 d_r = vec2(1,m.y());
+                 ivec2 d_r = ivec2(1,m.y());
                   if(d_r == move) {
-                      auto c = grid->getCell(board_to_world(start_pos+d_r));
-                      if(!c.empty()) {
-                          if(colors[c[0]]!=color) {
+                      if(square(start_pos+d_r)!=-1) {
+                          if(colors[square(start_pos+d_r)]!=color) {
                               meets_special=true;
                               can_take = true;
                           }
@@ -629,7 +680,7 @@ bool validate_move(const vec3& to) {
                   }
 
                   if(!hasMoved[s_id]) {
-                      if(vec2(0,color==1?-2:2)==move) {
+                      if(ivec2(0,color==1?-2:2)==move) {
                           meets_special=true;
                       }
                   } 
@@ -641,9 +692,9 @@ bool validate_move(const vec3& to) {
           }
 
           if(move == m || meets_special) {
-            auto c = grid->getCell(newPos);
-            if(!c.empty()) {
-                if(can_take&&colors[c[0]]!=colors[s_id]) {
+            if(square(to)!=-1) {
+                if(can_take&&colors[square(to)]!=colors[s_id]) {
+                    // print(dtypes[s_id]," takes ",dtypes[square(to)]);
                         validMove = true;
                     }
             }
@@ -660,34 +711,35 @@ bool check_promotion(Move& move) {
     if(specialRules[move.id]==1) {
         int color = colors[move.id];
         float promotion_rank = color==0?8:1;
-        if(world_to_board(grid->indexToLoc(move.to)).y()==promotion_rank) {
+        if(move.to.y()==promotion_rank) {
             return true;
         }
     }
     return false;
 }
 
-list<vec2> can_castle(int color) {
-    list<vec2> result;
+list<ivec2> can_castle(int color) {
+    list<ivec2> result;
     if(hasMoved[color==0?white_king_id:black_king_id]) return result;
     int side = -1;
-    vec2 king_pos = board_pos_of(color==0?white_king_id:black_king_id);
+    ivec2 king_pos = pos_of(color==0?white_king_id:black_king_id);
     for(int i=0;i<2;i++) {
         if(!hasMoved[color==0?white_rook_ids[i]:black_rook_ids[i]]
             &&!captured[color==0?white_rook_ids[i]:black_rook_ids[i]]) {
-            vec2 rook_pos = board_pos_of(color==0?white_rook_ids[i]:black_rook_ids[i]);
-            vec2 dir = (rook_pos.x() > king_pos.x()) ? vec2(1,0) : vec2(-1,0);
+            ivec2 rook_pos = pos_of(color==0?white_rook_ids[i]:black_rook_ids[i]);
+            ivec2 dir = (rook_pos.x() > king_pos.x()) ? ivec2(1,0) : ivec2(-1,0);
             //bool is_long = king_pos.x()<rook_pos.x();
             int start = std::min(king_pos.x(), rook_pos.x()) + 1;
             int end = std::max(king_pos.x(), rook_pos.x());
             bool valid = true;
             for(int file = start; file < end; file++) {
-                vec3 check_pos = board_to_world(file, king_pos.y());
-                if(!grid->getCell(check_pos).empty()) {
-                    valid = false; 
+                ivec2 check_pos(file, king_pos.y());
+                if(square(check_pos)!=-1) {
+                    valid = false;
                     break;
                 }
-                if(can_attack(vec2(file, king_pos.y()), 1-color)) {
+                // Also checking check
+                if(can_attack(check_pos, 1-color)) {
                     valid = false; 
                     break;
                 }
@@ -715,13 +767,12 @@ list<Move> generateMoves(int color) {
         bool castling = false;
         if(captured[i]) continue;
         select_piece(i);
-        list<vec2> special_moves;
+        list<ivec2> special_moves;
         if(specialRules[i]==1) {
-            vec2 d_r = vec2(1,moves[i][0].y());
-            vec2 d_l = vec2(-1,moves[i][0].y());
-            auto c = grid->getCell(board_to_world(start_pos+moves[i][0]));
-            if(c.empty()) { 
-                vec2 dd_m = vec2(0,colors[i]==0?2:-2);
+            ivec2 d_r = ivec2(1,moves[i][0].y());
+            ivec2 d_l = ivec2(-1,moves[i][0].y());
+            if(square(start_pos+moves[i][0])!=-1) { 
+                ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
                 special_moves << dd_m;
             }
             special_moves << d_r;
@@ -730,12 +781,10 @@ list<Move> generateMoves(int color) {
         else if(specialRules[i]==2) {
             for(int m=0;m<moves[i].length();m++) {
                 for(int d=1;d<=7;d++) {
-                    vec2 dir = moves[i][m]*d;
-                    vec3 nPos = board_to_world(start_pos+dir);
-                    if(!in_bounds(nPos)) break;
-                    int p = piece_on(nPos);
-                    if(p!=-1) {
-                        if(colors[p]!=color) {
+                    ivec2 dir = moves[i][m]*d;
+                    if(!in_bounds(start_pos+dir)) break;
+                    if(square(start_pos+dir)!=-1) {
+                        if(colors[square(start_pos+dir)]!=color) {
                             special_moves << dir;
                         }
                         break;
@@ -745,7 +794,7 @@ list<Move> generateMoves(int color) {
             }
         }
         if(i==(colors[i]==0?white_king_id:black_king_id)) {
-            list<vec2> side = can_castle(color);
+            list<ivec2> side = can_castle(color);
             if(!side.empty()) {
                 castling = true;
                 for(auto s : side) {
@@ -756,22 +805,20 @@ list<Move> generateMoves(int color) {
 
         if(specialRules[i]!=2) //Don't evaluate normal moves for sliding peices
         for(int m=0;m<moves[i].length();m++) {
-            vec3 nPos = board_to_world(start_pos+moves[i][m]);
-            if(validate_move(nPos)) {
+            if(validate_move(start_pos+moves[i][m])) {
                 Move move;
                 move.id = s_id;
-                move.from = grid->toIndex(board_to_world(start_pos));
-                move.to = grid->toIndex(nPos);
+                move.from = start_pos;
+                move.to = start_pos+moves[i][m];
                 result << move;
             }
         }
         for(int m=0;m<special_moves.length();m++) {
-            vec3 nPos = board_to_world(start_pos+special_moves[m]);
-            if(validate_move(nPos)||castling) {
+            if(validate_move(start_pos+special_moves[m])||castling) {
                 Move move;
                 move.id = s_id;
-                move.from = grid->toIndex(board_to_world(start_pos));
-                move.to = grid->toIndex(nPos);
+                move.from = start_pos;
+                move.to = start_pos+special_moves[m];
                 if(castling) move.rule = 2;
                 result << move;
             }
@@ -781,33 +828,41 @@ list<Move> generateMoves(int color) {
     }
     // print("Loop time ",s.end());
     // s.start();
+    list<Move> to_back;
     list<Move> final_result;
     for(auto& m : result) {
+        // print_move(m);
         makeMove(m, false);
         bool kingInCheck = isKingInCheck(color);
         unmakeMove(m, false);
         if(!kingInCheck) {
             if(check_promotion(m)) m.rule = 1;
-            final_result << m;
+            if(m.takes==-1) 
+                to_back << m;
+            else 
+                final_result << m;
+        }
+        else {
+            // int k_id = color==0?white_king_id:black_king_id;
+            // int checker = is_attacking(pos_of(k_id),1-color);
+            // if(checker!=-1) {
+            //     print_move(m);
+            //     print("Puts ",dtypes[k_id],"-",k_id," on ",bts(pos_of(k_id))," in check from ",dtypes[checker],"-",checker," on ",bts(pos_of(checker)));
+            // } else print("NO checker");
         }
     }
-    if(final_result.empty()) {
-        if(isKingInCheck(color)) {
-            //print(color == 0 ? "White" : "Black", " is in checkmate!");
-        } else {
-            //print("Stalemate!");
-        }
-    }
+    final_result << to_back;
+   
     // print("Final time ",s.end());
     // print("Total time ",total.end());
-    return result;
+    return final_result;
 }
 
 
 int getPositionalValue(int pieceId) {
     if(captured[pieceId]) return 0;
     
-    vec2 pos = world_to_board(ref[pieceId]->getPosition());
+    ivec2 pos = pos_of(pieceId);
     int file = pos.x() - 1; // Convert to 0-7
     int rank = pos.y() - 1; // Convert to 0-7
     int color = colors[pieceId];
@@ -851,7 +906,7 @@ int getPositionalValue(int pieceId) {
 }
 
 int evaluateKingSafety(int color) {    
-    vec2 kingPos = board_pos_of(color==0?white_king_id:black_king_id);
+    ivec2 kingPos = pos_of(color==0?white_king_id:black_king_id);
     int safety = 100; // Start with base safety score
     
     // Check 3x3 area around king
@@ -864,15 +919,14 @@ int evaluateKingSafety(int color) {
             
             if(checkFile < 1 || checkFile > 8 || checkRank < 1 || checkRank > 8) continue;
             
-            vec3 checkPos = board_to_world(checkFile, checkRank);
-            auto cell = grid->getCell(checkPos);
+            ivec2 checkPos(checkFile, checkRank);
             
-            if(!cell.empty()) {
-                if(colors[cell[0]] == color) {
+            if(square(checkPos)!=-1) {
+                if(colors[square(checkPos)] == color) {
                     safety += 15; // Friendly defender nearby
                     
                     // Extra bonus for pawn shield
-                    if(dtypes[cell[0]].find("pawn") != std::string::npos) {
+                    if(dtypes[square(checkPos)].find("pawn") != std::string::npos) {
                         safety += 25; // Pawn shields are extra valuable
                     }
                 } else {
@@ -915,17 +969,23 @@ int evaluate() {  // 0 = white, 1 = black
 static int calcs = 0;
 int minimax(int depth, int current_turn, int alpha, int beta) {
     if(depth == 0) return evaluate();
-
     auto moves = generateMoves(current_turn);
     if(moves.empty()) return evaluate();
     calcs+=2;
     if(current_turn == 0) {  // White maximizes
         int maxEval = -9999;
         for(auto move : moves) {
+            #if EVALUATE
+            makeMove(move, true);
+            if(current_turn==0&&depth>1)
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            unmakeMove(move, true);
+            #else
             makeMove(move, false);
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
-            // if(move.rule==2) eval+=20000;
             unmakeMove(move, false);
+            #endif
             
             maxEval = std::max(maxEval, eval);
             alpha = std::max(alpha, eval);
@@ -935,10 +995,17 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
     } else {  // Black minimizes
         int minEval = 9999;
         for(auto move : moves) {
+            #if EVALUATE
+            makeMove(move, true);
+            if(current_turn==1&&depth>1)
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            unmakeMove(move, true);
+            #else
             makeMove(move, false);
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
-            // if(move.rule==2) eval-=20000;
             unmakeMove(move, false);
+            #endif
             
             minEval = std::min(minEval, eval);
             beta = std::min(beta, eval);
@@ -949,22 +1016,22 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
 }
 
 
-Move findBestMove(int depth,int turn_color) {
+Move findBestMove(int depth,int color) {
     Line s; s.start();
-    auto moves = generateMoves(turn_color);
+    auto moves = generateMoves(color);
     if(moves.empty()) print("Out of moves");
     Move bestMove;
     bestMove.id = -1;
-    int bestScore = turn_color == 0 ? -9999 : 9999;
-    print("-----Finding move for ",turn_color==0?"white":"black","-----");
+    int bestScore = color == 0 ? -9999 : 9999;
+    print("-----Finding move for ",color==0?"white":"black","-----");
     for(auto& move : moves) {
         makeMove(move,false);
-        int score = minimax(depth-1, 1-turn_color, -9999, 9999);
+        int score = minimax(depth-1, 1-color, -9999, 9999);
         move.score = score;
         unmakeMove(move,false);
         calcs+=2;
         
-        bool isBetter = turn_color == 0 ? (score > bestScore) : (score < bestScore);
+        bool isBetter = color == 0 ? (score > bestScore) : (score < bestScore);
         if(isBetter) {
             bestScore = score;
             print("New best: ",bestScore);
@@ -988,28 +1055,37 @@ int main() {
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.4.0");
+    Window window = Window(1280, 768, "FirChess 0.6.0");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
     Data d = make_config(scene,K);
     // load_gui(scene, "FirChess", "firchessgui.fab");
 
-    grid = make<NumGrid>(2.0f,21.0f);
+    num_grid = make<NumGrid>(2.0f,21.0f);
     
     //Define the objects, this pulls in the models and uses the CSV to code them
-    type_define_objects(grid);
+    type_define_objects(num_grid);
+
+    for(int a=0;a<9;a++) {
+        grid << list<int>();
+        for(int b=0;b<9;b++) {
+            grid[a] << -1;
+        }
+    }
 
     for(int k = 0;k<2;k++) {
     std::string col = k==0?"white":"black";
     int rank = k==0?1:8;
-        for(int i=1;i<9;i++) setup_piece("pawn_"+col,i,k==0?2:7);
+        setup_piece("queen_"+col,ctf('d'),rank);
+        for(int i=0;i<2;i++) setup_piece("rook_"+col,ctf(i==0?'a':'h'),rank);
         for(int i=0;i<2;i++) setup_piece("bishop_"+col,ctf(i==0?'c':'f'),rank);
         for(int i=0;i<2;i++) setup_piece("knight_"+col,ctf(i==0?'b':'g'),rank);
-        for(int i=0;i<2;i++) setup_piece("rook_"+col,ctf(i==0?'a':'h'),rank);
         setup_piece("king_"+col,ctf('e'),rank);
-        setup_piece("queen_"+col,ctf('d'),rank);
+        for(int i=1;i<9;i++) setup_piece("pawn_"+col,i,k==0?2:7);
     }
+
+
 
     //Make the little mouse to reperesnt the bot (Fir!)
     auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
@@ -1029,7 +1105,7 @@ int main() {
     // scene->lights.push_back(l2);
     auto thread = make<Thread>();
     thread->run([&](ScriptContext& ctx){
-            Move m = findBestMove(6,turn_color);
+            Move m = findBestMove(4,turn_color);
             if(m.id!=-1) {
                 makeMove(m);
                 turn_color = turn_color==0?1:0;
@@ -1094,9 +1170,8 @@ int main() {
             }
         }
         if(pressed(Y)) {
-            auto clickPos = grid->snapToGrid(scene->getMousePos());
-            auto clickedCell = grid->getCell(clickPos);
-            takePiece(ref[clickedCell[0]]);
+            vec3 clickPos = num_grid->snapToGrid(scene->getMousePos());
+            takePiece(square(world_to_board(clickPos)));
         }
         if(pressed(R)) unmakeMove(madeMoves.pop());
         if(pressed(NUM_1)) scene->camera.toOrbit();
@@ -1104,28 +1179,27 @@ int main() {
         if(pressed(NUM_3)) scene->camera.toFirstPerson();
 
         if(pressed(E)) {
-            auto clickPos = grid->snapToGrid(scene->getMousePos());
-            auto clickedCell = grid->getCell(clickPos);
-            vec2 v = world_to_board(clickPos);
+            auto clickPos = num_grid->snapToGrid(scene->getMousePos());
+            ivec2 v = world_to_board(clickPos);
             //grid->toIndex(clickPos)
-            print("----",file_to_char(v.x()),v.y(),"----");
-           if(!clickedCell.empty()) {
-                for(auto e : clickedCell) print("E:",dtypes[e]," I:",e);
+            print("----",bts(v),"----");
+           if(square(v)!=-1) {
+                print("E:",dtypes[square(v)]," I:",square(v));
            }
            else print("EMPTY");
         }
-        if(pressed(G)) print(evaluate());
+        if(pressed(G)) {
+            print(isKingInCheck(turn_color)==0?"No check":"In check");
+        }
         if(pressed(MOUSE_LEFT)) {
             if(!selected) {
-                 auto clickPos = grid->snapToGrid(scene->getMousePos());
-                 auto clickedCell = grid->getCell(clickPos);
-                if(!clickedCell.empty()) {
-                    int t_s_id = clickedCell[0];
-                    if(clickedCell.length()>1) print("More than one piece in cell");
+                 auto clickPos = num_grid->snapToGrid(scene->getMousePos());
+                 ivec2 v = world_to_board(clickPos);
+                if(square(v)!=-1) {
+                    int t_s_id = square(v);
                      if(auto g = ref[t_s_id]) {
                         if(colors[t_s_id]==turn_color||debug_move) {
                          select_piece(t_s_id);
-                         clickedCell.erase(0);
                          start_pos = world_to_board(clickPos);
                         }
                      }
@@ -1134,16 +1208,18 @@ int main() {
              else
              {
               //End the move here
-              vec3 newPos =grid->snapToGrid(mousePos).addY(selected->getPosition().y());
+              vec3 newPos = num_grid->snapToGrid(mousePos).addY(selected->getPosition().y());
+              ivec2 v = world_to_board(newPos);
+              update_num_grid(selected,newPos);
               bool castling = false;
-              if(validate_castle(s_id,grid->toIndex(newPos))) {
+              if(validate_castle(s_id,v)) {
                 castling = true;
               } 
-              if(validate_move(newPos)||debug_move||castling) {
+              if(validate_move(v)||debug_move||castling) {
                 Move move;
                 move.id = s_id;
-                move.from = grid->toIndex(board_to_world(start_pos));
-                move.to = grid->toIndex(newPos);
+                move.from = start_pos;
+                move.to = v;
                 if(castling) move.rule = 2;
                 makeMove(move,false);
                 if(isKingInCheck(turn_color)) {
@@ -1164,14 +1240,15 @@ int main() {
 
               selected->setLinearVelocity(vec3(0,-2.5f,0));
               drop << selected;
-              update_cells(selected);
+              //print("Moving ",selected->ID," to "); v.print();
+              //update_grid(selected->ID,v);
               selected = nullptr;
              }
          }
 
          if(selected&&!bot_turn)
          {
-            vec3 targetPos = grid->snapToGrid(mousePos).addY(1);
+            vec3 targetPos = num_grid->snapToGrid(mousePos).addY(1);
             vec3 direction = targetPos - selected->getPosition();
             float distance = direction.length();
             float moveSpeed = distance>=4.0f?distance*2:4.0f;

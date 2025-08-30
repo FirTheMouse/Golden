@@ -170,6 +170,52 @@ public:
     void print() const {std::cout << "(" << x() << "," << y() << ")" << std::endl;}
 };
 
+class ivec2 {
+private:
+    glm::ivec2 impl; // the internal GLM implementation
+public:
+    ivec2() : impl(0, 0) {}
+    ivec2(int x, int y) : impl(x, y) {}
+    ivec2(const glm::ivec2& v) : impl(v) {}
+
+    int x() const { return impl.x; }
+    int y() const { return impl.y; }
+
+    ivec2 addX(int x) { impl.x += x; return ivec2(impl.x, impl.y); }
+    ivec2 addY(int y) { impl.y += y; return ivec2(impl.x, impl.y); }
+    ivec2 nX() { impl.x = 0; return ivec2(impl.x, impl.y); }
+    ivec2 nY() { impl.y = 0; return ivec2(impl.x, impl.y); }
+    ivec2 setX(int x) { impl.x = x; return ivec2(impl.x, impl.y); }
+    ivec2 setY(int y) { impl.y = y; return ivec2(impl.x, impl.y); }
+
+    void addXY(int x, int y) { impl.x += x; impl.y += y; }
+    void set(int x, int y) { impl.x = x; impl.y = y; }
+    glm::ivec2 toGlm() const { return impl; }
+
+    ivec2 operator+=(const ivec2& rh) { impl += rh.impl; return ivec2(impl); }
+    ivec2 operator-=(const ivec2& rh) { impl -= rh.impl; return ivec2(impl); }
+    ivec2 operator*=(const ivec2& rh) { impl *= rh.impl; return ivec2(impl); }
+    ivec2 operator*=(int scalar)      { impl *= scalar; return ivec2(impl); }
+
+    ivec2 operator+(const ivec2& rh) const { return ivec2(impl + rh.impl); }
+    ivec2 operator-(const ivec2& rh) const { return ivec2(impl - rh.impl); }
+    ivec2 operator*(const ivec2& rh) const { return ivec2(impl * rh.impl); }
+    ivec2 operator*(int scalar) const      { return ivec2(impl * scalar); }
+    ivec2 operator/(int scalar) const      { return ivec2(impl / scalar); }
+
+    bool operator==(const ivec2& rh) const { return impl == rh.impl; }
+    bool operator!=(const ivec2& rh) const { return impl != rh.impl; }
+
+    // int dot(const ivec2& rh) const { return glm::dot(impl, rh.impl); }
+    // int length2() const { return glm::dot(impl, impl); } // squared length
+    float length() const { return glm::length(glm::vec2(impl)); } // promote to float
+
+    std::string to_string() const { return std::to_string(x()) + "," + std::to_string(y()); }
+
+    void print() const { std::cout << "(" << x() << "," << y() << ")" << std::endl; }
+};
+    
+
 class vec3 {
     private:
         glm::vec3 impl; // the internal GLM implementation
