@@ -25,6 +25,8 @@ struct Move {
     
     int c_id = -1;
     ivec2 c_to,c_from;
+
+    ivec2 e_square = {-1,-1};
     //0 == No rule
     //1 == Promotions
     //2 == Castling
@@ -54,6 +56,8 @@ list<ivec2> white_pawn_moves;
 list<ivec2> black_pawn_moves;
 int pawn_value;
 int pawn_specialRule;
+
+ivec2 enpassant_square(-1,-1);
 
 list<list<int>> grid;
 list<list<int>> copyGrid() {
@@ -524,7 +528,16 @@ void makeMove(Move& move,bool real = true) {
         linked.to = move.c_to;
         linked.id = move.c_id;
         makeMove(linked,real);
+    } //Pawn double move
+    else if(move.rule == 3) {
+        if(real) {
+            enpassant_square = move.to-(colors[move.id]==0?ivec2(0,-1):ivec2(0,1));
+        } else {
+            move.e_square = move.to-(colors[move.id]==0?ivec2(0,-1):ivec2(0,1));
+        }
     }
+    move.e_square = enpassant_square;
+
     update_grid(move.id,move.to);
     if(real) {
         update_num_grid(ref[move.id],board_to_world(move.to));
@@ -733,24 +746,24 @@ bool validate_castle(int id,const ivec2& to) {
     return false;
 }
 
-bool validate_move(const ivec2& to) {
-    if(!in_bounds(to)) return false;
-    ivec2 move = ivec2(to-start_pos);
-    int color = colors[s_id];
+bool validate_move(Move& move) {
+    if(!in_bounds(move.to)) return false;
+    ivec2 pattern = (move.to-move.from);
+    int color = colors[move.id];
     bool can_take = true;
-      int rule = specialRules[s_id];
+      int rule = specialRules[move.id];
       bool validMove = false;
-      for(auto m : moves[s_id]) {
+      for(auto m : moves[move.id]) {
           bool meets_special = false;
           switch(rule) {
               case 2: //Sliding
-                  if(isMultiple(move, m)) meets_special = true;
+                  if(isMultiple(pattern, m)) meets_special = true;
               break;
               case 1: //Pawn
               {
                   can_take = false;
                   ivec2 d_l = ivec2(-1,m.y());
-                  if(d_l == move) {
+                  if(d_l == pattern) {
                       if(square(start_pos+d_l)!=-1) {
                           if(colors[square(start_pos+d_l)]!=color) {
                               meets_special=true;
@@ -759,7 +772,7 @@ bool validate_move(const ivec2& to) {
                       }
                   }
                  ivec2 d_r = ivec2(1,m.y());
-                  if(d_r == move) {
+                  if(d_r == pattern) {
                       if(square(start_pos+d_r)!=-1) {
                           if(colors[square(start_pos+d_r)]!=color) {
                               meets_special=true;
@@ -769,7 +782,8 @@ bool validate_move(const ivec2& to) {
                   }
 
                   if(!hasMoved[s_id]) {
-                      if(ivec2(0,color==1?-2:2)==move) {
+                      if(ivec2(0,color==1?-2:2)==pattern) {
+                          move.rule = 3;
                           meets_special=true;
                       }
                   } 
@@ -780,9 +794,9 @@ bool validate_move(const ivec2& to) {
               meets_special = false;
           }
 
-          if(move == m || meets_special) {
-            if(square(to)!=-1) {
-                if(can_take&&colors[square(to)]!=colors[s_id]) {
+          if(pattern == m || meets_special) {
+            if(square(move.to)!=-1) {
+                if(can_take&&colors[square(move.to)]!=colors[s_id]) {
                     // print(dtypes[s_id]," takes ",dtypes[square(to)]);
                         validMove = true;
                     }
@@ -898,21 +912,27 @@ list<Move> generateMoves(int color) {
 
         if(specialRules[i]!=2) //Don't evaluate normal moves for sliding peices
         for(int m=0;m<moves[i].length();m++) {
-            if(validate_move(start_pos+moves[i][m])) {
-                Move move;
-                move.id = s_id;
-                move.from = start_pos;
-                move.to = start_pos+moves[i][m];
+            Move move;
+            move.id = s_id;
+            move.from = start_pos;
+            move.to = start_pos+moves[i][m];
+            if(validate_move(move)) {
                 result << move;
             }
         }
         for(int m=0;m<special_moves.length();m++) {
-            if(validate_move(start_pos+special_moves[m])||castling) {
-                Move move;
-                move.id = s_id;
-                move.from = start_pos;
-                move.to = start_pos+special_moves[m];
-                if(castling) move.rule = 2;
+            Move move;
+            move.id = s_id;
+            move.from = start_pos;
+            move.to = start_pos+special_moves[m];
+            if(specialRules[s_id]==1) {
+                ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
+                if(special_moves[m]==dd_m) {
+                    move.rule = 3;
+                }
+            }
+            if(castling) move.rule = 2;
+            if(validate_move(move)||castling) {
                 result << move;
             }
         }
@@ -1037,7 +1057,7 @@ int evaluateKingSafety(int color) {
         safety -= 50;
     }
     
-    return safety * 2;
+    return safety;
 }
 
 int evaluate() {  // 0 = white, 1 = black
@@ -1060,25 +1080,6 @@ int evaluate() {  // 0 = white, 1 = black
     return score;
 }
 
-// int quiescence(int alpha, int beta, int color) {
-//     int standPat = evaluate();
-    
-//     if(standPat >= beta) return beta;  // Beta cutoff
-//     if(standPat > alpha) alpha = standPat;  // Update alpha
-    
-//     auto captures = generateMoves(color);  // Only tactical moves
-//     for(auto capture : captures) {
-//         if(capture.takes==-1) continue;
-//         makeMove(capture, false);
-//         int score = -quiescence(-beta, -alpha, 1-color);  // Negamax style
-//         unmakeMove(capture, false);
-        
-//         if(score >= beta) return beta;
-//         if(score > alpha) alpha = score;
-//     }
-    
-//     return alpha;
-// }
 static int tt_hits = 0;
 static int tt_misses = 0;
 
@@ -1126,7 +1127,7 @@ void tt_store(uint64_t hash, int depth, int score, int flag) {
     }
 }
 
-static int max_depth = 6;
+static int max_depth = 4;
 #define ENABLE_AB 1
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
@@ -1349,7 +1350,7 @@ int main() {
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.8.0");
+    Window window = Window(1280, 768, "FirChess 0.9.0");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
@@ -1440,7 +1441,7 @@ int main() {
     // box->setPosition(grid->indexToLoc(grid->toIndex(board_to_world('e',7))));
 
     
-    bool auto_turn = false;
+    bool auto_turn = true;
     if(auto_turn) bot->start();
     int last_col = turn_color;
 
@@ -1543,12 +1544,12 @@ int main() {
               if(validate_castle(s_id,v)) {
                 castling = true;
               } 
-              if(validate_move(v)||debug_move||castling) {
-                Move move;
-                move.id = s_id;
-                move.from = start_pos;
-                move.to = v;
-                if(castling) move.rule = 2;
+              Move move;
+              move.id = s_id;
+              move.from = start_pos;
+              move.to = v;
+              if(castling) move.rule = 2;
+              if(validate_move(move)||debug_move||castling) {
                 makeMove(move,false);
                 if(isKingInCheck(turn_color)) {
                     unmakeMove(move,false);
