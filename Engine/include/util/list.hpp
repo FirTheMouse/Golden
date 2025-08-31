@@ -131,11 +131,12 @@ public:
     // }
    
     /// @brief Pushes all values of the input to this list
-    void operator<<(const list<T>& input) {
+    list<T>&  operator<<(const list<T>& input) {
         for(size_t i = 0;i<input.size_;i++)
         {
             push(input.get(i));
         }
+        return *this;
     }
 
     /// @brief Pushes all values of this list to the output

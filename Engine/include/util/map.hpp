@@ -224,7 +224,21 @@ public:
 
     bool hasKey(const K& key)
     {
-       return buckets.get(hashT(key)%capacity,"map::hasKey::220").hasKey(key);
+       return buckets.get(hashT(key)%capacity).hasKey(key);
+    }
+
+    V& getOrPut(const K& key,const V& fallback) {
+        if(!hasKey(key)) {
+            put(key,fallback);
+        }
+        return get(key);
+    }
+
+    V& getOr(const K& key,std::function<V()> func) {
+        if(!hasKey(key)) {
+            put(key,func());
+        }
+        return get(key);
     }
 
     list<K> keySet() {  

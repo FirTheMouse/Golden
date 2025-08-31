@@ -8,7 +8,7 @@
 using namespace Golden;
 
 #define EVALUATE 0
-#define LOG 0
+#define LOG 1
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> num_grid = nullptr;
@@ -59,6 +59,33 @@ list<list<int>> grid;
 list<list<int>> copyGrid() {
     return grid;
 }
+
+uint64_t zobrist_table[32][64];
+uint64_t turn_zobrist_key;
+uint64_t current_hash = 0;
+map<uint64_t,int> history;
+
+
+#define TT_EXACT 0
+#define TT_ALPHA 1
+#define TT_BETA 2
+
+struct TTEntry {
+    uint64_t hash = 0;
+    int depth = -1;
+    int score = 0;
+    int flag = 0; // 0=EXACT, 1=ALPHA, 2=BETA
+    Move best_move;
+    bool valid = false;
+};
+
+static const int TT_SIZE = 1024 * 1024; 
+static TTEntry transposition_table[TT_SIZE];
+
+uint64_t random64bit() {
+    return ((uint64_t)rand() << 32) | rand();
+}
+
 
 void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
@@ -254,16 +281,17 @@ inline int& square(const ivec2& c) {
 }
 
 inline void update_grid(int id,const ivec2& to) {
-    // print(dtypes[id],"-",id," removed from: ");
-    // print(bts(cells[id]));
-    // print(" to ");
-    // print(bts(to));
+    ivec2 from = cells[id];
+    int old_square = (from.y() - 1) * 8 + (from.x() - 1);
+    int new_square = (to.y() - 1) * 8 + (to.x() - 1);
+    current_hash ^= zobrist_table[id][old_square];  // Remove from old square
+    current_hash ^= zobrist_table[id][new_square];  // Add to new square
+
 
     square(cells[id]) = -1;
     square(to) = id;
     cells[id] = to;
 }
-
 
 //poached code from the Physics class meant to be use multi-threaded but just raw here
 void update_physics() {
@@ -325,6 +353,24 @@ bool in_bounds(const ivec2& pos) {
     return(pos.x()<=8&&pos.x()>=1&&pos.y()<=8&&pos.y()>=1);
 }
 
+uint64_t hash_board() {
+    uint64_t hash = 0;
+    for(int piece = 0; piece < 32; piece++) {
+        if(!captured[piece]) {
+            ivec2 pos = pos_of(piece);
+            int square = (pos.y() - 1) * 8 + (pos.x() - 1);  // Convert to 0-63
+            hash ^= zobrist_table[piece][square];
+        }
+    }
+    return hash;
+}
+
+uint64_t get_search_hash(int color) {
+    uint64_t hash = current_hash;
+    if(color == 1) hash ^= turn_zobrist_key;
+    return hash;
+}
+
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
     piece->setPosition(board_to_world(file,rank));
@@ -369,7 +415,7 @@ void setup_piece(const std::string& type,int file,int rank) {
     }
 }
 
-int turn_color = 1; //0 = White, 1 = Black
+int turn_color = 0; //0 = White, 1 = Black
 g_ptr<Single> selected = nullptr;
 int s_id = 0;
 ivec2 start_pos(0,0);
@@ -386,6 +432,9 @@ void takePiece(int id,bool real = true) {
     //print(dtypes[id],"-",id," taken ");
     int color = colors[id];
     square(cells[id]) = -1;
+    ivec2 pos = cells[id];
+    int square_index = (pos.y() - 1) * 8 + (pos.x() - 1);
+    current_hash ^= zobrist_table[id][square_index];
     captured[id] = true;
     if(color==0) {
         if(real) {
@@ -468,37 +517,32 @@ void makeMove(Move& move,bool real = true) {
         promote(move.id,real);
     } //castle
     else if(move.rule == 2) {
-        // print("-------");
-        // print("Pre-castle: ");
-        // print_move(move);
         if(move.c_id==-1)
             castle(move,real);
-
-        // print("Original: ");
-        // print_move(move);
         Move linked;
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
-        // print("Linked: ");
-        // print_move(linked);
         makeMove(linked,real);
     }
-
-    // if(move.from==ivec2{8,1}) {
-    //     print(dtypes[move.id],"-",move.id," left 8,1 ");
-    // }
     update_grid(move.id,move.to);
     if(real) {
         update_num_grid(ref[move.id],board_to_world(move.to));
         ref[move.id]->setPosition(board_to_world(move.to));
+        history.getOrPut(current_hash,0)++;
         #if !EVALUATE
         print_move(move);
         #endif
     }
+
+    // uint64_t hash_after = hash_board();
+    // uint64_t expected_hash = current_hash;
     
-    // if(bot_turn)
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
+    // if(hash_after != expected_hash) {
+    //     print("Move caused hash mismatch:");
+    //     print_move(move);
+    //     print("Expected:", expected_hash, "Actual:", hash_after);
+    // }
 }
 
 void unmakeMove(Move move,bool real = true) {
@@ -510,15 +554,11 @@ void unmakeMove(Move move,bool real = true) {
         unpromote(move.id,real);
     }
     else if(move.rule == 2) {
-        // print("Unmake Original: ");
-        // print_move(move);
         Move linked;
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
         linked.first_move = true;
-        // print("Unmake Linked: ");
-        // print_move(linked);
         unmakeMove(linked,real);
     }
 
@@ -533,15 +573,20 @@ void unmakeMove(Move move,bool real = true) {
 
     if(move.takes!=-1) {
         captured[move.takes] = false;
-        //print(dtypes[move.takes],"-",move.takes," restored ");
-        update_grid(move.takes,move.to);
+        int new_square = (move.to.y() - 1) * 8 + (move.to.x() - 1);
+        current_hash ^= zobrist_table[move.takes][new_square];
+        square(cells[move.takes]) = -1;
+        square(move.to) = move.takes;
+        //update_grid(move.takes,move.to);
         if(real) {
             update_num_grid(ref[move.takes],board_to_world(move.to));
             ref[move.takes]->setPosition(board_to_world(move.to));
         }
     }
-    // if(bot_turn)
-   //std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    if(real) {
+        history.get(current_hash)--;
+    }
 }
 
 bool can_attack(const ivec2& pos,int by_color) {
@@ -584,8 +629,9 @@ bool isKingInCheck(int color) {
     return false;
 }
 
-int is_attacking(const ivec2& pos,int by_color) {
+list<int> is_attacking(const ivec2& pos,int by_color) {
     //Looking at all the attack moves that can be made
+    list<int> result;
     for(int i=(by_color==0?0:16);i<(by_color==0?16:32);i++) {
         if(captured[i]) continue;
         ivec2 place = pos_of(i);
@@ -593,14 +639,14 @@ int is_attacking(const ivec2& pos,int by_color) {
         if(rule==1) {
             ivec2 d_r = ivec2(1,moves[i][0].y());
             ivec2 d_l = ivec2(-1,moves[i][0].y());
-            if((d_r+place)==pos) return i;
-            if((d_l+place)==pos) return i;
+            if((d_r+place)==pos)  result << i;
+            if((d_l+place)==pos)  result << i;
         } 
         else if(rule==2) {
             for(int m=0;m<moves[i].length();m++) {
                 for(int d=1;d<=7;d++) {
                     ivec2 dir = moves[i][m]*d;
-                    if((place+dir)==pos) return i;
+                    if((place+dir)==pos) {result << i; break;}
                     vec3 nPos = board_to_world(place+dir);
                     if(!in_bounds(place+dir)) break;
                     if(square(place+dir)!=-1) { //Raycasting
@@ -611,11 +657,43 @@ int is_attacking(const ivec2& pos,int by_color) {
         }
         else { //Normal moves only, because all special rules cover attacks they can do
             for(auto v : moves[i]) {
-                if((place+v)==pos) return i;
+                if((place+v)==pos) {result << i; break;}
             }
         }
     }
-    return -1;
+    return result;
+}
+
+int basic_capture_value(Move move,int color) {
+    int gain = values[move.takes]; 
+    makeMove(move, false);
+    if(can_attack(move.to, 1-color)) {
+        gain -= values[move.id];
+    }
+    unmakeMove(move, false);
+    return gain;
+}
+
+int capture_value(Move move,int color) {
+    int gain = values[move.takes]; 
+    makeMove(move, false);
+    auto attackers = is_attacking(move.to, 1-color);
+    if(!attackers.empty()) {
+        int cheapest_attacker = attackers[0];
+        for(int attacker : attackers) {
+            if(values[attacker] < values[cheapest_attacker]) {
+                cheapest_attacker = attacker;
+            }
+        }
+        gain -= values[move.id];
+
+        auto counter_attackers = is_attacking(move.to, color);
+        if(!counter_attackers.empty()) {
+            gain += values[cheapest_attacker];
+        }
+    }
+    unmakeMove(move, false);
+    return gain;
 }
 
 bool validate_castle(int id,const ivec2& to) {
@@ -843,8 +921,10 @@ list<Move> generateMoves(int color) {
     }
     // print("Loop time ",s.end());
     // s.start();
-    list<Move> to_back;
-    list<Move> final_result;
+    list<Move> good_captures;
+    list<Move> neutral_captures; 
+    list<Move> bad_captures;
+    list<Move> quiet_moves;
     for(auto& m : result) {
         // print_move(m);
         makeMove(m, false);
@@ -853,24 +933,24 @@ list<Move> generateMoves(int color) {
         if(!kingInCheck) {
             if(check_promotion(m)) m.rule = 1;
             if(m.takes==-1) 
-                to_back << m;
-            else 
-                final_result << m;
-        }
-        else {
-            // int k_id = color==0?white_king_id:black_king_id;
-            // int checker = is_attacking(pos_of(k_id),1-color);
-            // if(checker!=-1) {
-            //     print_move(m);
-            //     print("Puts ",dtypes[k_id],"-",k_id," on ",bts(pos_of(k_id))," in check from ",dtypes[checker],"-",checker," on ",bts(pos_of(checker)));
-            // } else print("NO checker");
+                quiet_moves << m;
+            else {
+                int cap_val = capture_value(m, color);
+                m.score = cap_val;
+                if(cap_val >= 200) good_captures << m;
+                else if(cap_val >= 0) neutral_captures << m;
+                else bad_captures << m;
+            }
         }
     }
-    final_result << to_back;
+    std::sort(good_captures.begin(), good_captures.end(), [](Move& a, Move& b) {
+        return a.score > b.score;
+    });
+    good_captures << neutral_captures << quiet_moves << bad_captures;
    
     // print("Final time ",s.end());
     // print("Total time ",total.end());
-    return final_result;
+    return good_captures;
 }
 
 int getPositionalValue(int pieceId) {
@@ -957,7 +1037,7 @@ int evaluateKingSafety(int color) {
         safety -= 50;
     }
     
-    return safety;
+    return safety * 2;
 }
 
 int evaluate() {  // 0 = white, 1 = black
@@ -976,17 +1056,99 @@ int evaluate() {  // 0 = white, 1 = black
 
     score += evaluateKingSafety(0);
     score -= evaluateKingSafety(1);
+
     return score;
 }
 
+// int quiescence(int alpha, int beta, int color) {
+//     int standPat = evaluate();
+    
+//     if(standPat >= beta) return beta;  // Beta cutoff
+//     if(standPat > alpha) alpha = standPat;  // Update alpha
+    
+//     auto captures = generateMoves(color);  // Only tactical moves
+//     for(auto capture : captures) {
+//         if(capture.takes==-1) continue;
+//         makeMove(capture, false);
+//         int score = -quiescence(-beta, -alpha, 1-color);  // Negamax style
+//         unmakeMove(capture, false);
+        
+//         if(score >= beta) return beta;
+//         if(score > alpha) alpha = score;
+//     }
+    
+//     return alpha;
+// }
+static int tt_hits = 0;
+static int tt_misses = 0;
+
+void test_hash_consistency() {
+    uint64_t hash1 = current_hash;
+    uint64_t hash2 = hash_board();
+    if(hash1 != hash2) {
+        print("HASH MISMATCH! Incremental:", hash1, "Recalc:", hash2);
+    }
+}
+
+int tt_lookup(uint64_t hash, int depth, int alpha, int beta) {
+    TTEntry& entry = transposition_table[hash % TT_SIZE];
+    
+    if(!entry.valid || entry.hash != hash) {
+        tt_misses++;
+        return INT_MIN;
+    }
+    
+    if(entry.depth >= depth) {
+        tt_hits++;
+        if(entry.flag == TT_EXACT) {
+            return entry.score;
+        }
+        if(entry.flag == TT_ALPHA && entry.score <= alpha) {
+            return entry.score;
+        }
+        if(entry.flag == TT_BETA && entry.score >= beta) {
+            return entry.score;
+        }
+    }
+    tt_misses++;
+    return INT_MIN;
+}
+
+void tt_store(uint64_t hash, int depth, int score, int flag) {
+    TTEntry& entry = transposition_table[hash % TT_SIZE];
+    
+    if(!entry.valid || entry.depth <= depth) {
+        entry.hash = hash;
+        entry.depth = depth;
+        entry.score = score;
+        entry.flag = flag;
+        entry.valid = true;
+    }
+}
+
+static int max_depth = 6;
+#define ENABLE_AB 1
+#define ENABLE_TT 1
+#define ENABLE_PENALTY 1
+#define ENABLE_TACTEXT 1
 static int calcs = 0;
 int minimax(int depth, int current_turn, int alpha, int beta) {
     if(depth == 0) return evaluate();
+    test_hash_consistency();
+    #if ENABLE_TT
+    uint64_t hash = get_search_hash(current_turn);
+    int tt_score = tt_lookup(hash, depth, alpha, beta);
+    if(tt_score != INT_MIN) {
+        return tt_score;
+    }
+    #endif
+
     auto moves = generateMoves(current_turn);
     if(moves.empty()) return evaluate();
     calcs+=2;
     if(current_turn == 0) {  // White maximizes
         int maxEval = -9999;
+        int original_alpha = alpha;
         for(auto move : moves) {
             #if EVALUATE
             makeMove(move, true);
@@ -995,18 +1157,44 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
             unmakeMove(move, true);
             #else
+            int extension = 0;
+            #if ENABLE_TACTEXT
+            if(move.takes != -1 && depth < max_depth+1) {
+                int cap_val = capture_value(move, current_turn);
+                if(cap_val > 200) {
+                    extension = 1;
+                }
+            }
+            #endif
             makeMove(move, false);
-            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            #if ENABLE_PENALTY
+            int repeats = history.getOrDefault(current_hash,1)-1;
+            int penalty = 50 * (repeats * repeats);
+            #endif
+            int eval = minimax(depth+extension-1, 1-current_turn, alpha, beta);
+            #if ENABLE_PENALTY
+            eval -= penalty;
+            #endif
             unmakeMove(move, false);
             #endif
             
             maxEval = std::max(maxEval, eval);
+            #if ENABLE_AB
             alpha = std::max(alpha, eval);
             if(alpha >= beta) break;
+            #endif
         }
+        #if ENABLE_TT
+        int flag = TT_EXACT;
+        if(maxEval <= original_alpha) flag = TT_ALPHA;
+        if(maxEval >= beta) flag = TT_BETA;
+        
+        tt_store(hash, depth, maxEval, flag);
+        #endif
         return maxEval;
     } else {  // Black minimizes
         int minEval = 9999;
+        int original_beta = beta;
         for(auto move : moves) {
             #if EVALUATE
             makeMove(move, true);
@@ -1015,15 +1203,40 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
             int eval = minimax(depth-1, 1-current_turn, alpha, beta);
             unmakeMove(move, true);
             #else
+            int extension = 0;
+            #if ENABLE_TACTEXT
+            if(move.takes != -1 && depth < max_depth+1) {
+                int cap_val = capture_value(move, current_turn);
+                if(cap_val > 200) {
+                    extension = 1;
+                }
+            }
+            #endif
             makeMove(move, false);
-            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
+            #if ENABLE_PENALTY
+            int repeats = history.getOrDefault(current_hash,1)-1;
+            int penalty = 50 * (repeats * repeats);
+            #endif
+            int eval = minimax(depth+extension-1, 1-current_turn, alpha, beta);
+            #if ENABLE_PENALTY
+            eval += penalty;
+            #endif
             unmakeMove(move, false);
             #endif
             
             minEval = std::min(minEval, eval);
+            #if ENABLE_AB
             beta = std::min(beta, eval);
             if(alpha >= beta) break;
+            #endif
         }
+        #if ENABLE_TT
+        int flag = TT_EXACT;
+        if(minEval >= original_beta) flag = TT_BETA;
+        if(minEval <= alpha) flag = TT_ALPHA;
+        
+        tt_store(hash, depth, minEval, flag);
+        #endif
         return minEval;
     }
 }
@@ -1037,6 +1250,8 @@ Move findBestMove(int depth,int color) {
     int bestScore = color == 0 ? -9999 : 9999;
     list<Move> equal_moves;
     bool new_equal = false;
+    tt_hits = 0;
+    tt_misses = 0;
     #if LOG
     print("-----Finding move for ",color==0?"white":"black","-----");
     #endif
@@ -1044,7 +1259,15 @@ Move findBestMove(int depth,int color) {
     int beta = 9999;
     for(auto& move : moves) {
         makeMove(move,false);
+        int repeats = history.getOrDefault(current_hash,1)-1;
+        int penalty = 50 * (repeats * repeats);
         int score = minimax(depth-1, 1-color, alpha, beta);
+        if(color == 0) {
+            score -= penalty;
+        } else {
+            score += penalty;
+        }
+        if(penalty>50) print(mts(move)," Score: ",score);
         move.score = score;
         unmakeMove(move,false);
         calcs+=2;
@@ -1086,23 +1309,52 @@ Move findBestMove(int depth,int color) {
     }
     #if LOG
     print("From depth: ",depth," Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
+    #if ENABLE_TT
+    print("TT hits: ", tt_hits, " misses: ", tt_misses, " hit rate: ", (float)tt_hits/(tt_hits+tt_misses));
+    #endif
     #endif
     calcs = 0;
     return bestMove;
 }
 
+list<Move> madeMoves;
+void debug_hash() {
+    print("=== NESTED CAPTURE DEBUG ===");
+    
+    // Get initial state
+    uint64_t initial_hash = current_hash;
+    uint64_t initial_board_hash = hash_board();
+    print("Initial current_hash:", initial_hash);
+    print("Initial board_hash:", initial_board_hash);
+    print("Hashes match:", (initial_hash == initial_board_hash) ? "YES" : "NO");
+    
+    // Get some moves including captures
+    auto moves = generateMoves(turn_color);
+    Move capture_move;
+    Move other_move;
+    bool found_capture = false, found_other = false;
+
+    for(auto& move : moves) {
+        test_hash_consistency();
+        makeMove(move,false);
+        makeMove(move,false);
+        unmakeMove(move,false);
+        unmakeMove(move,false);
+    }
+    print("===DONE===");
+}
 
 int main() {
     using namespace helper;
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.6.0");
+    Window window = Window(1280, 768, "FirChess 0.8.0");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
     Data d = make_config(scene,K);
-    // load_gui(scene, "FirChess", "firchessgui.fab");
+    load_gui(scene, "FirChess", "firchessgui.fab");
 
     num_grid = make<NumGrid>(2.0f,21.0f);
     
@@ -1127,13 +1379,20 @@ int main() {
         setup_piece("king_"+col,ctf('e'),rank);
     }
 
+    srand(12345);
+    for(int piece = 0; piece < 32; piece++) {
+        for(int square = 0; square < 64; square++) {
+            zobrist_table[piece][square] = random64bit();
+        }
+    }
+    turn_zobrist_key = random64bit();
+    current_hash = hash_board();
+    for(int i = 0; i < TT_SIZE; i++) {
+        transposition_table[i].valid = false;
+    }
 
 
-    //Make the little mouse to reperesnt the bot (Fir!)
-    auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
-    scene->add(Fir);
-    Fir->setPosition(vec3(1,-1,-9));
-        //Make the chess board and offset it so it works with the grid
+    //Make the chess board and offset it so it works with the grid
     auto board = make<Single>(scene->get<g_ptr<Model>>("_board_model"));
     scene->add(board);
     board->move(vec3(1,-1.3,1));
@@ -1145,15 +1404,28 @@ int main() {
     scene->lights.push_back(l1);
     // auto l2 = make<Light>(Light(glm::vec3(-15,10,0),glm::vec4(500,500,500,1)));
     // scene->lights.push_back(l2);
-    auto thread = make<Thread>();
-    thread->run([&](ScriptContext& ctx){
-            Move m = findBestMove(8,turn_color);
+   // Move bot_move;
+
+    bool bot_color = 0;
+    //Make the little mouse to reperesnt the bot (Fir!)
+    auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
+    scene->add(Fir);
+    Fir->setPosition(bot_color==0?vec3(1,-1,-9):vec3(1,-1,11));
+    if(bot_color==1) Fir->faceTo(vec3(0,-1,0));
+    auto bot = make<Thread>();
+    bot->run([&](ScriptContext& ctx){
+        if(turn_color==bot_color) {
+            bot_turn = true;
+            Move m = findBestMove(max_depth,turn_color);
             if(m.id!=-1) {
                 makeMove(m);
+                madeMoves << m;
                 turn_color = turn_color==0?1:0;
             }
             else
-                thread->pause();
+                bot->pause();
+            bot_turn = false;
+        }
         //std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     },0.02f);
 
@@ -1167,7 +1439,12 @@ int main() {
     // scene->add(box);
     // box->setPosition(grid->indexToLoc(grid->toIndex(board_to_world('e',7))));
 
-    list<Move> madeMoves;
+    
+    bool auto_turn = false;
+    if(auto_turn) bot->start();
+    int last_col = turn_color;
+
+    //debug_hash();
 
     start::run(window,d,[&]{
         vec3 mousePos = scene->getMousePos(0);
@@ -1175,6 +1452,11 @@ int main() {
         if(mousePos.x()<-6.0f) mousePos.setX(-6.0f);
         if(mousePos.z()>8.0f) mousePos.setZ(8.0f);
         if(mousePos.z()<-6.0f) mousePos.setZ(-6.0f);
+
+        if(last_col!=turn_color) {
+            text::setText(turn_color==0?"White":"Black",scene->getSlot("turn")[0]);
+        }
+        last_col = turn_color;
 
         if(!free_camera) {
             scene->camera.setTarget(vec3(1,-1,1));
@@ -1192,15 +1474,17 @@ int main() {
             else {print("Debug move on"); debug_move=true;}
         } 
         if(pressed(C)) {
-            if(free_camera){print("Free camera"); scene->camera.lock = true; free_camera=false;}
-            else{print("Locked camera"); scene->camera.lock = false; free_camera=true;}
+            if(free_camera){print("Locked camera"); scene->camera.lock = true; free_camera=false;}
+            else{print("Free camera"); scene->camera.lock = false; free_camera=true;}
         }
         if(pressed(T)) {
             if(held(LSHIFT)) {
-                generateMoves(turn_color);
+                //generateMoves(turn_color);
+                if(!auto_turn) {auto_turn = true; print("Auto turn");}
+                else {auto_turn=false; print("Disabled auto turn");}
             }
             else {
-                Move m = findBestMove(5,turn_color);
+                Move m = findBestMove(max_depth,turn_color);
                 if(m.id!=-1) {
                     makeMove(m);
                     madeMoves << m;
@@ -1276,7 +1560,11 @@ int main() {
                         move.rule = 1;
                     }
                     makeMove(move);
+                    //print("Move repeated: ",history.getOrDefault(current_hash,0));
                     madeMoves << move;
+                    if(auto_turn) {
+                        turn_color = 1-turn_color;
+                    }
                 }
               }
               else 
@@ -1314,8 +1602,8 @@ int main() {
          if(pressed(Q)) {
             if(held(LSHIFT)) unmakeMove(last_move);
             else {
-                if(thread->runningTurn) {thread->pause(); bot_turn=false;}
-                else {thread->start(); bot_turn = true;}
+                if(bot->runningTurn) {bot->pause(); bot_turn=false;}
+                else {bot->start();}
             }
         }
 
