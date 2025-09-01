@@ -30,7 +30,39 @@ struct Move {
     //0 == No rule
     //1 == Promotions
     //2 == Castling
+
+    void saveBinary(std::ostream& out) const {
+        out.write(reinterpret_cast<const char*>(&id), sizeof(int));
+        out.write(reinterpret_cast<const char*>(&score), sizeof(int));
+        out.write(reinterpret_cast<const char*>(&takes), sizeof(int));
+        out.write(reinterpret_cast<const char*>(&first_move), sizeof(bool));
+        out.write(reinterpret_cast<const char*>(&rule), sizeof(int));
+        out.write(reinterpret_cast<const char*>(&c_id), sizeof(int));
+
+        out.write(reinterpret_cast<const char*>(&from), sizeof(ivec2));
+        out.write(reinterpret_cast<const char*>(&to), sizeof(ivec2));
+        out.write(reinterpret_cast<const char*>(&c_to), sizeof(ivec2));
+        out.write(reinterpret_cast<const char*>(&c_from), sizeof(ivec2));
+        out.write(reinterpret_cast<const char*>(&e_square), sizeof(ivec2));      
+    }
+
+    void loadBinary(std::istream& in) {
+        in.read(reinterpret_cast<char*>(&id), sizeof(int));
+        in.read(reinterpret_cast<char*>(&score), sizeof(int));
+        in.read(reinterpret_cast<char*>(&takes), sizeof(int));
+        in.read(reinterpret_cast<char*>(&first_move), sizeof(bool));
+        in.read(reinterpret_cast<char*>(&rule), sizeof(int));
+        in.read(reinterpret_cast<char*>(&c_id), sizeof(int));
+
+        in.read(reinterpret_cast<char*>(&from), sizeof(ivec2));
+        in.read(reinterpret_cast<char*>(&to), sizeof(ivec2));
+        in.read(reinterpret_cast<char*>(&c_to), sizeof(ivec2));
+        in.read(reinterpret_cast<char*>(&c_from), sizeof(ivec2));
+        in.read(reinterpret_cast<char*>(&e_square), sizeof(ivec2));     
+    }
 };
+
+list<Move> madeMoves;
 
 list<g_ptr<Single>> white_losses;
 list<g_ptr<Single>> black_losses;
@@ -508,13 +540,16 @@ void makeMove(Move& move,bool real = true) {
         move.first_move = true;
         hasMoved[move.id] = true;
     }
-    if(move.rule != 2) {
-        int t = square(move.to);
+    if(move.rule != 2 || move.rule==4) {
+        //Damned en passant...
+        int t = move.rule==4?square(move.to-(colors[move.id]==0?ivec2(0,1):ivec2(0,-1))):square(move.to);
         if(t!=-1) {
             takePiece(t,real);
             move.takes = t;
         }
     }
+
+    move.e_square = enpassant_square;
     
     //promotion
     if(move.rule == 1) {
@@ -529,14 +564,12 @@ void makeMove(Move& move,bool real = true) {
         linked.id = move.c_id;
         makeMove(linked,real);
     } //Pawn double move
-    else if(move.rule == 3) {
-        if(real) {
-            enpassant_square = move.to-(colors[move.id]==0?ivec2(0,-1):ivec2(0,1));
-        } else {
-            move.e_square = move.to-(colors[move.id]==0?ivec2(0,-1):ivec2(0,1));
-        }
+    
+    if(move.rule == 3) {
+        enpassant_square = move.to-(colors[move.id]==0?ivec2(0,1):ivec2(0,-1));
+    } else {
+        enpassant_square = ivec2(-1,-1);
     }
-    move.e_square = enpassant_square;
 
     update_grid(move.id,move.to);
     if(real) {
@@ -562,6 +595,9 @@ void unmakeMove(Move move,bool real = true) {
     if(move.first_move) {
         hasMoved[move.id] = false;
     }
+
+    enpassant_square = move.e_square;
+
     //promotion
     if(move.rule == 1) {
         unpromote(move.id,real);
@@ -575,6 +611,7 @@ void unmakeMove(Move move,bool real = true) {
         unmakeMove(linked,real);
     }
 
+
     update_grid(move.id,move.from);
     if(real) {
         update_num_grid(ref[move.id],board_to_world(move.from));
@@ -584,22 +621,56 @@ void unmakeMove(Move move,bool real = true) {
         #endif
     } 
 
+    ivec2 return_to = move.to;
+    if(move.rule==4) {
+        return_to = move.to-(colors[move.id]==0?ivec2(0,1):ivec2(0,-1));
+    }
     if(move.takes!=-1) {
         captured[move.takes] = false;
-        int new_square = (move.to.y() - 1) * 8 + (move.to.x() - 1);
+        int new_square = (return_to.y() - 1) * 8 + (return_to.x() - 1);
         current_hash ^= zobrist_table[move.takes][new_square];
         square(cells[move.takes]) = -1;
-        square(move.to) = move.takes;
+        square(return_to) = move.takes;
         //update_grid(move.takes,move.to);
         if(real) {
-            update_num_grid(ref[move.takes],board_to_world(move.to));
-            ref[move.takes]->setPosition(board_to_world(move.to));
+            update_num_grid(ref[move.takes],board_to_world(return_to));
+            ref[move.takes]->setPosition(board_to_world(return_to));
         }
     }
 
     if(real) {
         history.get(current_hash)--;
     }
+}
+
+void save_game(const std::string& file) {
+    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::ofstream out(path, std::ios::binary);
+    if (!out) throw std::runtime_error("Can't write to file: " + path);
+    out.write(reinterpret_cast<const char*>(&turn_color), sizeof(turn_color));
+    uint32_t moveLen = madeMoves.length();
+    out.write(reinterpret_cast<const char*>(&moveLen), sizeof(moveLen));
+    for (const auto& m : madeMoves) {
+        m.saveBinary(out);
+    }
+    out.close();
+}
+
+void load_game(const std::string& file) {
+    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("Can't read from file: " + path);
+    in.read(reinterpret_cast<char*>(&turn_color), sizeof(turn_color));
+    uint32_t moveLen;
+    in.read(reinterpret_cast<char*>(&moveLen), sizeof(moveLen));
+    madeMoves.clear();
+    for (uint32_t i = 0; i < moveLen; ++i) {
+        Move m;
+        m.loadBinary(in);
+        makeMove(m);
+        madeMoves << m;
+    }
+    in.close();
 }
 
 bool can_attack(const ivec2& pos,int by_color) {
@@ -781,6 +852,14 @@ bool validate_move(Move& move) {
                       }
                   }
 
+                  if(enpassant_square!=ivec2(-1,-1)) {
+                    if(move.to==enpassant_square) {
+                        meets_special = true;
+                        can_take = true;
+                        move.rule = 4;
+                    } 
+                }
+
                   if(!hasMoved[s_id]) {
                       if(ivec2(0,color==1?-2:2)==pattern) {
                           move.rule = 3;
@@ -884,6 +963,14 @@ list<Move> generateMoves(int color) {
             }
             special_moves << d_r;
             special_moves << d_l;
+            if(enpassant_square!=ivec2(-1,-1)) {
+                if(d_r==enpassant_square) {
+                    special_moves << d_r;
+                } 
+                if(d_l==enpassant_square) {
+                    special_moves << d_l;
+                }
+            }
         } 
         else if(specialRules[i]==2) {
             for(int m=0;m<moves[i].length();m++) {
@@ -1318,39 +1405,12 @@ Move findBestMove(int depth,int color) {
     return bestMove;
 }
 
-list<Move> madeMoves;
-void debug_hash() {
-    print("=== NESTED CAPTURE DEBUG ===");
-    
-    // Get initial state
-    uint64_t initial_hash = current_hash;
-    uint64_t initial_board_hash = hash_board();
-    print("Initial current_hash:", initial_hash);
-    print("Initial board_hash:", initial_board_hash);
-    print("Hashes match:", (initial_hash == initial_board_hash) ? "YES" : "NO");
-    
-    // Get some moves including captures
-    auto moves = generateMoves(turn_color);
-    Move capture_move;
-    Move other_move;
-    bool found_capture = false, found_other = false;
-
-    for(auto& move : moves) {
-        test_hash_consistency();
-        makeMove(move,false);
-        makeMove(move,false);
-        unmakeMove(move,false);
-        unmakeMove(move,false);
-    }
-    print("===DONE===");
-}
-
 int main() {
     using namespace helper;
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.9.0");
+    Window window = Window(1280, 768, "FirChess 0.9.5");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
@@ -1392,6 +1452,7 @@ int main() {
         transposition_table[i].valid = false;
     }
 
+    //load_game("auto");
 
     //Make the chess board and offset it so it works with the grid
     auto board = make<Single>(scene->get<g_ptr<Model>>("_board_model"));
@@ -1417,6 +1478,7 @@ int main() {
     bot->run([&](ScriptContext& ctx){
         if(turn_color==bot_color) {
             bot_turn = true;
+            save_game("auto");
             Move m = findBestMove(max_depth,turn_color);
             if(m.id!=-1) {
                 makeMove(m);
@@ -1495,7 +1557,8 @@ int main() {
         if(pressed(Y)) {
             vec3 clickPos = num_grid->snapToGrid(scene->getMousePos());
             if(in_bounds(world_to_board(clickPos)))
-                takePiece(square(world_to_board(clickPos)));
+                if(square(world_to_board(clickPos))!=-1)
+                    takePiece(square(world_to_board(clickPos)));
         }
         if(pressed(R)) if(!madeMoves.empty()) unmakeMove(madeMoves.pop());
         if(pressed(NUM_1)) scene->camera.toOrbit();
