@@ -322,6 +322,17 @@ inline void update_grid(int id,const ivec2& to) {
     ivec2 from = cells[id];
     int old_square = (from.y() - 1) * 8 + (from.x() - 1);
     int new_square = (to.y() - 1) * 8 + (to.x() - 1);
+
+    if(id==-1) {
+        print("update_grid::327 attempted to update nonexistent id piece from ",bts(from)," to ",bts(to));
+        return;
+    }
+
+    if(square(from) != id) {
+        print("update_grid::331 piece ", id, " not at expected position ", bts(from));
+        return; 
+    }
+
     current_hash ^= zobrist_table[id][old_square];  // Remove from old square
     current_hash ^= zobrist_table[id][new_square];  // Add to new square
 
@@ -367,11 +378,11 @@ std::string pts(int id) {
 
 // Move to string
 std::string mts(Move move) {
-    return pts(move.id)+" from "+bts(move.from)+" to "+bts(move.to)+(move.takes!=-1?" takes "+pts(move.takes):"");
+    return pts(move.id)+" from "+bts(move.from)+" to "+bts(move.to)+(move.takes!=-1?" takes "+pts(move.takes):"")+(move.rule==2?" castle ":move.rule==1?" promote ":"");
 }
 
 void print_move(Move move) {
-    print(pts(move.id)," from ",bts(move.from)," to ",bts(move.to),move.takes!=-1?" takes "+pts(move.takes):"");
+    print(mts(move));
 }
 
 
@@ -1305,14 +1316,19 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
             #else
             int extension = 0;
             #if ENABLE_TACTEXT
-            if(move.takes != -1 && depth < max_depth+1) {
+            if(move.takes != -1 && depth < max_depth+6) {
                 int cap_val = capture_value(move, current_turn);
                 if(cap_val > 200) {
-                    extension = 1;
+                    extension += 2;
                 }
             }
             #endif
             makeMove(move, false);
+            #if ENABLE_TACTEXT
+            if(isKingInCheck(1-current_turn) && depth < max_depth+6) {
+                extension += 2;
+            }
+            #endif
             #if ENABLE_PENALTY
             int repeats = history.getOrDefault(current_hash,1)-1;
             int penalty = 50 * (repeats * repeats);
@@ -1504,6 +1520,7 @@ Move parse_move(const std::string& pat) {
     return result;
 }
 
+#define LOG_OPEN 0
 
 void build_opening(const std::string& pattern,int color = 0,std::string indent = "  ") {
     //print("Processing patern: ",pattern);
@@ -1549,17 +1566,23 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
     
     for(int s = 0;s<seqs.length();s++) {
         if(seqs[s].find('(') != std::string::npos) {
-           // print(indent,"R: ",seqs[s]);
+            #if LOG_OPEN
+            print(indent,"R: ",seqs[s]);
+            #endif
             build_opening(seqs[s],color,indent+"  "); 
         } else {
-           // print(indent,"P: ",seqs[s]);
+            #if LOG_OPEN
+            print(indent,"P: ",seqs[s]);
+            #endif
             auto pats = split_str(seqs[s], ',');
             list<Move> made;
             for(int i = 0; i < pats.length(); i++) {
                 uint64_t hash = get_search_hash(color);
                 Move current = parse_move(pats[i]);
                 makeMove(current, false);
-              //  print(indent," ",color==0?"W:":"B:",mts(current));
+                #if LOG_OPEN
+                print(indent," ",color==0?"W:":"B:",mts(current)," [",pats[i],"]");
+                #endif
                 opening_book.getOrPut(hash, list<Move>{}) << current;
                 made << current;
                 color = 1-color;
@@ -1569,7 +1592,9 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
                 if(s!=0) {
                     unmakeMove(made[i], false);
                     color = 1-color;
-                 //   print(indent,"-",mts(made[i]));
+                    #if LOG_OPEN
+                    print(indent,"-",mts(made[i]));
+                    #endif
                 }
                 else {
                     to_unmake << made[i];
@@ -1579,7 +1604,9 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
     }
 
     for(auto m : to_unmake) {
-        //print(indent,"-",mts(m));
+        #if LOG_OPEN
+        print(indent,"-",mts(m));
+        #endif
         unmakeMove(m,false);
         color = 1-color;
     }
@@ -1599,43 +1626,272 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
 // 5. When an opening can branch, you enclose it in parens ()
 // Put all together, Italian Game (Giuoco Piano vs Two Knights), could look like this:
 // "e2-e4,e7-e5(g1-f3(b8-c6,f1-c4(g8-f6))(g8-f6,d2-d3,f8-c5,c2-c3))"
-// For formating:
-//     //Italian Game (Giuoco Piano vs Two Knights)
-//     build_opening("e2-e4,e7-e5(g1-f3(b8-c6,f1-c4(g8-f6))(g8-f6,d2-d3,f8-c5,c2-c3))");
-// Put the title and branches above the code to build the opening, pack it all in one line
+// Refer to examples for formatting
 
 
 void play_book() {
-    current_hash = hash_board();
-    //Fir's Silly Duck
-    build_opening("a2-a3,a7-a6,b2-b3,b7-b6,c2-c3(d7-d6,e2-e3)(e7-e6,d2-d3)");
+    //King's Pawn Openings
+    build_opening(
+        "e2-e4"
+            "(e7-e5"
+                "(g1-f3"
+                    "(b8-c6"
+                        "(f1-c4" //Italian Game
+                            "(f8-c5" //Giuoco Piano
+                                "(c2-c3,g8-f6,d2-d4,e5-d4,c3-d4,c5-b4,b1-c3,f6-e4,e1-h1-C)"
+                            ")"
+                            "(g8-f6" //Two Knights Defense
+                                "(b1-c3,f8-c5,d2-d3,d7-d6,c1-g5,h7-h6,g5-h4,e8-h8-C)"
+                            ")"
+                        ")"
+                        "(f1-b5" //Ruy Lopez
+                            "(a7-a6"
+                                "(b5-a4"
+                                    "(g8-f6"
+                                        "(e1-h1-C,f8-e7,f1-e1,b7-b5,a4-b3,d7-d6,c2-c3,e8-h8-C,h2-h3,c8-b7)"
+                                        "(e1-h1-C,f8-c5" //Marshall Attack attempt
+                                            "(c2-c3,f7-f5,e4-f5,d7-d6,d2-d4,f6-d5)"
+                                        ")"
+                                    ")"
+                                    "(b7-b5,a4-b3,f8-c5,c2-c3,d7-d6)"
+                                ")"
+                            ")"
+                            "(g8-f6" //Berlin Defense
+                                "(e1-h1-C,f8-e7,f1-e1,b7-b5,b5-b3,d7-d6,c2-c3,e8-h8-C)"
+                            ")"
+                        ")"
+                        "(d2-d4" //Scotch Game
+                            "(e5-d4,f3-d4,g8-f6,b1-c3,f8-b4,d4-c6,b7-c6,f1-d3)"
+                        ")"
+                        "(b1-c3" //Four Knights
+                            "(g8-f6,f1-b5,f8-b4,e1-h1-C,e8-h8-C,d2-d3)"
+                        ")"
+                    ")"
+                    "(g8-f6" //Petrov Defense
+                        "(f3-e5,d7-d6,e5-f3,f6-e4,d2-d4,d6-d5,f1-d3,f8-e7,e1-h1-C)"
+                    ")"
+                    "(d7-d6" //Philidor Defense
+                        "(d2-d4,b8-d7,f1-c4,c7-c6,b1-c3,f8-e7)"
+                    ")"
+                ")"
+                "(f2-f4" //King's Gambit
+                    "(e5-f4,g1-f3,g7-g5,f1-c4,g5-g4,e1-h1-C,g8-f6,d2-d4)"
+                ")"
+            ")"
+            "(c7-c5" //Sicilian Defense
+                "(g1-f3"
+                    "(d7-d6" //Najdorf setup
+                        "(d2-d4,c5-d4,f3-d4,g8-f6,b1-c3"
+                            "(a7-a6" //Najdorf
+                                "(c1-e3,e7-e5,d4-b3,f8-e7" //English attack
+                                    "(f2-f3,b7-b5,d1-d2,c8-b7,e1-a1-C)"
+                                ")"
+                            ")"
+                            "(g7-g6" //Dragon
+                                "(c1-e3,f8-g7,f2-f3,b8-c6,d1-d2,e8-h8-C,e1-a1-C,d6-d5)"
+                            ")"
+                        ")"
+                    ")"
+                    "(b8-c6" //Accelerated Dragon/Closed setups
+                        "(d2-d4,c5-d4,f3-d4"
+                            "(g7-g6,c2-c4,f8-g7,c1-e3,g8-f6,b1-c3)" //Accelerated Dragon
+                        ")"
+                    ")"
+                    "(g7-g6" //Hyperaccelerated Dragon
+                        "(d2-d4,c5-d4,f3-d4,f8-g7,c2-c4,b8-c6,c1-e3)"
+                    ")"
+                ")"
+                "(b1-c3" //Closed Sicilian
+                    "(b8-c6,g2-g3,g7-g6,f1-g2,f8-g7,d2-d3,d7-d6)"
+                ")"
+            ")"
+            "(e7-e6" //French Defense
+                "(d2-d4,d7-d5"
+                    "(b1-c3"
+                        "(f8-b4" //Winawer
+                            "(e4-e5,c7-c5,a2-a3,b4-c3,b2-c3,g8-e7,d1-g4)"
+                        ")"
+                        "(g8-f6" //Classical
+                            "(c1-g5,f8-e7,e4-e5,f6-d7,g5-e7,d8-e7,f2-f4)"
+                        ")"
+                        "(d5-c4" //McCutcheon/other
+                            "(g1-f3,g8-f6,f1-c4)"
+                        ")"
+                    ")"
+                    "(e4-d5" //Exchange
+                        "(e6-d5,f1-d3,b8-c6,c2-c3,f8-d6)"
+                    ")"
+                    "(e4-e5" //Advance
+                        "(c7-c5,c2-c3,b8-c6,g1-f3,d8-b6,a2-a3)"
+                    ")"
+                ")"
+            ")"
+            "(c7-c6" //Caro-Kann
+                "(d2-d4,d7-d5"
+                    "(b1-c3" //Two Knights
+                        "(d5-e4,c3-e4,c8-f5,e4-g3,f5-g6,h2-h4,h7-h6,g1-f3)"
+                    ")"
+                    "(e4-d5" //Exchange
+                        "(c6-d5,c2-c4,g8-f6,b1-c3,b8-c6)"
+                    ")"
+                    "(e4-e5" //Advance
+                        "(c8-f5,g1-f3,e7-e6,f1-e2,c6-c5)"
+                    ")"
+                ")"
+            ")"
+            "(d7-d5" //Scandinavian
+                "(e4-d5,d8-d5,b1-c3,d5-a5,d2-d4,g8-f6,g1-f3)"
+            ")"
+            "(d7-d6" //Pirc Defense
+                "(d2-d4,g8-f6,b1-c3,g7-g6,f2-f4,f8-g7,g1-f3,e8-h8-C)"
+            ")"
+            "(g7-g6" //Modern Defense
+                "(d2-d4,f8-g7,b1-c3,d7-d6,f2-f4,g8-f6,g1-f3)"
+            ")"
+            "(g8-f6" //Alekhine Defense
+                "(e4-e5,f6-d5,d2-d4,d7-d6,c2-c4,d5-b6,f2-f4)"
+            ")"
+    );
 
-    // Sicilian Defense (Deep Najdorf, Dragon, Accelerated Dragon, Closed)
-    build_opening("e2-e4,c7-c5(g1-f3(d7-d6,d2-d4,c5-d4,f3-d4,g8-f6,b1-c3(a7-a6,c1-e3,e7-e5,d4-b3,f8-e7,f2-f3,b7-b5,d1-d2,c8-b7,e1-a1-C,b8-d7)(g7-g6,c1-e3,f8-g7,f2-f3,b8-c6,d1-d2,e8-h8-C,e1-a1-C,d6-d5,e4-d5,d4-d5,h2-h4))(b8-c6,d2-d4,c5-d4,f3-d4,g7-g6,c2-c4,f8-g7,c1-e3,g8-f6,b1-c3)(g7-g6,d2-d4,c5-d4,f3-d4,f8-g7,c2-c4,b8-c6,c1-e3,g8-f6,b1-c3,d7-d6)(b8-c6,f1-b5,g7-g6,c1-e3,f8-g7,h2-h3,g8-f6,d1-d2))");
+    //Queen's Pawn Openings
+    build_opening(
+        "d2-d4"
+            "(d7-d5"
+                "(c2-c4" //Queen's Gambit
+                    "(e7-e6"
+                        "(b1-c3"
+                            "(g8-f6"
+                                "(c1-g5" //Orthodox QGD
+                                    "(f8-e7,e2-e3,e8-h8-C,g1-f3,h7-h6,g5-h4"
+                                        "(b7-b6" //Tartakower
+                                            "(d1-c2,c8-b7,c2-d1,b8-d7,f1-d3,c7-c5)"
+                                        ")"
+                                        "(b8-d7" //Lasker
+                                            "(h4-e7,d8-e7,c4-d5,e6-d5,f1-d3)"
+                                        ")"
+                                    ")"
+                                ")"
+                                "(g1-f3" //QGD without Bg5
+                                    "(c8-e6,c1-g5,h7-h6,g5-h4,f8-e7)"
+                                ")"
+                            ")"
+                            "(c7-c5" //Tarrasch Defense
+                                "(c4-d5,e6-d5,g1-f3,b8-c6,g2-g3,g8-f6)"
+                            ")"
+                        ")"
+                    ")"
+                    "(d5-c4" //Queen's Gambit Accepted
+                        "(e2-e3,g8-f6,f1-c4,e7-e6,g1-f3,c7-c5,e1-h1-C)"
+                    ")"
+                    "(c7-c6" //Slav Defense
+                        "(g1-f3,g8-f6,b1-c3"
+                            "(d5-c4" //Slav Accepted
+                                "(a2-a4,c8-f5,e2-e3,e7-e6,f1-c4)"
+                            ")"
+                            "(e7-e6" //Semi-Slav
+                                "(e2-e3,b8-d7,f1-d3,d5-c4,d3-c4)"
+                            ")"
+                        ")"
+                    ")"
+                    "(b8-c6" //Chigorin Defense
+                        "(b1-c3,d5-c4,g1-f3,g8-f6,e2-e3)"
+                    ")"
+                ")"
+                "(g1-f3" //London System/Colle
+                    "(g8-f6"
+                        "(c1-f4" //London
+                            "(e7-e6,e2-e3,c7-c5,c2-c3,f8-d6,f4-d6,d8-d6)"
+                        ")"
+                        "(e2-e3" //Colle
+                            "(e7-e6,f1-d3,c7-c5,c2-c3,b8-c6)"
+                        ")"
+                    ")"
+                ")"
+            ")"
+            "(g8-f6"
+                "(c2-c4"
+                    "(g7-g6"
+                        "(b1-c3"
+                            "(f8-g7"
+                                "(e2-e4" //King's Indian Defense
+                                    "(d7-d6"
+                                        "(f2-f3" //Classical/Sämisch
+                                            "(e8-h8-C,c1-e3,e7-e5,g1-e2,b8-d7,d1-d2,c7-c6)"
+                                        ")"
+                                        "(g1-f3" //Classical
+                                            "(e8-h8-C,f1-e2,e7-e5,e1-h1-C,b8-c6"
+                                                "(d4-d5" //Mar del Plata
+                                                    "(c6-e7,b2-b4,f6-h5,f1-e1,f7-f5,c1-g5)"
+                                                ")"
+                                            ")"
+                                        ")"
+                                    ")"
+                                ")"
+                                "(g1-f3" //King's Indian Fianchetto
+                                    "(e8-h8-C,g2-g3,d7-d6,f1-g2,b8-c6,e1-h1-C)"
+                                ")"
+                            ")"
+                            "(d7-d5" //Grünfeld Defense
+                                "(c4-d5,f6-d5,e2-e4,d5-c3,b2-c3,f8-g7,g1-f3)"
+                            ")"
+                        ")"
+                    ")"
+                    "(e7-e6"
+                        "(b1-c3"
+                            "(f8-b4" //Nimzo-Indian
+                                "(e2-e3" //Rubinstein
+                                    "(e8-h8-C,f1-d3,d7-d5,g1-f3,c7-c5,e1-h1-C,b8-c6)"
+                                ")"
+                                "(d1-c2" //Classical
+                                    "(d7-d5,a2-a3,b4-c3,c2-c3,b8-e4,c3-c2)"
+                                ")"
+                            ")"
+                            "(b7-b6" //Queen's Indian
+                                "(g1-f3,c8-b7,g2-g3,f8-e7,f1-g2,e8-h8-C)"
+                            ")"
+                        ")"
+                    ")"
+                    "(c7-c5" //Benoni Defense
+                        "(d4-d5,e7-e6,b1-c3,e6-d5,c4-d5,d7-d6,e2-e4,g7-g6)"
+                    ")"
+                ")"
+                "(c1-g5" //Trompowsky
+                    "(e7-e6,e2-e4,h7-h6,g5-f6,d8-f6,b1-c3)"
+                ")"
+            ")"
+            "(f7-f5" //Dutch Defense
+                "(c2-c4,g8-f6,g2-g3,e7-e6,f1-g2,f8-e7,g1-f3,e8-h8-C)"
+            ")"
+    );
 
-    // Ruy Lopez (Berlin, Morphy, Marshall, Closed)
-    build_opening("e2-e4,e7-e5(g1-f3,b8-c6,f1-b5(g8-f6,e1-h1-C,f8-e7,h1-e1,b7-b5,b5-b3,d7-d6,c2-c3,e8-h8-C,h2-h3,c6-b8,d2-d4,b8-d7)(a7-a6,b5-a4(g8-f6,e1-h1-C(f8-e7,h1-e1,b7-b5,a4-b3,d7-d6,c2-c3,e8-h8-C,h2-h3,c8-b7,d2-d4,h1-e8,b3-c2,e5-d4,c3-d4,c6-b4,c2-b1,c7-c5)(f8-c5,c2-c3,f7-f5,e4-f5,d7-d6,d2-d4,f6-d5,d1-h5,d8-f6))(b7-b5,a4-b3,f8-c5,c2-c3,d7-d6,d2-d4,c5-b6)))");
+    //Other First Moves
+    build_opening(
+        "g1-f3" //Reti Opening
+            "(d7-d5,c2-c4,e7-e6,g2-g3,g8-f6,f1-g2,f8-e7)"
+        ")"
+    );
 
-    // //Queen's Gambit Declined (Orthodox, Tartakower, Lasker, Exchange)
-    // build_opening("d2-d4,d7-d5(c2-c4,e7-e6(b1-c3,g8-f6(c1-g5,f8-e7,e2-e3,e8-h8-C,g1-f3,h7-h6,g5-h4,b7-b6(d1-c2,c8-b7,c1-d1,b8-d7,f1-d3,c7-c5,e1-h1-C,c5-d4,e3-d4,d8-c7)(f1-d3,d5-c4,d3-c4,b8-d7,e1-h1-C,c7-c5,d1-e2,c5-d4,e3-d4,d7-b6))))");
-
-    // //King's Indian Defense (Classical, Mar del Plata, Fianchetto)
-    // build_opening("d2-d4,g8-f6(c2-c4,g7-g6(b1-c3,f8-g7(e2-e4,d7-d6(f2-f3,e8-h8-C,c1-e3,e7-e5,g1-e2,b8-d7,d1-d2,c7-c6,e1-c1-C,a7-a6)(g1-f3,e8-h8-C,f1-e2,e7-e5,e1-h1-C,b8-c6(d4-d5,c6-e7,b2-b4,f6-h5,h1-e1,f7-f5,c1-g5,g8-f6)(d4-e5,d6-e5,d1-d8,f8-d8,c1-g5)))))");
-
-    // //French Defense (Winawer, Tarrasch, Classical, Exchange, Advance)
-    // build_opening("e2-e4,e7-e6(d2-d4,d7-d5(b1-c3,f8-b4,e4-e5,c7-c5,a2-a3,b4-c3,b2-c3,g8-e7,d1-g4,d8-c7,g4-g7,h8-g8,g7-h7,c5-d4,c3-d4,b8-c6)(e4-d5,e6-d5,g1-f3,g8-f6,c1-g5,f8-e7,f1-d3,e8-h8-C,e1-h1-C,b8-c6,h1-e1,c8-g4,c2-c3,h1-e8)(e4-e5,c7-c5,c2-c3,b8-c6,g1-f3,d8-b6,a2-a3,c5-c4,b1-d2,b8-a5)(e4-d5,e6-d5,f1-d3,b8-c6,c2-c3,f8-d6,d3-b5,g8-e7,g1-e2,e8-h1-C))");
-
-    //English Opening (Symmetrical, Reversed Sicilian, King's English)
-    build_opening("c2-c4(e7-e5,b1-c3(b8-c6,g1-f3,g8-f6(d2-d4,e5-d4,f3-d4,f8-b4,c1-g5,h7-h6,g5-h4,b4-c3,b2-c3,d8-e7,f2-f3)(g2-g3,d7-d5,c4-d5,f6-d5,f1-g2,d5-c3,d2-c3,d8-d1,e1-d1,f8-c5)))(g8-f6,b1-c3,e7-e6(e2-e4,d7-d5,e4-e5,f6-e4,g1-f3,b8-c6,f1-b5,f8-c5))");
-
-    //Nimzo-Indian Defense (Rubinstein, Classical, Leningrad)
-    build_opening("d2-d4,g8-f6(c2-c4,e7-e6(b1-c3,f8-b4(e2-e3,e8-h8-C,f1-d3,d7-d5,g1-f3,c7-c5,e1-h1-C,b8-c6,a2-a3,b4-c3,b2-c3,d5-c4,d3-c4)(d1-c2,d7-d5,a2-a3,b4-c3,c2-c3,b8-e4,c3-c2,e4-c3,c2-d3,e8-h8-C,g1-f3)))");
-
-    //Italian Game (Evans Gambit, Hungarian, Two Knights, Giuoco Piano)
-    build_opening("e2-e4,e7-e5(g1-f3,b8-c6,f1-c4(f8-c5(c2-c3,g8-f6,d2-d4,e5-d4,c3-d4,c5-b4,b1-c3,f6-e4,e1-h1-C,b4-c3)(b2-b4,c5-b4,c2-c3,b4-a5,d2-d4,e5-d4,e1-h1-C,g8-f6,h1-e1,d7-d6,c3-d4,c5-b6))(g8-f6(b1-c3,f8-c5,d2-d3,d7-d6,c1-g5,h7-h6,g5-h4,e8-h8-C,f3-d2)(d2-d3,f8-e7,e1-h1-C,e8-h8-C,h1-e1,d7-d6,c2-c3,a7-a6)))");
-
-    //Caro-Kann Defense (Main Line, Advance, Exchange, Two Knights)
-    build_opening("e2-e4,c7-c6(d2-d4,d7-d5(b1-c3,d5-e4,c3-e4,c8-f5,e4-g3,f5-g6,h2-h4,h7-h6,g1-f3,b8-d7,h4-h5,g6-h7,f1-d3,h7-d3,d1-d3)(e4-e5,c8-f5,g1-f3,e7-e6,f1-e2,c6-c5,c2-c4,b8-c6,c4-d5,e6-d5,b1-c3)(e4-d5,c6-d5,c2-c4,g8-f6,b1-c3,b8-c6,c1-g5,e7-e6,g1-f3,f8-e7,c4-c5))");
+    build_opening(
+        "c2-c4" //English Opening
+            "(e7-e5"
+                "(b1-c3"
+                    "(b8-c6"
+                        "(g1-f3,g8-f6"
+                            "(d2-d4" //Four Knights
+                                "(e5-d4,f3-d4,f8-b4,c1-g5,h7-h6,g5-h4)"
+                            ")"
+                            "(g2-g3" //Closed English
+                                "(d7-d5,c4-d5,f6-d5,f1-g2,d5-c3,d2-c3)"
+                            ")"
+                        ")"
+                    ")"
+                ")"
+            ")"
+            "(g8-f6"
+                "(b1-c3,e7-e6,e2-e4,d7-d5,e4-e5,f6-e4)" //King's English
+            ")"
+        ")"
+    );
 
     save_opening_book();
 }
@@ -1645,7 +1901,7 @@ int main() {
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.9.5");
+    Window window = Window(1280, 768, "FirChess 0.1.0");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
@@ -1812,7 +2068,8 @@ int main() {
             }
         }
         if(pressed(G)) {
-            print(isKingInCheck(turn_color)==0?"No check":"In check");
+            // print(isKingInCheck(turn_color)==0?"No check":"In check");
+            print(get_search_hash(turn_color));
         }
         if(pressed(MOUSE_LEFT)) {
             if(!selected) {
