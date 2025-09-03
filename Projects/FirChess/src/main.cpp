@@ -9,12 +9,17 @@ using namespace Golden;
 
 #define EVALUATE 0
 #define LOG 1
+static int max_depth = 6;
+#define ENABLE_AB 1
+#define ENABLE_TT 1
+#define ENABLE_PENALTY 1
+#define ENABLE_TACTEXT 1
+#define ENABLE_BOOK 0
 
-g_ptr<Scene> scene = nullptr;
-g_ptr<NumGrid> num_grid = nullptr;
 bool debug_move = false;
 bool free_camera = true;
 bool bot_turn = false;
+
 
 struct Move {
     int id, score;
@@ -22,16 +27,16 @@ struct Move {
     int takes=-1;
     bool first_move = false;
     int rule = 0;
-    
-    int c_id = -1;
-    ivec2 c_to,c_from;
-
-    ivec2 e_square = {-1,-1};
     //0 == No rule
     //1 == Promotions
     //2 == Castling
     //3 == Pawn Double Move
     //4 == En Passante
+    
+    int c_id = -1;
+    ivec2 c_to,c_from;
+
+    ivec2 e_square = {-1,-1};
 
     void saveBinary(std::ostream& out) const {
         out.write(reinterpret_cast<const char*>(&id), sizeof(int));
@@ -64,20 +69,15 @@ struct Move {
     }
 };
 
-list<Move> madeMoves;
+g_ptr<Scene> scene = nullptr;
+g_ptr<NumGrid> num_grid = nullptr;
 
 list<g_ptr<Single>> white_losses;
 list<g_ptr<Single>> black_losses;
 
-list<std::string> dtypes;
-list<g_ptr<Single>> ref;
-list<bool> captured;
-list<int> colors;
-list<int> values;
-list<int> specialRules;
-list<ivec2> cells;
-list<list<ivec2>> moves;
-list<bool> hasMoved;
+uint64_t turn_zobrist_key;
+map<uint64_t,int> history;
+
 Move last_move;
 int white_king_id = -1;
 int black_king_id = -1;
@@ -91,39 +91,74 @@ list<ivec2> black_pawn_moves;
 int pawn_value;
 int pawn_specialRule;
 
-ivec2 enpassant_square(-1,-1);
+int turn_color = 0; //0 = White, 1 = Black
+int turn_number = 0;
+list<g_ptr<Single>> drop;
+list<Move> madeMoves;
 
-list<list<int>> grid;
-list<list<int>> copyGrid() {
-    return grid;
-}
-
-uint64_t zobrist_table[32][64];
-uint64_t turn_zobrist_key;
-uint64_t current_hash = 0;
-map<uint64_t,int> history;
-
-
-#define TT_EXACT 0
-#define TT_ALPHA 1
-#define TT_BETA 2
-
-struct TTEntry {
-    uint64_t hash = 0;
-    int depth = -1;
-    int score = 0;
-    int flag = 0; // 0=EXACT, 1=ALPHA, 2=BETA
-    Move best_move;
-    bool valid = false;
-};
-
-static const int TT_SIZE = 1024 * 1024; 
-static TTEntry transposition_table[TT_SIZE];
+map<uint64_t, list<Move>> opening_book;
 
 uint64_t random64bit() {
     return ((uint64_t)rand() << 32) | rand();
 }
 
+bool isMultiple(ivec2 move, ivec2 pattern) {
+    if(pattern.x() == 0 && pattern.y() == 0) return false;
+    if(pattern.x() == 0) return move.x() == 0 && ((int)move.y()%(int)pattern.y()) == 0 && (move.y() / pattern.y()) > 0;
+    if(pattern.y() == 0) return move.y() == 0 &&(int)move.x() % (int)pattern.x() == 0 && (move.x() / pattern.x()) > 0;
+    return (int)move.x() % (int)pattern.x() == 0 && (int)move.y() % (int)pattern.y() == 0 && 
+           (move.x() / pattern.x()) == (move.y() / pattern.y()) && (move.x() / pattern.x()) > 0;
+}
+
+int ctf(char c) {
+    switch(c) {
+        case 'h': return 1;
+        case 'g': return 2;
+        case 'f': return 3;
+        case 'e': return 4;
+        case 'd': return 5;
+        case 'c': return 6;
+        case 'b': return 7;
+        case 'a': return 8;
+        default: return 0;
+    }
+}
+
+char file_to_char(int file) {
+    switch(file) {
+        case 1: return 'h';
+        case 2: return 'g';
+        case 3: return 'f';
+        case 4: return 'e';
+        case 5: return 'd';
+        case 6: return 'c';
+        case 7: return 'b';
+        case 8: return 'a';
+        default: return '\0';
+    }
+}
+
+//Board to string
+std::string bts(const ivec2& pos) {
+    return file_to_char(pos.x())+std::to_string(pos.y());
+}
+
+//File = column, rank = row
+vec3 board_to_world(int file, int rank) {
+    return vec3((file-4)*2,0,(rank-4)*2);
+}
+
+vec3 board_to_world(char file, int rank) {
+    return board_to_world(ctf(file),rank);
+}
+
+vec3 board_to_world(const ivec2& pos) {
+    return board_to_world(int(pos.x()),int(pos.y()));
+}
+
+ivec2 world_to_board(const vec3& pos) {
+    return ivec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
+}
 
 void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& project_name = "FirChess") {
     map<std::string,std::string> type_modelPath;
@@ -251,95 +286,9 @@ void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& proje
     }
 }
 
-bool isMultiple(ivec2 move, ivec2 pattern) {
-    if(pattern.x() == 0 && pattern.y() == 0) return false;
-    if(pattern.x() == 0) return move.x() == 0 && ((int)move.y()%(int)pattern.y()) == 0 && (move.y() / pattern.y()) > 0;
-    if(pattern.y() == 0) return move.y() == 0 &&(int)move.x() % (int)pattern.x() == 0 && (move.x() / pattern.x()) > 0;
-    return (int)move.x() % (int)pattern.x() == 0 && (int)move.y() % (int)pattern.y() == 0 && 
-           (move.x() / pattern.x()) == (move.y() / pattern.y()) && (move.x() / pattern.x()) > 0;
-}
-
-int ctf(char c) {
-    switch(c) {
-        case 'h': return 1;
-        case 'g': return 2;
-        case 'f': return 3;
-        case 'e': return 4;
-        case 'd': return 5;
-        case 'c': return 6;
-        case 'b': return 7;
-        case 'a': return 8;
-        default: return 0;
-    }
-}
-
-char file_to_char(int file) {
-    switch(file) {
-        case 1: return 'h';
-        case 2: return 'g';
-        case 3: return 'f';
-        case 4: return 'e';
-        case 5: return 'd';
-        case 6: return 'c';
-        case 7: return 'b';
-        case 8: return 'a';
-        default: return '\0';
-    }
-}
-
-//Board to string
-std::string bts(const ivec2& pos) {
-    return file_to_char(pos.x())+std::to_string(pos.y());
-}
-
-//File = column, rank = row
-vec3 board_to_world(int file, int rank) {
-    return vec3((file-4)*2,0,(rank-4)*2);
-}
-
-vec3 board_to_world(char file, int rank) {
-    return board_to_world(ctf(file),rank);
-}
-
-vec3 board_to_world(const ivec2& pos) {
-    return board_to_world(int(pos.x()),int(pos.y()));
-}
-
-ivec2 world_to_board(const vec3& pos) {
-    return ivec2((int)((pos.x()/2)+4),(int)((pos.z()/2)+4));
-}
-
 void update_num_grid(g_ptr<Single> selected,const vec3& pos) {
     num_grid->getCell(selected->getPosition()).erase(selected->ID);
     num_grid->getCell(pos) << selected->ID;
-}
-
-inline int& square(const ivec2& c) {
-    return grid[c.x()][c.y()];
-}
-
-inline void update_grid(int id,const ivec2& to) {
-    ivec2 from = cells[id];
-    int old_square = (from.y() - 1) * 8 + (from.x() - 1);
-    int new_square = (to.y() - 1) * 8 + (to.x() - 1);
-
-    if(id==-1) {
-        print("update_grid::327 attempted to update nonexistent id piece from ",bts(from)," to ",bts(to));
-        return;
-    }
-
-    if(square(from) != id) {
-        print("update_grid::331 piece ", id, " not at expected position ", bts(from));
-        return; 
-    }
-
-    current_hash ^= zobrist_table[id][old_square];  // Remove from old square
-    current_hash ^= zobrist_table[id][new_square];  // Add to new square
-
-
-    square(cells[id]) = -1;
-    square(to) = id;
-    cells[id] = to;
 }
 
 //poached code from the Physics class meant to be use multi-threaded but just raw here
@@ -371,6 +320,181 @@ void update_physics() {
     
 }
 
+bool in_bounds(const vec3& pos) {
+    return(pos.x()<=8.0f&&pos.x()>=-6.0f&&pos.z()<=8.0f&&pos.z()>=-6.0f);
+}
+
+bool in_bounds(const ivec2& pos) {
+    return(pos.x()<=8&&pos.x()>=1&&pos.y()<=8&&pos.y()>=1);
+}
+
+
+void save_opening_book() {
+    std::string path = "../Projects/FirChess/assets/games/book.odc";
+    std::ofstream out(path, std::ios::binary);
+    
+    uint32_t size = opening_book.size();
+    out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+    
+    for(auto& entry : opening_book.entrySet()) {
+        uint64_t hash = entry.key;
+        out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
+        
+        uint32_t moveCount = entry.value.length();
+        out.write(reinterpret_cast<const char*>(&moveCount), sizeof(moveCount));
+        
+        for(auto& move : entry.value) {
+            move.saveBinary(out);
+        }
+    }
+    out.close();
+}
+
+void load_opening_book() {
+    std::string path = "../Projects/FirChess/assets/games/book.odc";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("Can't read opening book: " + path);
+    opening_book.clear();
+    uint32_t size;
+    in.read(reinterpret_cast<char*>(&size), sizeof(size));
+    for(uint32_t i = 0; i < size; i++) {
+        uint64_t hash;
+        in.read(reinterpret_cast<char*>(&hash), sizeof(hash));
+        
+        uint32_t moveCount;
+        in.read(reinterpret_cast<char*>(&moveCount), sizeof(moveCount));
+        
+        list<Move> moves;
+        for(uint32_t j = 0; j < moveCount; j++) {
+            Move move;
+            move.loadBinary(in);
+            moves << move;
+        }
+        
+        opening_book.put(hash, moves);
+    }
+    in.close();
+}
+
+static int tt_hits = 0;
+static int tt_misses = 0;
+
+#define TT_EXACT 0
+#define TT_ALPHA 1
+#define TT_BETA 2
+
+struct TTEntry {
+    uint64_t hash = 0;
+    int depth = -1;
+    int score = 0;
+    int flag = 0; // 0=EXACT, 1=ALPHA, 2=BETA
+    Move best_move;
+    bool valid = false;
+};
+
+static const int TT_SIZE = 1024 * 1024; 
+static TTEntry transposition_table[TT_SIZE];
+
+int tt_lookup(uint64_t hash, int depth, int alpha, int beta) {
+    TTEntry& entry = transposition_table[hash % TT_SIZE];
+    
+    if(!entry.valid || entry.hash != hash) {
+        tt_misses++;
+        return INT_MIN;
+    }
+    
+    if(entry.depth >= depth) {
+        tt_hits++;
+        if(entry.flag == TT_EXACT) {
+            return entry.score;
+        }
+        if(entry.flag == TT_ALPHA && entry.score <= alpha) {
+            return entry.score;
+        }
+        if(entry.flag == TT_BETA && entry.score >= beta) {
+            return entry.score;
+        }
+    }
+    tt_misses++;
+    return INT_MIN;
+}
+
+void tt_store(uint64_t hash, int depth, int score, int flag) {
+    TTEntry& entry = transposition_table[hash % TT_SIZE];
+    
+    if(!entry.valid || entry.depth <= depth) {
+        entry.hash = hash;
+        entry.depth = depth;
+        entry.score = score;
+        entry.flag = flag;
+        entry.valid = true;
+    }
+}
+
+class Board : public Object {
+public:
+    Board() {}
+    ivec2 enpassant_square{-1,-1};
+
+    g_ptr<Single> selected = nullptr;
+    int s_id = 0;
+    ivec2 start_pos{0,0};
+
+    list<list<int>> grid;
+    list<std::string> dtypes;
+    list<g_ptr<Single>> ref;
+    list<bool> captured;
+    list<int> colors;
+    list<int> values;
+    list<int> specialRules;
+    list<ivec2> cells;
+    list<list<ivec2>> moves;
+    list<bool> hasMoved;
+
+    list<Move> to_process;
+
+    uint64_t zobrist_table[32][64];
+    uint64_t current_hash = 0;
+
+void operator=(g_ptr<Board> board) {
+    enpassant_square = board->enpassant_square;
+    grid = board->grid;
+    dtypes = board->dtypes;
+    ref = board->ref;
+    captured = board->captured;
+    colors = board->colors;
+    values = board->values;
+    specialRules = board->specialRules;
+    cells = board->cells;
+    moves = board->moves;
+    hasMoved = board->hasMoved;
+    for(int a = 0;a<32;a++) {
+        for(int b = 0;b<64;b++) {
+            zobrist_table[a][b] = board->zobrist_table[a][b];
+        }
+    }
+    current_hash = board->current_hash;
+}
+
+void sync_with(g_ptr<Board> board) {
+    enpassant_square = board->enpassant_square;
+    grid = board->grid;
+    dtypes = board->dtypes;
+    ref = board->ref;
+    captured = board->captured;
+    colors = board->colors;
+    values = board->values;
+    specialRules = board->specialRules;
+    cells = board->cells;
+    moves = board->moves;
+    hasMoved = board->hasMoved;
+    for(int a = 0;a<32;a++) {
+        for(int b = 0;b<64;b++) {
+            zobrist_table[a][b] = board->zobrist_table[a][b];
+        }
+    }
+    current_hash = board->current_hash;
+}
 // Piece to string
 std::string pts(int id) {
     return dtypes[id]+"-"+std::to_string(id);
@@ -385,7 +509,6 @@ void print_move(Move move) {
     print(mts(move));
 }
 
-
 inline ivec2 pos_of(int piece) {
     return cells[piece];
 }
@@ -394,12 +517,32 @@ vec3 world_pos_of(int piece) {
     return board_to_world(pos_of(piece));
 }
 
-bool in_bounds(const vec3& pos) {
-    return(pos.x()<=8.0f&&pos.x()>=-6.0f&&pos.z()<=8.0f&&pos.z()>=-6.0f);
+inline int& square(const ivec2& c) {
+    return grid[c.x()][c.y()];
 }
 
-bool in_bounds(const ivec2& pos) {
-    return(pos.x()<=8&&pos.x()>=1&&pos.y()<=8&&pos.y()>=1);
+inline void update_grid(int id,const ivec2& to) {
+    ivec2 from = cells[id];
+    int old_square = (from.y() - 1) * 8 + (from.x() - 1);
+    int new_square = (to.y() - 1) * 8 + (to.x() - 1);
+
+    if(id==-1) {
+        print("update_grid::327 attempted to update nonexistent id piece from ",bts(from)," to ",bts(to));
+        return;
+    }
+
+    if(square(from) != id) {
+        print("update_grid::331 piece ", id, " not at expected position ", bts(from));
+        return; 
+    }
+
+    current_hash ^= zobrist_table[id][old_square];  // Remove from old square
+    current_hash ^= zobrist_table[id][new_square];  // Add to new square
+
+
+    square(cells[id]) = -1;
+    square(to) = id;
+    cells[id] = to;
 }
 
 uint64_t hash_board() {
@@ -419,58 +562,6 @@ uint64_t get_search_hash(int color) {
     if(color == 0) hash ^= turn_zobrist_key;
     return hash;
 }
-
-void setup_piece(const std::string& type,int file,int rank) {
-    auto piece = scene->create<Single>(type);
-    piece->setPosition(board_to_world(file,rank));
-    ivec2 mySquare{file,rank};
-    square(mySquare) = piece->ID;
-    cells << mySquare;
-
-    //update_cells(piece);
-    std::string dtype = piece->get<std::string>("dtype");
-    if(dtype=="king_white") white_king_id = dtypes.length();
-    if(dtype=="king_black") black_king_id = dtypes.length();
-    if(dtype=="queen_white") white_queen_id = dtypes.length();
-    if(dtype=="queen_black") black_queen_id = dtypes.length();
-    if(dtype=="rook_white") {
-        if(white_rook_ids[0]==-1) white_rook_ids[0] = dtypes.length();
-        else white_rook_ids[1] = dtypes.length();
-    }
-    if(dtype=="rook_black") {
-        if(black_rook_ids[0]==-1) black_rook_ids[0] = dtypes.length();
-        else black_rook_ids[1] = dtypes.length();
-    }
-    dtypes << dtype;
-    colors << piece->get<int>("color");
-    int value = piece->get<int>("value");
-    values << value;
-    int specialRule = piece->get<int>("specialRule");
-    specialRules << specialRule;
-    list<ivec2> n_moves = piece->get<list<ivec2>>("moves");
-    moves << n_moves;
-    captured << false;
-    ref << piece;
-    hasMoved << false;
-    if(dtype=="pawn_black") {
-        black_pawn_moves = n_moves;
-        pawn_value = value;
-        pawn_specialRule = specialRule;
-    }
-    if(dtype=="pawn_white") {
-        white_pawn_moves = n_moves;
-        pawn_value = value;
-        pawn_specialRule = specialRule;
-    }
-}
-
-int turn_color = 0; //0 = White, 1 = Black
-int turn_number = 0;
-g_ptr<Single> selected = nullptr;
-int s_id = 0;
-ivec2 start_pos(0,0);
-list<g_ptr<Single>> drop;
-long sleep_time = 0;
 
 void select_piece(int id) {
     selected = ref[id];
@@ -508,7 +599,6 @@ void promote(int id,bool real = true) {
         ref[id]->setModel(ref[q_id]->model);
     }
 }
-
 
 void unpromote(int id,bool real = true) {
     moves[id] = colors[id]==0?white_pawn_moves:black_pawn_moves;
@@ -652,87 +742,8 @@ void unmakeMove(Move move,bool real = true) {
     }
 
     if(real) {
-        history.get(current_hash)--;
+        history.getOrPut(current_hash,0)--;
     }
-}
-
-void save_game(const std::string& file) {
-    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
-    std::ofstream out(path, std::ios::binary);
-    if (!out) throw std::runtime_error("Can't write to file: " + path);
-    out.write(reinterpret_cast<const char*>(&turn_color), sizeof(turn_color));
-    uint32_t moveLen = madeMoves.length();
-    out.write(reinterpret_cast<const char*>(&moveLen), sizeof(moveLen));
-    for (const auto& m : madeMoves) {
-        m.saveBinary(out);
-    }
-    out.close();
-}
-
-void load_game(const std::string& file) {
-    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
-    std::ifstream in(path, std::ios::binary);
-    if (!in) throw std::runtime_error("Can't read from file: " + path);
-    in.read(reinterpret_cast<char*>(&turn_color), sizeof(turn_color));
-    uint32_t moveLen;
-    in.read(reinterpret_cast<char*>(&moveLen), sizeof(moveLen));
-    madeMoves.clear();
-    for (uint32_t i = 0; i < moveLen; i++) {
-        Move m;
-        m.loadBinary(in);
-        makeMove(m);
-        madeMoves << m;
-    }
-    in.close();
-}
-
-map<uint64_t, list<Move>> opening_book;
-
-void save_opening_book() {
-    std::string path = "../Projects/FirChess/assets/games/book.odc";
-    std::ofstream out(path, std::ios::binary);
-    
-    uint32_t size = opening_book.size();
-    out.write(reinterpret_cast<const char*>(&size), sizeof(size));
-    
-    for(auto& entry : opening_book.entrySet()) {
-        uint64_t hash = entry.key;
-        out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
-        
-        uint32_t moveCount = entry.value.length();
-        out.write(reinterpret_cast<const char*>(&moveCount), sizeof(moveCount));
-        
-        for(auto& move : entry.value) {
-            move.saveBinary(out);
-        }
-    }
-    out.close();
-}
-
-void load_opening_book() {
-    std::string path = "../Projects/FirChess/assets/games/book.odc";
-    std::ifstream in(path, std::ios::binary);
-    if (!in) throw std::runtime_error("Can't read opening book: " + path);
-    opening_book.clear();
-    uint32_t size;
-    in.read(reinterpret_cast<char*>(&size), sizeof(size));
-    for(uint32_t i = 0; i < size; i++) {
-        uint64_t hash;
-        in.read(reinterpret_cast<char*>(&hash), sizeof(hash));
-        
-        uint32_t moveCount;
-        in.read(reinterpret_cast<char*>(&moveCount), sizeof(moveCount));
-        
-        list<Move> moves;
-        for(uint32_t j = 0; j < moveCount; j++) {
-            Move move;
-            move.loadBinary(in);
-            moves << move;
-        }
-        
-        opening_book.put(hash, moves);
-    }
-    in.close();
 }
 
 bool can_attack(const ivec2& pos,int by_color) {
@@ -1229,60 +1240,8 @@ int evaluate() {  // 0 = white, 1 = black
     return score;
 }
 
-static int tt_hits = 0;
-static int tt_misses = 0;
+int calcs = 0;
 
-void test_hash_consistency() {
-    uint64_t hash1 = current_hash;
-    uint64_t hash2 = hash_board();
-    if(hash1 != hash2) {
-        print("HASH MISMATCH! Incremental:", hash1, "Recalc:", hash2);
-    }
-}
-
-int tt_lookup(uint64_t hash, int depth, int alpha, int beta) {
-    TTEntry& entry = transposition_table[hash % TT_SIZE];
-    
-    if(!entry.valid || entry.hash != hash) {
-        tt_misses++;
-        return INT_MIN;
-    }
-    
-    if(entry.depth >= depth) {
-        tt_hits++;
-        if(entry.flag == TT_EXACT) {
-            return entry.score;
-        }
-        if(entry.flag == TT_ALPHA && entry.score <= alpha) {
-            return entry.score;
-        }
-        if(entry.flag == TT_BETA && entry.score >= beta) {
-            return entry.score;
-        }
-    }
-    tt_misses++;
-    return INT_MIN;
-}
-
-void tt_store(uint64_t hash, int depth, int score, int flag) {
-    TTEntry& entry = transposition_table[hash % TT_SIZE];
-    
-    if(!entry.valid || entry.depth <= depth) {
-        entry.hash = hash;
-        entry.depth = depth;
-        entry.score = score;
-        entry.flag = flag;
-        entry.valid = true;
-    }
-}
-
-static int max_depth = 4;
-#define ENABLE_AB 1
-#define ENABLE_TT 1
-#define ENABLE_PENALTY 1
-#define ENABLE_TACTEXT 1
-#define ENABLE_BOOK 1
-static int calcs = 0;
 int minimax(int depth, int color, int alpha, int beta) {
     if(depth == 0) return evaluate();
     test_hash_consistency();
@@ -1364,40 +1323,29 @@ int minimax(int depth, int color, int alpha, int beta) {
     return bestEval;
 }
 
-Move findBestMove(int depth,int color) {
-    Line s; s.start();
-    auto moves = generateMoves(color);
-    if(moves.empty()) print("Out of moves");
-    uint64_t hash = get_search_hash(color);
-    #if ENABLE_BOOK
-    bool using_book = false;
-    if(opening_book.hasKey(hash)) {
-        using_book = true;
-        moves = opening_book.get(hash);
-        print("Using ",moves.length()," book move(s)");
-        for(auto m : moves) {
-            print(" -> ",mts(m));
-        }
+Move best;
+void test_hash_consistency() {
+    uint64_t hash1 = current_hash;
+    uint64_t hash2 = hash_board();
+    if(hash1 != hash2) {
+        print("HASH MISMATCH! Incremental:", hash1, "Recalc:", hash2);
     }
-    #endif
+}
+
+void process_moves(int depth,int color,list<Move> moves) {
+    Line s; s.start();
+    uint64_t hash = get_search_hash(color);
     Move bestMove;
     bestMove.id = -1;
     int bestScore = color == 0 ? -9999 : 9999;
     list<Move> equal_moves;
     bool new_equal = false;
-    tt_hits = 0;
-    tt_misses = 0;
+    calcs = 0;
     #if LOG
-    print("-----Finding move for ",color==0?"white":"black","-----");
+    //print("-----Finding move for ",color==0?"white":"black","-----");
     #endif
     int alpha = -9999;
     int beta = 9999;
-    #if ENABLE_BOOK
-    if(using_book) {
-        bestMove = moves[randi(0,moves.length()-1)];
-    }
-    else 
-    #endif
     for(auto& move : moves) {
         makeMove(move,false);
         int repeats = history.getOrDefault(current_hash,1)-1;
@@ -1408,7 +1356,7 @@ Move findBestMove(int depth,int color) {
         } else {
             score += penalty;
         }
-        if(penalty>50) print(mts(move)," Score: ",score);
+        //if(penalty>50) print(mts(move)," Score: ",score);
         move.score = score;
         unmakeMove(move,false);
         calcs+=2;
@@ -1418,8 +1366,8 @@ Move findBestMove(int depth,int color) {
         if(isBetter) {
             bestScore = score;
             #if LOG
-            print("New best: ",bestScore);
-            print_move(move);
+            // print("New best: ",bestScore);
+            // print_move(move);
             #endif
             bestMove = move;
             new_equal = true;
@@ -1438,8 +1386,219 @@ Move findBestMove(int depth,int color) {
             beta = std::min(beta, score);
         }
         
-       if(alpha >= beta) break;
+    if(alpha >= beta) break;
     }
+    if(bestMove.id==-1) {
+        //print("Checkmate!");
+        best = bestMove;
+    }
+
+    if(!equal_moves.empty()) {
+        //bestMove = equal_moves[randi(0,equal_moves.length()-1)];
+    }
+    // #if LOG
+    // print("From depth: ",depth," Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
+    // #if ENABLE_TT
+    // print("TT hits: ", tt_hits, " misses: ", tt_misses, " hit rate: ", (float)tt_hits/(tt_hits+tt_misses));
+    // #endif
+    // #endif
+    best = bestMove;
+}
+
+};
+
+g_ptr<Board> global;
+
+void setup_piece(const std::string& type,int file,int rank) {
+    auto piece = scene->create<Single>(type);
+    piece->setPosition(board_to_world(file,rank));
+    ivec2 mySquare{file,rank};
+    global->square(mySquare) = piece->ID;
+    global->cells << mySquare;
+
+    //update_cells(piece);
+    std::string dtype = piece->get<std::string>("dtype");
+    if(dtype=="king_white") white_king_id = global->dtypes.length();
+    if(dtype=="king_black") black_king_id = global->dtypes.length();
+    if(dtype=="queen_white") white_queen_id = global->dtypes.length();
+    if(dtype=="queen_black") black_queen_id = global->dtypes.length();
+    if(dtype=="rook_white") {
+        if(white_rook_ids[0]==-1) white_rook_ids[0] = global->dtypes.length();
+        else white_rook_ids[1] = global->dtypes.length();
+    }
+    if(dtype=="rook_black") {
+        if(black_rook_ids[0]==-1) black_rook_ids[0] = global->dtypes.length();
+        else black_rook_ids[1] = global->dtypes.length();
+    }
+    global->dtypes << dtype;
+    global->colors << piece->get<int>("color");
+    int value = piece->get<int>("value");
+    global->values << value;
+    int specialRule = piece->get<int>("specialRule");
+    global->specialRules << specialRule;
+    list<ivec2> n_moves = piece->get<list<ivec2>>("moves");
+    global->moves << n_moves;
+    global->captured << false;
+    global->ref << piece;
+    global->hasMoved << false;
+    if(dtype=="pawn_black") {
+        black_pawn_moves = n_moves;
+        pawn_value = value;
+        pawn_specialRule = specialRule;
+    }
+    if(dtype=="pawn_white") {
+        white_pawn_moves = n_moves;
+        pawn_value = value;
+        pawn_specialRule = specialRule;
+    }
+}
+
+void save_game(const std::string& file) {
+    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::ofstream out(path, std::ios::binary);
+    if (!out) throw std::runtime_error("Can't write to file: " + path);
+    out.write(reinterpret_cast<const char*>(&turn_color), sizeof(turn_color));
+    uint32_t moveLen = madeMoves.length();
+    out.write(reinterpret_cast<const char*>(&moveLen), sizeof(moveLen));
+    for (const auto& m : madeMoves) {
+        m.saveBinary(out);
+    }
+    out.close();
+}
+
+void load_game(const std::string& file) {
+    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("Can't read from file: " + path);
+    in.read(reinterpret_cast<char*>(&turn_color), sizeof(turn_color));
+    uint32_t moveLen;
+    in.read(reinterpret_cast<char*>(&moveLen), sizeof(moveLen));
+    madeMoves.clear();
+    for (uint32_t i = 0; i < moveLen; i++) {
+        Move m;
+        m.loadBinary(in);
+        global->makeMove(m);
+        madeMoves << m;
+    }
+    in.close();
+}
+
+constexpr int board_count = 4;
+static g_ptr<Thread> threads[board_count];
+static g_ptr<Board> boards[board_count];
+
+Move findBestMove(int depth,int color) {
+    Line s; s.start();
+    auto moves = global->generateMoves(color);
+    if(moves.empty()) print("Out of moves");
+    uint64_t hash = global->get_search_hash(color);
+    #if ENABLE_BOOK
+    bool using_book = false;
+    if(opening_book.hasKey(hash)) {
+        using_book = true;
+        moves = opening_book.get(hash);
+        print("Using ",moves.length()," book move(s)");
+        for(auto m : moves) {
+            print(" -> ",global->mts(m));
+        }
+    }
+    #endif
+    Move bestMove;
+    bestMove.id = -1;
+    int bestScore = color == 0 ? -9999 : 9999;
+    list<Move> equal_moves;
+    bool new_equal = false;
+    tt_hits = 0;
+    tt_misses = 0;
+    #if LOG
+    print("-----Finding move for ",color==0?"white":"black","-----");
+    #endif
+    int alpha = -9999;
+    int beta = 9999;
+    #if ENABLE_BOOK
+    if(using_book) {
+        bestMove = moves[randi(0,moves.length()-1)];
+        return bestMove;
+    }
+    #endif
+
+    list<list<Move>> board_moves;
+    for(int i = 0;i<board_count;i++) {
+        board_moves << list<Move>{};
+    }
+    for(int i = 0;i<moves.length();i++) {
+        board_moves[i%board_count] << moves[i];
+    }
+
+    int complete = 0;
+    bool completed[board_count];
+    for(int i = 0;i<board_count;i++) {
+        completed[i] = false;
+        threads[i]->queueTask([&,i](){
+            boards[i]->process_moves(max_depth,color,board_moves[i]);
+            complete++;
+            completed[i] = true;
+        });
+    }
+
+    auto lastTime = std::chrono::high_resolution_clock::now();
+    while(complete!=board_count) {
+        for(int i=0;i<board_count;i++) {
+            if(completed[i]) {
+                for(int j=0;j<board_count;j++) {
+                    //Workstealing here
+                }
+            }
+        }
+
+        auto currentTime = std::chrono::steady_clock::now();
+        float delta = std::chrono::duration<float>(currentTime - lastTime).count();
+        if(delta>=0.1) {
+            for(int i=0;i<board_count;i++) {
+                print(i," calcs: ",boards[i]->calcs,completed[i]?" DONE ":"");
+            }
+            lastTime=std::chrono::high_resolution_clock::now();
+        }
+       
+    }
+
+    int total_calcs = 0;
+    for(int i=0;i<board_count;i++) {
+        total_calcs+=boards[i]->calcs;
+    }
+
+    list<Move> eval;
+    for(int i = 0;i<board_count;i++) {
+        eval << boards[i]->best;
+    }
+
+    for(auto& move : eval) {
+        bool isBetter = color == 0 ? (move.score > bestScore) : (move.score < bestScore);
+        if(isBetter) {
+            bestScore = move.score;
+            #if LOG
+            print("New best: ",bestScore);
+            global->print_move(move);
+            #endif
+            bestMove = move;
+            new_equal = true;
+        } else if (move.score==bestScore) {
+            if(new_equal) {
+                new_equal = false;
+                equal_moves.clear();
+                equal_moves << bestMove;
+            }
+            equal_moves << move;
+        }
+
+        if(color == 0) {
+            alpha = std::max(alpha, move.score);
+        } else {
+            beta = std::min(beta, move.score);
+        } 
+        if(alpha >= beta) break;
+    }
+
     if(bestMove.id==-1) {
         print("Checkmate!");
         return bestMove;
@@ -1449,12 +1608,12 @@ Move findBestMove(int depth,int color) {
         //bestMove = equal_moves[randi(0,equal_moves.length()-1)];
     }
     #if LOG
-    print("From depth: ",depth," Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
+    print("From depth: ",depth," Cacls performed: ",total_calcs," time: ",s.end()/1000000000,"s (c/s: ",total_calcs/(s.end()/1000000000),") Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
     #if ENABLE_TT
     print("TT hits: ", tt_hits, " misses: ", tt_misses, " hit rate: ", (float)tt_hits/(tt_hits+tt_misses));
     #endif
     #endif
-    calcs = 0;
+    // calcs = 0;
     return bestMove;
 }
 
@@ -1463,7 +1622,7 @@ Move parse_move(const std::string& pat) {
     Move result;
     result.from = ivec2(ctf(s[0][0]),std::stoi(s[0].substr(1,1)));
     result.to = ivec2(ctf(s[1][0]),std::stoi(s[1].substr(1,1)));
-    result.id = square(result.from);
+    result.id = global->square(result.from);
     if(s.length()>2) {
         if(s[2]=="P") { //Promotion
             result.rule = 1;
@@ -1538,9 +1697,9 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
             auto pats = split_str(seqs[s], ',');
             list<Move> made;
             for(int i = 0; i < pats.length(); i++) {
-                uint64_t hash = get_search_hash(color);
+                uint64_t hash = global->get_search_hash(color);
                 Move current = parse_move(pats[i]);
-                makeMove(current, false);
+                global->makeMove(current, false);
                 #if LOG_OPEN
                 print(indent," ",color==0?"W:":"B:",mts(current)," [",pats[i],"]");
                 #endif
@@ -1551,7 +1710,7 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
             
             for(int i = pats.length() - 1; i >= 0; i--) {
                 if(s!=0) {
-                    unmakeMove(made[i], false);
+                    global->unmakeMove(made[i], false);
                     color = 1-color;
                     #if LOG_OPEN
                     print(indent,"-",mts(made[i]));
@@ -1568,7 +1727,7 @@ void build_opening(const std::string& pattern,int color = 0,std::string indent =
         #if LOG_OPEN
         print(indent,"-",mts(m));
         #endif
-        unmakeMove(m,false);
+        global->unmakeMove(m,false);
         color = 1-color;
     }
 }
@@ -1850,27 +2009,11 @@ void play_book() {
     save_opening_book();
 }
 
-int main() {
-    using namespace helper;
-
-    std::string MROOT = "../Projects/FirChess/assets/models/";
-
-    Window window = Window(1280, 768, "FirChess 0.1.0");
-    scene = make<Scene>(window,2);
-    scene->camera.toOrbit();
-    //scene->camera.lock = true;
-    Data d = make_config(scene,K);
-    load_gui(scene, "FirChess", "firchessgui.fab");
-
-    num_grid = make<NumGrid>(2.0f,21.0f);
-    
-    //Define the objects, this pulls in the models and uses the CSV to code them
-    type_define_objects(num_grid);
-
+void initialize_board() {
     for(int a=0;a<9;a++) {
-        grid << list<int>();
+        global->grid << list<int>();
         for(int b=0;b<9;b++) {
-            grid[a] << -1;
+            global->grid[a] << -1;
         }
     }
 
@@ -1888,14 +2031,35 @@ int main() {
     srand(12345);
     for(int piece = 0; piece < 32; piece++) {
         for(int square = 0; square < 64; square++) {
-            zobrist_table[piece][square] = random64bit();
+            global->zobrist_table[piece][square] = random64bit();
         }
     }
     turn_zobrist_key = random64bit();
-    current_hash = hash_board();
+    global->current_hash = global->hash_board();
     for(int i = 0; i < TT_SIZE; i++) {
         transposition_table[i].valid = false;
     }
+}
+
+int main() {
+    using namespace helper;
+
+    std::string MROOT = "../Projects/FirChess/assets/models/";
+
+    Window window = Window(1280, 768, "FirChess 0.1.0");
+    scene = make<Scene>(window,2);
+    scene->camera.toOrbit();
+    //scene->camera.lock = true;
+    Data d = make_config(scene,K);
+    load_gui(scene, "FirChess", "firchessgui.fab");
+
+    num_grid = make<NumGrid>(2.0f,21.0f);
+    global = make<Board>();
+    
+    //Define the objects, this pulls in the models and uses the CSV to code them
+    type_define_objects(num_grid);
+
+    initialize_board();
 
     play_book();
 
@@ -1903,6 +2067,16 @@ int main() {
         load_opening_book();
     } catch(std::exception& e) {
         print("No opening book found, playing without book");
+    }
+
+    for(int i = 0;i<board_count;i++) {
+        threads[i] = make<Thread>();
+        threads[i]->run([&,i](ScriptContext& ctx){
+            threads[i]->flushTasks();
+        });
+        threads[i]->start();
+        boards[i] = make<Board>();
+        boards[i]->sync_with(global);
     }
 
     //load_game("auto");
@@ -1929,9 +2103,12 @@ int main() {
         if(turn_color==bot_color) {
             bot_turn = true;
             save_game("auto");
+            for(int i = 0;i<board_count;i++) {
+                boards[i]->sync_with(global);
+            }
             Move m = findBestMove(max_depth,turn_color);
             if(m.id!=-1) {
-                makeMove(m);
+                global->makeMove(m);
                 madeMoves << m;
                 turn_color = 1-turn_color;
                 turn_number++;
@@ -1939,17 +2116,17 @@ int main() {
             else
                 bot->pause();
             bot_turn = false;
-        }
+        } 
     },0.02f);
 
-    auto phys_thread = make<Thread>();
-    phys_thread->run([&](ScriptContext& ctx){
-        update_physics();
-    },0.016);
-    phys_thread->start();
+    // auto phys_thread = make<Thread>();
+    // phys_thread->run([&](ScriptContext& ctx){
+    //     update_physics();
+    // },0.016);
+    // phys_thread->start();
 
     
-    bool auto_turn = true;
+    bool auto_turn = false;
     if(auto_turn) bot->start();
     int last_col = 1-turn_color;
 
@@ -1991,20 +2168,21 @@ int main() {
                 else {auto_turn=false; print("Disabled auto turn");}
             }
             else {
-                Move m = findBestMove(max_depth,turn_color);
-                if(m.id!=-1) {
-                    makeMove(m);
-                    madeMoves << m;
-                }
+                bot->start();
+                // Move m = findBestMove(max_depth,turn_color);
+                // if(m.id!=-1) {
+                //     global->makeMove(m);
+                //     madeMoves << m;
+                // }
             }
         }
         if(pressed(Y)) {
             vec3 clickPos = num_grid->snapToGrid(scene->getMousePos());
             if(in_bounds(world_to_board(clickPos)))
-                if(square(world_to_board(clickPos))!=-1)
-                    takePiece(square(world_to_board(clickPos)));
+                if(global->square(world_to_board(clickPos))!=-1)
+                    global->takePiece(global->square(world_to_board(clickPos)));
         }
-        if(pressed(R)) if(!madeMoves.empty()) unmakeMove(madeMoves.pop());
+        if(pressed(R)) if(!madeMoves.empty()) global->unmakeMove(madeMoves.pop());
         if(pressed(NUM_1)) scene->camera.toOrbit();
         if(pressed(NUM_2)) scene->camera.toIso();
         if(pressed(NUM_3)) scene->camera.toFirstPerson();
@@ -2015,27 +2193,27 @@ int main() {
             if(in_bounds(v)) {
             //grid->toIndex(clickPos)
             print("----",bts(v),"----");
-           if(square(v)!=-1) {
-                print("E:",dtypes[square(v)]," I:",square(v));
+           if(global->square(v)!=-1) {
+                print("E:",global->dtypes[global->square(v)]," I:",global->square(v));
            }
            else print("EMPTY");
             }
         }
         if(pressed(G)) {
             // print(isKingInCheck(turn_color)==0?"No check":"In check");
-            print(get_search_hash(turn_color));
+            print(global->get_search_hash(turn_color));
         }
         if(pressed(MOUSE_LEFT)) {
-            if(!selected) {
+            if(!global->selected) {
                  auto clickPos = num_grid->snapToGrid(scene->getMousePos());
                  ivec2 v = world_to_board(clickPos);
                 if(in_bounds(v))
-                if(square(v)!=-1) {
-                    int t_s_id = square(v);
-                     if(auto g = ref[t_s_id]) {
-                        if(colors[t_s_id]==turn_color||debug_move) {
-                         select_piece(t_s_id);
-                         start_pos = world_to_board(clickPos);
+                if(global->square(v)!=-1) {
+                    int t_s_id = global->square(v);
+                     if(auto g = global->ref[t_s_id]) {
+                        if(global->colors[t_s_id]==turn_color||debug_move) {
+                            global->select_piece(t_s_id);
+                            global->start_pos = world_to_board(clickPos);
                         }
                      }
                  }
@@ -2043,32 +2221,32 @@ int main() {
              else
              {
               //End the move here
-              vec3 newPos = num_grid->snapToGrid(mousePos).addY(selected->getPosition().y());
+              vec3 newPos = num_grid->snapToGrid(mousePos).addY(global->selected->getPosition().y());
               ivec2 v = world_to_board(newPos);
               if(in_bounds(v))
               {
-              update_num_grid(selected,newPos);
+              update_num_grid(global->selected,newPos);
               bool castling = false;
-              if(validate_castle(s_id,v)) {
+              if(global->validate_castle(global->s_id,v)) {
                 castling = true;
               } 
               Move move;
-              move.id = s_id;
-              move.from = start_pos;
+              move.id = global->s_id;
+              move.from = global->start_pos;
               move.to = v;
               if(castling) move.rule = 2;
-              if(validate_move(move)||debug_move||castling) {
-                makeMove(move,false);
-                if(isKingInCheck(turn_color)) {
-                    unmakeMove(move,false);
-                    selected->setPosition(board_to_world(start_pos));
+              if(global->validate_move(move)||debug_move||castling) {
+                global->makeMove(move,false);
+                if(global->isKingInCheck(turn_color)) {
+                    global->unmakeMove(move,false);
+                    global->selected->setPosition(board_to_world(global->start_pos));
                 }
                 else {
-                    unmakeMove(move,false);
-                    if(check_promotion(move)) {
+                    global->unmakeMove(move,false);
+                    if(global->check_promotion(move)) {
                         move.rule = 1;
                     }
-                    makeMove(move);
+                    global->makeMove(move);
                     //print("Move repeated: ",history.getOrDefault(current_hash,0));
                     madeMoves << move;
                     if(auto_turn) {
@@ -2078,27 +2256,27 @@ int main() {
                 }
               }
               else 
-                selected->setPosition(board_to_world(start_pos));
+              global->selected->setPosition(board_to_world(global->start_pos));
 
-              selected->setLinearVelocity(vec3(0,-2.5f,0));
-              drop << selected;
+              global->selected->setLinearVelocity(vec3(0,-2.5f,0));
+              drop << global->selected;
               //print("Moving ",selected->ID," to "); v.print();
               //update_grid(selected->ID,v);
-              selected = nullptr;
+              global->selected = nullptr;
              }
             }
          }
 
-         if(selected&&!bot_turn)
+         if(global->selected&&!bot_turn)
          {
             vec3 targetPos = num_grid->snapToGrid(mousePos).addY(1);
-            vec3 direction = targetPos - selected->getPosition();
+            vec3 direction = targetPos - global->selected->getPosition();
             float distance = direction.length();
             float moveSpeed = distance>=6.0f?distance*2:6.0f;
             if (distance > 0.1f) {
-                selected->setLinearVelocity((direction / vec3(distance,distance,distance)) * moveSpeed);
+                global->selected->setLinearVelocity((direction / vec3(distance,distance,distance)) * moveSpeed);
             } else {
-                selected->setLinearVelocity(vec3(0,0,0));
+                global->selected->setLinearVelocity(vec3(0,0,0));
             }
          }
 
@@ -2110,17 +2288,18 @@ int main() {
          }
 
          if(pressed(Q)) {
-            if(held(LSHIFT)) unmakeMove(last_move);
+            if(held(LSHIFT)) global->unmakeMove(last_move);
             else {
                 if(bot->runningTurn) {bot->pause(); bot_turn=false;}
                 else {bot->start();}
             }
         }
 
-        if(pressed(P)) {
-            if(phys_thread->runningTurn) {phys_thread->pause();}
-            else {phys_thread->start();}
-        }
+        // if(pressed(P)) {
+        //     if(phys_thread->runningTurn) {phys_thread->pause();}
+        //     else {phys_thread->start();}
+        // }
+        update_physics();
 
     });
 

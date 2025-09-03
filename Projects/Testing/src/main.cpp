@@ -80,7 +80,6 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 
 int main() {
-
   
     g_ptr<Type> t = make<Type>();
     t->add_column(4);
@@ -137,7 +136,7 @@ int main() {
     comps << vec4(0,1 , 1,1);
     comps << vec4(0,2 , 1,1);
 
-    //run_rig(f_table,s_table,comps);
+    run_rig(f_table,s_table,comps);
 
     return 0;
 }
