@@ -8,7 +8,7 @@
 using namespace Golden;
 
 #define EVALUATE 0
-#define LOG 0
+#define LOG 1
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> num_grid = nullptr;
@@ -1283,10 +1283,10 @@ static int max_depth = 4;
 #define ENABLE_TACTEXT 1
 #define ENABLE_BOOK 1
 static int calcs = 0;
-int minimax(int depth, int current_turn, int alpha, int beta) {
+int minimax(int depth, int color, int alpha, int beta) {
     if(depth == 0) return evaluate();
     test_hash_consistency();
-    uint64_t hash = get_search_hash(current_turn);
+    uint64_t hash = get_search_hash(color);
     #if ENABLE_TT
     int tt_score = tt_lookup(hash, depth, alpha, beta);
     if(tt_score != INT_MIN) {
@@ -1294,113 +1294,74 @@ int minimax(int depth, int current_turn, int alpha, int beta) {
     }
     #endif
 
-    auto moves = generateMoves(current_turn);
+    auto moves = generateMoves(color);
     #if ENABLE_BOOK
     if(opening_book.hasKey(hash)) {
         moves = opening_book.get(hash);
-        //print("Using ",moves.length()," book move(s)");
     }
     #endif
-    if(moves.empty()) return evaluate();
-    calcs+=2;
-    if(current_turn == 0) {  // White maximizes
-        int maxEval = -9999;
-        int original_alpha = alpha;
-        for(auto move : moves) {
-            #if EVALUATE
-            makeMove(move, true);
-            if(current_turn==0&&depth>1)
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
-            unmakeMove(move, true);
-            #else
-            int extension = 0;
-            #if ENABLE_TACTEXT
-            if(move.takes != -1 && depth < max_depth+6) {
-                int cap_val = capture_value(move, current_turn);
-                if(cap_val > 200) {
-                    extension += 2;
-                }
-            }
-            #endif
-            makeMove(move, false);
-            #if ENABLE_TACTEXT
-            if(isKingInCheck(1-current_turn) && depth < max_depth+6) {
-                extension += 2;
-            }
-            #endif
-            #if ENABLE_PENALTY
-            int repeats = history.getOrDefault(current_hash,1)-1;
-            int penalty = 50 * (repeats * repeats);
-            #endif
-            int eval = minimax(depth+extension-1, 1-current_turn, alpha, beta);
-            #if ENABLE_PENALTY
-            eval -= penalty;
-            #endif
-            unmakeMove(move, false);
-            #endif
-            
-            maxEval = std::max(maxEval, eval);
-            #if ENABLE_AB
-            alpha = std::max(alpha, eval);
-            if(alpha >= beta) break;
-            #endif
-        }
-        #if ENABLE_TT
-        int flag = TT_EXACT;
-        if(maxEval <= original_alpha) flag = TT_ALPHA;
-        if(maxEval >= beta) flag = TT_BETA;
-        
-        tt_store(hash, depth, maxEval, flag);
-        #endif
-        return maxEval;
-    } else {  // Black minimizes
-        int minEval = 9999;
-        int original_beta = beta;
-        for(auto move : moves) {
-            #if EVALUATE
-            makeMove(move, true);
-            if(current_turn==1&&depth>1)
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            int eval = minimax(depth-1, 1-current_turn, alpha, beta);
-            unmakeMove(move, true);
-            #else
-            int extension = 0;
-            #if ENABLE_TACTEXT
-            if(move.takes != -1 && depth < max_depth+1) {
-                int cap_val = capture_value(move, current_turn);
-                if(cap_val > 200) {
-                    extension = 1;
-                }
-            }
-            #endif
-            makeMove(move, false);
-            #if ENABLE_PENALTY
-            int repeats = history.getOrDefault(current_hash,1)-1;
-            int penalty = 50 * (repeats * repeats);
-            #endif
-            int eval = minimax(depth+extension-1, 1-current_turn, alpha, beta);
-            #if ENABLE_PENALTY
-            eval += penalty;
-            #endif
-            unmakeMove(move, false);
-            #endif
-            
-            minEval = std::min(minEval, eval);
-            #if ENABLE_AB
-            beta = std::min(beta, eval);
-            if(alpha >= beta) break;
-            #endif
-        }
-        #if ENABLE_TT
-        int flag = TT_EXACT;
-        if(minEval >= original_beta) flag = TT_BETA;
-        if(minEval <= alpha) flag = TT_ALPHA;
-        
-        tt_store(hash, depth, minEval, flag);
-        #endif
-        return minEval;
+    if(moves.empty()) {
+        return color==0?-10000:10000;
     }
+    calcs+=2;
+    int bestEval = color==0?-9999:9999;
+    int original_alpha = alpha;
+    int original_beta = beta;
+    for(auto move : moves) {
+        int extension = 0;
+        #if ENABLE_TACTEXT
+        if(move.takes != -1 && depth < max_depth+6) {
+            int cap_val = capture_value(move, color);
+            if(cap_val > 200) {
+                extension = 1;
+            }
+        }
+        #endif
+        makeMove(move, false);
+        #if ENABLE_TACTEXT
+        if(isKingInCheck(1-color) && depth < max_depth+6) {
+            extension = 1;
+        }
+        #endif
+        #if ENABLE_PENALTY
+        int repeats = history.getOrDefault(current_hash,1)-1;
+        int penalty = 50 * (repeats * repeats);
+        #endif
+        int eval = minimax(depth+extension-1, 1-color, alpha, beta);
+        #if ENABLE_PENALTY
+        if(color==0) eval -= penalty;
+                else eval += penalty;
+        #endif
+        unmakeMove(move, false);
+
+        if(color==0)
+            bestEval = std::max(bestEval, eval);
+        else
+            bestEval = std::min(bestEval, eval);
+
+        #if ENABLE_AB
+        if(color==0)
+            alpha = std::max(alpha, eval);
+        else
+            beta = std::min(beta, eval);
+        if(alpha >= beta) break;
+        #endif
+    }
+
+    #if ENABLE_TT
+    int flag = TT_EXACT;
+    if(color==0) {
+        if(bestEval <= original_alpha) flag = TT_ALPHA;
+        if(bestEval >= beta) flag = TT_BETA;
+    }
+    else {
+        if(bestEval >= original_beta) flag = TT_BETA;
+        if(bestEval <= alpha) flag = TT_ALPHA;
+    }
+    
+    tt_store(hash, depth, bestEval, flag);
+    #endif
+    return bestEval;
 }
 
 Move findBestMove(int depth,int color) {
@@ -1862,13 +1823,6 @@ void play_book() {
             "(f7-f5" //Dutch Defense
                 "(c2-c4,g8-f6,g2-g3,e7-e6,f1-g2,f8-e7,g1-f3,e8-h8-C)"
             ")"
-    );
-
-    //Other First Moves
-    build_opening(
-        "g1-f3" //Reti Opening
-            "(d7-d5,c2-c4,e7-e6,g2-g3,g8-f6,f1-g2,f8-e7)"
-        ")"
     );
 
     build_opening(
