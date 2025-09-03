@@ -1324,6 +1324,7 @@ int minimax(int depth, int color, int alpha, int beta) {
 }
 
 Move best;
+int progress = 0;
 void test_hash_consistency() {
     uint64_t hash1 = current_hash;
     uint64_t hash2 = hash_board();
@@ -1332,21 +1333,22 @@ void test_hash_consistency() {
     }
 }
 
-void process_moves(int depth,int color,list<Move> moves) {
+void process_moves(int depth,int color) {
     Line s; s.start();
     uint64_t hash = get_search_hash(color);
-    Move bestMove;
-    bestMove.id = -1;
+    Move bestMove = best;
     int bestScore = color == 0 ? -9999 : 9999;
     list<Move> equal_moves;
     bool new_equal = false;
-    calcs = 0;
     #if LOG
     //print("-----Finding move for ",color==0?"white":"black","-----");
     #endif
     int alpha = -9999;
     int beta = 9999;
-    for(auto& move : moves) {
+    for(int i=0;i<to_process.length();i++) {
+        if(i>=to_process.length()) break;
+        Move& move = to_process[i];
+        progress = i;
         makeMove(move,false);
         int repeats = history.getOrDefault(current_hash,1)-1;
         int penalty = 50 * (repeats * repeats);
@@ -1396,12 +1398,6 @@ void process_moves(int depth,int color,list<Move> moves) {
     if(!equal_moves.empty()) {
         //bestMove = equal_moves[randi(0,equal_moves.length()-1)];
     }
-    // #if LOG
-    // print("From depth: ",depth," Cacls performed: ",calcs," time: ",s.end()/1000000000,"s Moves: ",equal_moves.length()," Chosen score: ",bestMove.score);
-    // #if ENABLE_TT
-    // print("TT hits: ", tt_hits, " misses: ", tt_misses, " hit rate: ", (float)tt_hits/(tt_hits+tt_misses));
-    // #endif
-    // #endif
     best = bestMove;
 }
 
@@ -1532,30 +1528,53 @@ Move findBestMove(int depth,int color) {
 
     int complete = 0;
     bool completed[board_count];
+    bool stolen[board_count];
     for(int i = 0;i<board_count;i++) {
         completed[i] = false;
+        stolen[i] = false;
         threads[i]->queueTask([&,i](){
-            boards[i]->process_moves(max_depth,color,board_moves[i]);
+            boards[i]->to_process = board_moves[i];
+            Move new_move;
+            new_move.id = -1;
+            new_move.score = color == 0 ? -9999 : 9999;
+            boards[i]->best = new_move;
+            boards[i]->calcs = 0;
+            boards[i]->progress=0;
+            boards[i]->process_moves(max_depth,color);
             complete++;
             completed[i] = true;
+            while(complete!=board_count) {
+                for(int j=0;j<board_count;j++) {
+                    if(j==i) continue;
+                    if(!completed[j]&&!stolen[j]) {
+                        print(i," stealing from ",j);
+                        stolen[j] = true;
+                        completed[i] = false;
+                        complete--;
+                        list<Move> new_moves;
+                        int l = boards[j]->to_process.length();
+                        int halfway = (l-boards[j]->progress)/2;
+                        for(int k=l;k>=(l-halfway);k--) {
+                            boards[i]->to_process.push(boards[j]->to_process.pop());
+                        }
+                        boards[i]->process_moves(max_depth,color);
+                        print(i," finished ",halfway," from ",j);
+                        complete++;
+                        completed[i] = true;
+                        break;
+                    }
+                }
+            }
         });
     }
 
     auto lastTime = std::chrono::high_resolution_clock::now();
     while(complete!=board_count) {
-        for(int i=0;i<board_count;i++) {
-            if(completed[i]) {
-                for(int j=0;j<board_count;j++) {
-                    //Workstealing here
-                }
-            }
-        }
-
         auto currentTime = std::chrono::steady_clock::now();
         float delta = std::chrono::duration<float>(currentTime - lastTime).count();
-        if(delta>=0.1) {
+        if(delta>=0.3) {
             for(int i=0;i<board_count;i++) {
-                print(i," calcs: ",boards[i]->calcs,completed[i]?" DONE ":"");
+                print(i," calcs: ",boards[i]->calcs,stolen[i]?" STOLEN ":"",completed[i]?" DONE ":"");
             }
             lastTime=std::chrono::high_resolution_clock::now();
         }
@@ -2046,7 +2065,7 @@ int main() {
 
     std::string MROOT = "../Projects/FirChess/assets/models/";
 
-    Window window = Window(1280, 768, "FirChess 0.1.0");
+    Window window = Window(1280, 768, "FirChess 0.1.2");
     scene = make<Scene>(window,2);
     scene->camera.toOrbit();
     //scene->camera.lock = true;
@@ -2073,7 +2092,7 @@ int main() {
         threads[i] = make<Thread>();
         threads[i]->run([&,i](ScriptContext& ctx){
             threads[i]->flushTasks();
-        });
+        },0.01f);
         threads[i]->start();
         boards[i] = make<Board>();
         boards[i]->sync_with(global);
