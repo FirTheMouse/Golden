@@ -81,20 +81,20 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 int main() {
   
-    g_ptr<Type> t = make<Type>();
-    t->add_column(4);
-    void* addr = &t->byte4_columns[0];
+    // g_ptr<Type> t = make<Type>();
+    // t->add_column(4);
+    // void* addr = &t->byte4_columns[0];
 
-    for(int i=0;i<10000;i++) {
-        print(i,": ");
-        t->add_column(4); //We can't add more columns otherwise it breaks
-        //Perhaps a special resize that updates all addresses?
-        t->push<int>(i);
-        print(*(int*)Type::get(addr,i,4));
-        //Type::set(addr,&i,0,4);
-    }
+    // for(int i=0;i<10000;i++) {
+    //     print(i,": ");
+    //     t->add_column(4); //We can't add more columns otherwise it breaks
+    //     //Perhaps a special resize that updates all addresses?
+    //     t->push<int>(i);
+    //     print(*(int*)Type::get(addr,i,4));
+    //     //Type::set(addr,&i,0,4);
+    // }
 
-    print("==DONE==");
+    // print("==DONE==");
     list<list<std::function<void(int)>>> f_table;
     list<list<std::string>> s_table;
     list<vec4> comps;

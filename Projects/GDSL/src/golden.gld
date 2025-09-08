@@ -3,5 +3,12 @@ type person {
 }
 
 person joe;
+person mary;
 joe.name = "Joe";
-print("The name of Joe is: ",joe.name);
+string word;
+word = joe.name;
+print("Word is: ",word,"!");
+joe.name = "Not Joe";
+print("The name of Joe is: ", joe.name);
+mary.name = "Mary";
+print("The name of Mary is: ", mary.name);
