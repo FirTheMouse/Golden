@@ -281,7 +281,7 @@ public:
             case 24: memcpy(&(*(list<byte24_t>*)ptr)[index].data, value, 24); break;
             case 32: memcpy(&(*(list<byte32_t>*)ptr)[index].data, value, 32); break;
             case 64: memcpy(&(*(list<byte64_t>*)ptr)[index].data, value, 64); break;
-            default: print("type::set::200 Bad size for type value: ",size); break;
+            default: print("type::set::280 Bad size for type value: ",size); break;
         }
     }
 
@@ -309,7 +309,7 @@ public:
             case 32: return &(*(list<byte32_t>*)ptr)[index].data;
             case 64: return &(*(list<byte64_t>*)ptr)[index].data;
             default: 
-                print("type::set::200 Bad size for type value: ",size);
+                print("type::get::312 Bad size for type value: ",size);
             return nullptr;
         }
     }

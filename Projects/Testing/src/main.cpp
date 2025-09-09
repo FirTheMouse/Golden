@@ -93,14 +93,19 @@ int main() {
     //     //Type::set(addr,&i,0,4);
     // }
 
-    void* tt;
-    tt = malloc(sizeof(t));
-    *(g_ptr<Type>*)tt = t;
-    tt = &t;
-    //t->push<int>(10);
-    (*(g_ptr<Type>*)tt)->push<int>(10);
-    print(t->get<int>(0));
-    print((*(g_ptr<Type>*)tt)->get<int>(0));
+    // void* tt;
+    // tt = malloc(sizeof(t));
+    // *(g_ptr<Type>*)tt = t;
+    // tt = &t;
+    // //t->push<int>(10);
+    // (*(g_ptr<Type>*)tt)->push<int>(10);
+    // print(t->get<int>(0));
+    // print((*(g_ptr<Type>*)tt)->get<int>(0));
+
+    int nums[4] = {1,2,3,4};
+    uintptr_t x = (uintptr_t)&nums[0];
+    print(*(int*)(x+(4*1)));
+
 
 
     print("==DONE==");

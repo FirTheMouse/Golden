@@ -903,8 +903,21 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
                     }
                 }
             }
-            else
-                result = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
+            else {
+                if(node->tokens[0]->getType()==GET_TYPE(IDENTIFIER)) { //For opperators like i* or i++
+                    #if PRINT_ALL
+                    if(!t_functions.hasKey(node->type)) {
+                        print("t_parse_expression::910 missing handler for opperator type ",TO_STRING(node->type));
+                    }
+                    #endif
+                    t_context ctx(result,node,nullptr);
+                    ctx.left = left;
+                    result = t_functions.get(node->type)(ctx);
+                } 
+                else {
+                    result = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
+                }
+            }
         }
         else if(node->sub_nodes.size()==1) {
             result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);

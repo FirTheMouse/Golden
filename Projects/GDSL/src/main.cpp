@@ -89,6 +89,7 @@ int main() {
         type_module::initialize();
         data_module::initialize();
         paren_module::initialize();
+        systems_module::initialize();
         std::string code = readFile("../Projects/GDSL/src/golden.gld");
         list<g_ptr<Token>> tokens = tokenize(code);
         list<g_ptr<a_node>> nodes = parse_tokens(tokens);

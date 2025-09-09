@@ -394,13 +394,13 @@ namespace type_module {
         size_t r_method_call_id =reg::new_type("R_METHOD_CALL"); 
         t_opp_conversion.put(method_call_id, t_method_call_id); 
         t_functions.put(method_call_id, [](t_context& ctx) -> g_ptr<t_node> {
-            g_ptr<t_node> result = t_parse_expression(ctx.node, ctx.left);
+            ctx.result = t_parse_expression(ctx.node, ctx.left);
             if(!ctx.node->sub_nodes.empty()) {
                 for(auto c : ctx.node->sub_nodes) {
-                    result->children << parse_a_node(c, ctx.root);
+                    ctx.result->children << parse_a_node(c, ctx.root);
                 }
             }
-            return result;
+            return ctx.result;
         });
         r_handlers.put(t_method_call_id, [r_method_call_id](g_ptr<r_node> result, r_context& ctx) {
             result->type = r_method_call_id;
@@ -426,7 +426,7 @@ namespace type_module {
                         result->children << assignment;
                     }
                 }
-            }
+            } 
         });
         exec_handlers.put(r_method_call_id, [](exec_context& ctx) -> g_ptr<r_node> {
             g_ptr<Object> context = ctx.node->frame->context->create();
@@ -715,6 +715,7 @@ namespace opperator_module {
     char_is_split.put('+',true); char_is_split.put('-',true); char_is_split.put('/',true); char_is_split.put('%',true);
     char_is_split.put('(',true); char_is_split.put(')',true); char_is_split.put(',',true); char_is_split.put('=',true);
     char_is_split.put('>',true); char_is_split.put('<',true); char_is_split.put('[',true); char_is_split.put(']',true);
+    char_is_split.put('*',true);
    
     
 
@@ -782,6 +783,40 @@ namespace opperator_module {
     r_handlers.put(t_multiply_id, binary_op_handler(r_multiply_id));
     exec_handlers.put(r_multiply_id, arithmetic_handler([](auto a, auto b){ return a*b; }, GET_TYPE(INT)));
 
+    size_t t_ptr_id = reg::new_type("T_POINTER"); 
+    t_functions.put(multiply_id, [t_multiply_id,t_ptr_id](t_context& ctx) -> g_ptr<t_node> {
+        if(ctx.node->tokens.length()==1&&ctx.node->sub_nodes.length()==0)
+        {
+            ctx.result = t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
+            g_ptr<t_node> result = make<t_node>();
+            result->type = t_ptr_id;
+            result->left = ctx.result;
+            ctx.result = result;
+        } else {
+            ctx.result = t_parse_expression(ctx.node,ctx.left);
+        }
+        return ctx.result;
+    });
+    size_t r_ptr_id = reg::new_type("R_POINTER");
+    r_handlers.put(t_ptr_id,[r_ptr_id](g_ptr<r_node> result, r_context& ctx) {
+        result->type = r_ptr_id;
+        if(ctx.node->left) {
+            result->left = resolve_symbol(ctx.node->left,ctx.scope,ctx.frame);
+        }
+    });
+    exec_handlers.put(r_ptr_id, [](exec_context& ctx) -> g_ptr<r_node> {
+        if(ctx.node->left) {
+           execute_r_node(ctx.node->left,ctx.frame,ctx.index);
+           if(ctx.node->left->resolved_type) {
+            print("is an object");
+           }
+           ctx.node->value.type = GET_TYPE(U64);
+           ctx.node->value.set<uint64_t>((uint64_t)ctx.node->left->value.address);
+        }
+        return ctx.node;
+    });
+
+
     size_t divide_id = reg::new_type("DIVIDE");
     state_is_opp.put(divide_id,true);
     token_to_opp.put(slash_id,divide_id);
@@ -833,6 +868,11 @@ namespace variables_module {
                 ctx.result->value.size = ctx.node->tokens[0]->type_info.size;
             }
             ctx.result->name = ctx.node->tokens[1]->content;
+            if(!ctx.node->sub_nodes.empty()) {
+                for(auto c : ctx.node->sub_nodes) {
+                    ctx.result->children << parse_a_node(c, ctx.root);
+                }
+            }
             return ctx.result;
         });
         discover_handlers.put(t_var_decl_id, [](g_ptr<t_node> node, d_context& ctx) {
@@ -860,6 +900,10 @@ namespace variables_module {
                     result->resolved_type = info->resolved_type;
                     result->name = info->name;
                     result->value.type = object_id;
+                }
+            } else if(!ctx.node->children.empty()) { //If we're a list or non-object constructer
+                for(auto c : ctx.node->children) {
+                    result->children.push(resolve_symbol(c,ctx.scope,ctx.frame));
                 }
             }
         });
@@ -915,8 +959,9 @@ namespace variables_module {
             result->type = r_identifier_id;
             resolve_identifier(ctx.node, result, ctx.scope, ctx.frame);
         });
-        exec_handlers.put(r_identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
+        exec_handlers.put(r_identifier_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
+            if(ctx.node->value.type!=object_id) //So we don't perform set opperations on objects
+                ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
             return ctx.node;
         });
 
@@ -957,7 +1002,41 @@ namespace literals_module {
             node->value.set<int>(std::stoi(token->content));
             return node;
         });
+
+        size_t u64_key_id = reg::new_type("U64_KEY");
+        reg_t_key("u64", u64_key_id, 8, GET_TYPE(F_TYPE_KEY));
+        a_functions.put(u64_key_id, type_key_handler);
+        size_t u64_id = reg::new_type("U64");
+        value_to_string.put(u64_id,[](void* data){
+            return std::to_string(*(uint64_t*)data);
+        });
+        a_functions.put(u64_id, literal_handler);
+        type_key_to_type.put(u64_key_id, u64_id);
+        t_literal_handlers.put(u64_id, [t_literal_id, u64_id](g_ptr<Token> token) -> g_ptr<t_node> {
+            g_ptr<t_node> node = make<t_node>();
+            node->type = t_literal_id;
+            node->value.type = u64_id;
+            node->value.set<uint64_t>(std::stol(token->content));
+            return node;
+        });
         
+        size_t double_key_id = reg::new_type("DOUBLE_KEY");
+        reg_t_key("double", double_key_id, 8, GET_TYPE(F_TYPE_KEY));
+        a_functions.put(double_key_id, type_key_handler);
+        size_t double_id = reg::new_type("DOUBLE");
+        value_to_string.put(double_id,[](void* data){
+            return std::to_string(*(double*)data);
+        });
+        a_functions.put(double_id, literal_handler);
+        type_key_to_type.put(double_key_id, double_id);
+        t_literal_handlers.put(double_id, [t_literal_id, double_id](g_ptr<Token> token) -> g_ptr<t_node> {
+            g_ptr<t_node> node = make<t_node>();
+            node->type = t_literal_id;
+            node->value.type = double_id;
+            node->value.set<double>(std::stod(token->content));
+            return node;
+        });
+
         size_t float_key_id = reg::new_type("FLOAT_KEY");
         reg_t_key("float", float_key_id, 4, GET_TYPE(F_TYPE_KEY));
         a_functions.put(float_key_id, type_key_handler);
@@ -974,6 +1053,8 @@ namespace literals_module {
             node->value.set<float>(std::stof(token->content));
             return node;
         });
+
+        
         
         size_t string_key_id = reg::new_type("STRING_KEY");
         reg_t_key("string", string_key_id, 24, GET_TYPE(F_TYPE_KEY)); 
@@ -1027,4 +1108,11 @@ namespace literals_module {
         size_t void_id = reg::new_type("VOID");
         type_key_to_type.put(void_key_id, void_id);        
     }
+}
+
+namespace systems_module {
+    static void initialize() {
+
+    }
+
 }
