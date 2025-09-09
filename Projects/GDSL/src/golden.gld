@@ -1,14 +1,2 @@
-type person {
-    string name = "noname";
-}
-
-person joe;
-person mary;
-joe.name = "Joe";
-string word;
-word = joe.name;
-print("Word is: ",word,"!");
-joe.name = "Not Joe";
-print("The name of Joe is: ", joe.name);
-mary.name = "Mary";
-print("The name of Mary is: ", mary.name);
+list items(1,3,4);
+print(items);

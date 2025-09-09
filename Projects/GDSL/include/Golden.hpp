@@ -1066,6 +1066,8 @@ class r_node : public Object {
     g_ptr<Frame> frame;
 };
 
+//Encodes information in the s_node for future access, this happens before not during resolution so as to
+//stop addresses from being invalidated by resizes
 //Fix this walking pattern later with a designated entry point so we're not processing parallel scope
 static void discover_var_decleration(g_ptr<t_node> node, g_ptr<s_node> root,size_t& idx) 
 {
@@ -1094,14 +1096,14 @@ static void discover_var_decleration(g_ptr<t_node> node, g_ptr<s_node> root,size
         if(type) {
             root->type_map.put(node->name,type);
         }
-        root->slot_map.put(node->name,root->slot_map.size());
-        root->type_ref->note_value(node->name,sizeof(size_t)); 
+        root->slot_map.put(node->name,root->slot_map.size()); //Linking slot
+        root->type_ref->note_value(node->name,sizeof(size_t)); //Adding local variable
         //Need size map entry here too?
     }
     else {
-        root->type_ref->note_value(node->name,node->value.size);
-        root->size_map.put(node->name,node->value.size);
-        root->o_type_map.put(node->name,node->value.type);
+        root->type_ref->note_value(node->name,node->value.size); //Adding local variable slot
+        root->size_map.put(node->name,node->value.size); //Adding size for future access in resolution
+        root->o_type_map.put(node->name,node->value.type); //Adding type for future access in resolution
     }
 }
 

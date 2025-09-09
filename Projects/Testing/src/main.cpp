@@ -16,7 +16,8 @@ double time_function(int ITERATIONS,std::function<void(int)> process) {
     return (double)time.count();
 }
 
-void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps) {
+
+void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int ITERATIONS,int C_ITS) {
     list<list<double>> t_table;
 
     for(int c=0;c<f_table.length();c++) {
@@ -26,9 +27,8 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
         }
     }
 
-    for(int m = 0;m<2;m++) {
-        int ITERATIONS = 1000;
-        int C_ITERATIONS = m==0?1:500;
+    for(int m = 0;m<(warm_up?2:1);m++) {
+        int C_ITERATIONS = m==0?1:C_ITS;
 
         for(int c=0;c<t_table.length();c++) {
             for(int r=0;r<t_table[c].length();r++) {
@@ -78,10 +78,9 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 }
 
 
-
 int main() {
   
-    // g_ptr<Type> t = make<Type>();
+    g_ptr<Type> t = make<Type>();
     // t->add_column(4);
     // void* addr = &t->byte4_columns[0];
 
@@ -94,49 +93,59 @@ int main() {
     //     //Type::set(addr,&i,0,4);
     // }
 
-    // print("==DONE==");
-    list<list<std::function<void(int)>>> f_table;
-    list<list<std::string>> s_table;
-    list<vec4> comps;
-    int z = 0;
-    f_table << list<std::function<void(int)>>{};
-    s_table << list<std::string>{};
-    g_ptr<Type> type = make<Type>();
-    z = 0;
-    type->add_column(4);
-    s_table[z] << "setup"; //0
-    f_table[z] << [type](int i){
-       type->add_row(0,4);
-    };
-    void* address = &type->byte4_columns[0];
-    s_table[z] << "method-get"; //1
-    f_table[z] << [type,address](int i){
-       volatile int a = *(int*)Type::get(address,i,4);
-    };
-    s_table[z] << "dir-get"; //2
-    f_table[z] << [type,address](int i){
-        volatile int a = (int)(*(list<uint32_t>*)address)[i];
-    };
+    void* tt;
+    tt = malloc(sizeof(t));
+    *(g_ptr<Type>*)tt = t;
+    tt = &t;
+    //t->push<int>(10);
+    (*(g_ptr<Type>*)tt)->push<int>(10);
+    print(t->get<int>(0));
+    print((*(g_ptr<Type>*)tt)->get<int>(0));
 
-    z=1;
-    f_table << list<std::function<void(int)>>{};
-    s_table << list<std::string>{};
-    list<int> list;
-    s_table[z] << "list-push"; //0
-    f_table[z] << [&list](int i){
-       list << i;
-    };
-    s_table[z] << "list-get"; //1
-    f_table[z] << [&list](int i){
-       volatile int a = list[i];
-    };
+
+    print("==DONE==");
+    // list<list<std::function<void(int)>>> f_table;
+    // list<list<std::string>> s_table;
+    // list<vec4> comps;
+    // int z = 0;
+    // f_table << list<std::function<void(int)>>{};
+    // s_table << list<std::string>{};
+    // g_ptr<Type> type = make<Type>();
+    // z = 0;
+    // type->add_column(4);
+    // s_table[z] << "setup"; //0
+    // f_table[z] << [type](int i){
+    //    type->add_row(0,4);
+    // };
+    // void* address = &type->byte4_columns[0];
+    // s_table[z] << "method-get"; //1
+    // f_table[z] << [type,address](int i){
+    //    volatile int a = *(int*)Type::get(address,i,4);
+    // };
+    // s_table[z] << "dir-get"; //2
+    // f_table[z] << [type,address](int i){
+    //     volatile int a = (int)(*(list<uint32_t>*)address)[i];
+    // };
+
+    // z=1;
+    // f_table << list<std::function<void(int)>>{};
+    // s_table << list<std::string>{};
+    // list<int> list;
+    // s_table[z] << "list-push"; //0
+    // f_table[z] << [&list](int i){
+    //    list << i;
+    // };
+    // s_table[z] << "list-get"; //1
+    // f_table[z] << [&list](int i){
+    //    volatile int a = list[i];
+    // };
    
-    comps << vec4(0,0 , 1,0);
-    comps << vec4(0,1 , 0,2);
-    comps << vec4(0,1 , 1,1);
-    comps << vec4(0,2 , 1,1);
+    // comps << vec4(0,0 , 1,0);
+    // comps << vec4(0,1 , 0,2);
+    // comps << vec4(0,1 , 1,1);
+    // comps << vec4(0,2 , 1,1);
 
-    run_rig(f_table,s_table,comps);
+    // run_rig(f_table,s_table,comps,true,3,100);
 
     return 0;
 }
