@@ -81,7 +81,13 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 int main() {
   
     g_ptr<Type> t = make<Type>();
-    // t->add_column(4);
+    t->note_value("test",4);
+    t->add_rows(4);
+    t->create();
+    t->note_value("other_test",4);
+    t->create();
+    t->create();
+    print(t->table_to_string(4));
     // void* addr = &t->byte4_columns[0];
 
     // for(int i=0;i<10000;i++) {
@@ -102,9 +108,19 @@ int main() {
     // print(t->get<int>(0));
     // print((*(g_ptr<Type>*)tt)->get<int>(0));
 
-    int nums[4] = {1,2,3,4};
-    uintptr_t x = (uintptr_t)&nums[0];
-    print(*(int*)(x+(4*1)));
+    // int nums[4] = {1,2,3,4};
+    // uintptr_t x = (uintptr_t)&nums[0];
+    // print(*(int*)(x+(4*1)));
+
+    // list<list<int>> table;
+    // table << list<int>{} << list<int>{};
+    // void* addr = &table[0];
+    // for(int i=0;i<300;i++)
+    //     table[0] << i;
+    // print((*(list<int>*)addr).get(8));
+    // for(int i=0;i<300;i++) 
+    //     table << list<int>{};
+    // print((*(list<int>*)addr).get(8));
 
 
     print("==DONE==");

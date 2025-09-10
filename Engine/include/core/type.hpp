@@ -76,6 +76,50 @@ public:
         return toReturn;
     }
 
+    //Currently only works with size 4, add the other sizes later
+    std::string table_to_string(size_t size) {
+        std::string table = "";
+        switch(size) {
+            case 4: {
+                std::string header = "--- ";
+                for(int c=0;c<byte4_columns.length();c++) {
+                    header.append(std::to_string(c)+" ");
+                }
+                table.append(header+"\n");
+                int lr = -1; //Longest length
+                for(int c=0;c<byte4_columns.length();c++) {
+                    int l = byte4_columns[c].length();
+                    if(l>lr) {
+                        lr = byte4_columns[c].length();
+                    }
+                }
+                for(int r=0;r<lr;r++) {
+                    std::string row = " "+std::to_string(r)+": ";
+                    for(int c=0;c<byte4_columns.length();c++) {
+                        if(r<byte4_columns[c].length())
+                            row.append("O ");
+                        else
+                            row.append("  ");
+                    }
+                    table.append(row+(r!=lr-1?"\n":""));
+                }
+            }
+            break;
+            default: 
+                print("print_column::84 invalid size for print ",size);
+            break;
+        }
+        return table;
+    }
+
+    // for(int r=0;r<byte4_columns.length();r++) {
+    //     std::string row = std::to_string(r)+":";
+    //     for(int c=0;c<byte4_columns[r].length();c++) {
+    //         row.append(" "+std::to_string(c));
+    //     }
+    //     column.append(row+(r!=byte4_columns.length()-1?"\n":""));
+    // }
+
     //Consider splitting the stratgeies into their own types of Type via inhereitence, I'm doing it manual right now because I prefer
     //composition, but it may be better to have all this in constructers and private methods.
 

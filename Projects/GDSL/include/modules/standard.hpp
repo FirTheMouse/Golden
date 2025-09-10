@@ -16,74 +16,11 @@ namespace base_module {
         reg::new_type("T_BLOCK");  
         
         reg::new_type("NOT"); 
-
-
-        size_t print_key_id = reg::new_type("PRINT_KEY");  
-        size_t print_call_id = reg::new_type("PRINT_CALL");
-        size_t t_print_id = reg::new_type("T_PRINT");
-        size_t r_print_call_id = reg::new_type("R_PRINT_CALL"); 
-        reg_t_key("print", print_key_id, 0, GET_TYPE(F_KEYWORD)); 
-        a_functions.put(print_key_id, [print_call_id](a_context& ctx) {
-            ctx.state = print_call_id;
-        });
-        t_functions.put(print_call_id, [t_print_id](t_context& ctx) -> g_ptr<t_node> {
-            ctx.result->type = t_print_id;
-            g_ptr<t_node> last = nullptr;
-            for(auto a : ctx.node->sub_nodes) {
-                g_ptr<t_node> sub = parse_a_node(a, ctx.root, last);
-                if(sub) {
-                    if(last && sub->left == last) {
-                        ctx.result->children.erase(last);
-                    }
-                    last = sub;
-                    ctx.result->children << last;
-                } else {
-                    last = nullptr;
-                }
-            }
-            return ctx.result;
-        });
-
-        r_handlers.put(t_print_id, [r_print_call_id](g_ptr<r_node> result, r_context& ctx) {
-            result->type = r_print_call_id;
-            for(auto c : ctx.node->children) {
-                g_ptr<r_node> sub = resolve_symbol(c, ctx.scope, ctx.frame);
-                result->children << sub;
-            }
-        });
-        exec_handlers.put(r_print_call_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            std::string toPrint = "";
-            for(auto r : ctx.node->children) {
-                execute_r_node(r, ctx.frame, ctx.index);
-                toPrint.append(r->value.to_string());
-            }
-            print(toPrint);
-            return ctx.node;
-        });
-        stream_handlers.put(r_print_call_id, [](exec_context& ctx) -> std::function<void()>{
-            list<uint32_t> types;
-            list<void**> datas; //Not sure if this is nessecary
-            for(auto r : ctx.node->children) {
-                execute_r_node(r, ctx.frame, ctx.index);
-                types << r->value.type;
-                datas << &r->value.data;
-            }
-            std::function<void()> func = [types,datas](){
-                std::string toPrint = "";
-                for(int i=0;i<types.length();i++) {
-                    toPrint.append(data_to_string(types[i],*datas[i]));
-                }
-                print(toPrint);
-            };
-            return func;
-        });
     }
 }
 
 namespace paren_module {
     static void initialize() {
-        reg::new_type("LBRACKET"); reg::new_type("RBRACKET"); 
-
         size_t end_id = reg::new_type("END"); 
         a_functions.put(end_id, [end_id](a_context& ctx) {
             if(ctx.state != GET_TYPE(UNTYPED)) {
@@ -177,6 +114,44 @@ namespace paren_module {
         size_t rparen_id = reg::new_type("RPAREN"); 
         reg::new_type("EXIT_PAREN"); 
         a_functions.put(rparen_id, [](a_context& ctx) {
+            if(ctx.local && ctx.state != GET_TYPE(UNTYPED)) {
+                ctx.end_lambda();
+                ctx.state = GET_TYPE(UNTYPED);
+            }
+        });
+
+        size_t lbracket_id = reg::new_type("LBRACKET"); 
+        reg::new_type("ENTER_BRACKET");
+        a_functions.put(lbracket_id, [](a_context& ctx) {
+            auto bracket_range = balance_tokens(ctx.tokens, GET_TYPE(LBRACKET), GET_TYPE(RBRACKET), ctx.index-1);
+            if (bracket_range.x() < 0 || bracket_range.y() < 0) {
+                print("parse_tokens::128 Unmatched brackets at ", ctx.index);
+                return;
+            }
+    
+            // if (ctx.state == GET_TYPE(PROP_ACCESS)) {
+            //     ctx.state = GET_TYPE(METHOD_CALL);
+            // }// else if (ctx.pos >= 2 && ctx.state == GET_TYPE(VAR_DECL)) {
+            //     ctx.state = GET_TYPE(METHOD_DECL);
+            // } 
+    
+            list<g_ptr<Token>> sub_list;
+            for(int i=bracket_range.x()+1;i<bracket_range.y();i++) {
+                sub_list.push(ctx.tokens[i]);
+            }
+            ctx.node->sub_nodes = parse_tokens(sub_list,true);
+            if(ctx.state != GET_TYPE(UNTYPED)) {
+                ctx.end_lambda();     
+            }
+            ctx.state = GET_TYPE(UNTYPED);        
+            ctx.index = bracket_range.y()-1;
+            ctx.it = ctx.tokens.begin() + (int)(bracket_range.y());
+            ctx.skip_inc = 1; // Can skip more if needed
+        });
+        
+        size_t rbracket_id = reg::new_type("RBRACKET"); 
+        reg::new_type("EXIT_BRACKET"); 
+        a_functions.put(rbracket_id, [](a_context& ctx) {
             if(ctx.local && ctx.state != GET_TYPE(UNTYPED)) {
                 ctx.end_lambda();
                 ctx.state = GET_TYPE(UNTYPED);
@@ -1007,7 +982,12 @@ namespace variables_module {
             }
         });
         exec_handlers.put(r_var_decl_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
-            if(ctx.node->value.type == object_id) {
+            if(!ctx.node->children.empty()) {
+                execute_r_node(ctx.node->children[0],ctx.frame,ctx.index);
+                int size = *(int*)ctx.node->children[0]->value.data;
+                print("Creating array of size ",size);
+            }
+            else if(ctx.node->value.type == object_id) {
                 g_ptr<Object> obj = ctx.node->resolved_type->create();
                 ctx.frame->slots[ctx.node->slot] = obj->ID;
             }
@@ -1052,15 +1032,47 @@ namespace variables_module {
             node->name = token->content;
             return node;
         });
-        t_functions.put(literal_identifier_id, t_literal_handler);
+        t_functions.put(literal_identifier_id,[t_var_decl_id,object_id](t_context& ctx) -> g_ptr<t_node> {
+            g_ptr<t_node> node = t_literal_handler(ctx);
+            if(!ctx.node->sub_nodes.empty()) {
+                g_ptr<t_node> last = nullptr;
+                for(auto c : ctx.node->sub_nodes) {
+                    g_ptr<t_node> sub = parse_a_node(c, ctx.root, last);
+                    if(sub) {
+                        last = sub;
+                        node->children << last;
+                    } else {
+                        last = nullptr;
+                    }
+                }
+            }
+            return node;
+        });
+       
         size_t r_identifier_id = reg::new_type("R_IDENTIFIER"); 
         r_handlers.put(t_identifier_id, [r_identifier_id](g_ptr<r_node> result, r_context& ctx) {
             result->type = r_identifier_id;
             resolve_identifier(ctx.node, result, ctx.scope, ctx.frame);
+            if(!ctx.node->children.empty()) { //For array access or opperator usage
+                for(auto c : ctx.node->children) {
+                    result->children.push(resolve_symbol(c,ctx.scope,ctx.frame));
+                }
+            }
         });
         exec_handlers.put(r_identifier_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
+            if(!ctx.node->children.empty()) {
+                if(ctx.node->value.type==object_id) {
+                    //Opperator overloading for () and [] here
+                } else {
+                execute_r_node(ctx.node->children[0],ctx.frame,ctx.index);
+                int index = *(int*)ctx.node->children[0]->value.data;
+                print("Accesing index of array ",index);
+                }
+            }
+            else {
             if(ctx.node->value.type!=object_id) //So we don't perform set opperations on objects
                 ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
+            }
             return ctx.node;
         });
 
@@ -1221,9 +1233,66 @@ namespace literals_module {
     }
 }
 
-namespace systems_module {
+namespace functions_module {
     static void initialize() {
-      
+        size_t print_key_id = reg::new_type("PRINT_KEY");  
+        size_t print_call_id = reg::new_type("PRINT_CALL");
+        reg_t_key("print", print_key_id, 0, GET_TYPE(F_KEYWORD)); 
+        a_functions.put(print_key_id, [print_call_id](a_context& ctx) {
+            ctx.state = print_call_id;
+        });
+        size_t t_print_id = reg::new_type("T_PRINT");
+        t_functions.put(print_call_id, [t_print_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = t_print_id;
+            g_ptr<t_node> last = nullptr;
+            for(auto a : ctx.node->sub_nodes) {
+                g_ptr<t_node> sub = parse_a_node(a, ctx.root, last);
+                if(sub) {
+                    if(last && sub->left == last) {
+                        ctx.result->children.erase(last);
+                    }
+                    last = sub;
+                    ctx.result->children << last;
+                } else {
+                    last = nullptr;
+                }
+            }
+            return ctx.result;
+        });
+        size_t r_print_call_id = reg::new_type("R_PRINT_CALL"); 
+        r_handlers.put(t_print_id, [r_print_call_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_print_call_id;
+            for(auto c : ctx.node->children) {
+                g_ptr<r_node> sub = resolve_symbol(c, ctx.scope, ctx.frame);
+                result->children << sub;
+            }
+        });
+        exec_handlers.put(r_print_call_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            std::string toPrint = "";
+            for(auto r : ctx.node->children) {
+                execute_r_node(r, ctx.frame, ctx.index);
+                toPrint.append(r->value.to_string());
+            }
+            print(toPrint);
+            return ctx.node;
+        });
+        stream_handlers.put(r_print_call_id, [](exec_context& ctx) -> std::function<void()>{
+            list<uint32_t> types;
+            list<void**> datas; //Not sure if this is nessecary
+            for(auto r : ctx.node->children) {
+                execute_r_node(r, ctx.frame, ctx.index);
+                types << r->value.type;
+                datas << &r->value.data;
+            }
+            std::function<void()> func = [types,datas](){
+                std::string toPrint = "";
+                for(int i=0;i<types.length();i++) {
+                    toPrint.append(data_to_string(types[i],*datas[i]));
+                }
+                print(toPrint);
+            };
+            return func;
+        });
     }
 
 }

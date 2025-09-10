@@ -713,8 +713,8 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
     return corrections!=0;
 }
 
-//Need seperate handeling for associativity in the future for proper precdence 
-//Assignment like: i=i+1 is currently broken under this, use parens instead
+//As of GDSL 0.1.3 right-associative unary parsing needs explicit parens, i.e if you want to do i=-1, you need i=(-1);
+//Fiqure out how to fix this later
 static void balance_precedence(list<g_ptr<a_node>>& result) {
     bool changed = true;
     int depth = 0;
@@ -918,7 +918,8 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
         }
         else if(node->sub_nodes.size()==1) {
             result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-            result->right = t_parse_expression(node->sub_nodes[0],result);
+            result->right = t_parse_expression(node->sub_nodes[0],nullptr); //To prevent recursion in unary opperators
+            //Was passing result as left, so something else may be broken by this
         }
         else if(node->sub_nodes.size()>=2) {
             result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
