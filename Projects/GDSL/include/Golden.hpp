@@ -258,6 +258,10 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
                         result << token;
                     }
                     break;
+                case '@':
+                    token = make<Token>(GET_TYPE(AT_SYMBOL),"@");
+                    result << token;
+                    break;
                 case '/':
                     if(*(it+1)=='=') {
                         token = make<Token>(GET_TYPE(SLASH_EQUALS),"/=");

@@ -1,12 +1,4 @@
-type person {
-    string name = "noname";
-
-    void say(string word) {
-        print(word);
-    }
-}
-
-person joe;
-joe.name = "Joe";
-print("The address of Joe is ",joe*);
-joe.say("Hello!");
+int i = 5;
+int j = 10;
+int x = *i;
+print(4@x);

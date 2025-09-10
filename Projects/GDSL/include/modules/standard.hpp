@@ -715,7 +715,7 @@ namespace opperator_module {
     char_is_split.put('+',true); char_is_split.put('-',true); char_is_split.put('/',true); char_is_split.put('%',true);
     char_is_split.put('(',true); char_is_split.put(')',true); char_is_split.put(',',true); char_is_split.put('=',true);
     char_is_split.put('>',true); char_is_split.put('<',true); char_is_split.put('[',true); char_is_split.put(']',true);
-    char_is_split.put('*',true);
+    char_is_split.put('*',true); char_is_split.put('@',true);
    
     
 
@@ -725,6 +725,7 @@ namespace opperator_module {
     size_t slash_id = reg::new_type("SLASH"); 
     size_t langle_id = reg::new_type("LANGLE"); 
     size_t rangle_id = reg::new_type("RANGLE"); 
+    size_t at_symbol_id = reg::new_type("AT_SYMBOL"); 
 
     reg::new_type("PLUS_EQUALS");
     reg::new_type("EQUALS_EQUALS");
@@ -773,6 +774,26 @@ namespace opperator_module {
     r_handlers.put(t_subtract_id, binary_op_handler(r_subtract_id));
     exec_handlers.put(r_subtract_id, arithmetic_handler([](auto a, auto b){ return a-b; }, GET_TYPE(INT)));
 
+
+    size_t at_id = reg::new_type("AT"); 
+    state_is_opp.put(at_id,true);
+    token_to_opp.put(at_symbol_id,at_id); 
+    type_precdence.put(at_id,4); //Unsure
+    size_t t_at_id = reg::new_type("T_AT");
+    t_opp_conversion.put(at_id, t_at_id);
+    size_t r_at_id = reg::new_type("R_AT"); 
+    r_handlers.put(t_at_id, binary_op_handler(r_at_id));
+    exec_handlers.put(r_at_id, [](exec_context& ctx) -> g_ptr<r_node> {
+        execute_r_node(ctx.node->left,ctx.frame,ctx.index);
+        execute_r_node(ctx.node->right,ctx.frame,ctx.index);
+        int size = *(int*)ctx.node->left->value.data;
+        uint64_t addr = (uint64_t)ctx.node->right->value.data;
+        print(size," at ",addr);
+        print(*(int*)addr);
+        return ctx.node;
+    });
+
+
     size_t multiply_id = reg::new_type("MULTIPLY"); 
     state_is_opp.put(multiply_id,true);
     token_to_opp.put(star_id,multiply_id); 
@@ -811,7 +832,12 @@ namespace opperator_module {
             print("is an object");
            }
            ctx.node->value.type = GET_TYPE(U64);
-           ctx.node->value.set<uint64_t>((uint64_t)ctx.node->left->value.address);
+           ctx.node->value.data = Type::get(ctx.node->left->value.address, ctx.index, ctx.node->left->value.size);
+           for(int i = 0; i<32 ; i++)
+            print(*(int*)((uintptr_t)ctx.node->value.data+i));
+        //   print(*(int*)ctx.frame->context->get(0,0,4));
+        //   print(*(int*)ctx.frame->context->get(1,0,4));
+           print(ctx.node->value.data);
         }
         return ctx.node;
     });
@@ -1112,7 +1138,7 @@ namespace literals_module {
 
 namespace systems_module {
     static void initialize() {
-
+      
     }
 
 }
