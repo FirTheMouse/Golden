@@ -1,4 +1,2 @@
-int i = 5;
-int j = 10;
-int x = *i;
-print(4@x);
+int j = -5;
+print(j-10-10-j,-10,-j,*j);

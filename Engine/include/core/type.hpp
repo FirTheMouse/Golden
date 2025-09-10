@@ -252,6 +252,14 @@ public:
         _note note(column_length(size),size); add_column(size); notes.put(name,note);
     }
 
+    // void note_value(const std::string& name, size_t size,int t = 0) {
+    //     while(column_length(size)<=t) {add_column(size);}
+    //     _note note(column_length(size),size,row_length(t,size)); 
+    //     add_row(t,size); 
+    //     notes.put(name,note);
+    //     array.push(note);
+    // }
+
     /// @brief For use in the MAP strategy
     void* adress_column(const std::string& name) {
         _note note = notes.getOrDefault(name,note_fallback);

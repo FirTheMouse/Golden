@@ -398,6 +398,7 @@ public:
 };
 
 map<uint32_t,std::function<std::string(void*)>> value_to_string;
+map<uint32_t, std::function<void(void*)>> negate_value;
 
 static std::string data_to_string(uint32_t type,void* data) {    
     try {
@@ -436,6 +437,17 @@ struct t_value {
         }
         catch(std::exception e) {
             return "[missing value_to_string for type "+TO_STRING(type)+"]";
+        }
+    }
+
+    void negate() {
+        if(data) {
+            try {
+                negate_value.get(type)(data);
+            }
+            catch(std::exception e) {
+                print("t_value::450 missing negate_value handler for ",TO_STRING(type));
+            }
         }
     }
 
@@ -518,7 +530,7 @@ void print_a_node(const g_ptr<a_node>& node, int depth = 0, int index = 0) {
     if (!node->tokens.empty()) {
         print(indent, "  Tokens:");
         for (auto& t : node->tokens) {
-            print(indent, "    ", t->content, " (", t->getType(), ")");
+            print(indent, "    ", t->content, " (", TO_STRING(t->getType()), ")");
         }
     }
 
@@ -639,25 +651,19 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                 }
             }
             else {
-                //This is unacceptable and needs to be cleaned up
                 uint32_t opp = token_to_opp.getOrDefault(token->getType(),GET_TYPE(UNTYPED));
                 if(opp!=GET_TYPE(UNTYPED)) {
-                    if(state==GET_TYPE(LITERAL)||state==GET_TYPE(LITERAL_IDENTIFIER)||state==GET_TYPE(UNTYPED)) {
-                        state=opp;
-                    }
-                    else if(state_is_opp.getOrDefault(state,false)||state==GET_TYPE(VAR_DECL)||state==GET_TYPE(METHOD_CALL)||state==GET_TYPE(PROP_ACCESS)) {
+                    //If we're already in an opperation, end the current one, start a new one
+                    if(state_is_opp.getOrDefault(state,false)) {
                         end();
                         state=opp;
-                        if(state==GET_TYPE(PROP_ACCESS)||state==GET_TYPE(METHOD_CALL)) {
-                            if(type_precdence.get(result.last()->type) < type_precdence.get(state)) {
-                                result.last()->sub_nodes << node;
-                                node->tokens << result.last()->tokens.pop();
-                                no_add = true;
-                            }
-                        }
+                    }
+                    else {
+                        state=opp;
                     }
                 }
-                
+                else
+                print("parse_tokens::653 missing case for type ",TO_STRING(token->getType()));
             }
             ++it;
             ++pos;
@@ -884,23 +890,15 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
     // }
     
     if (node->tokens.size() == 2) {
-        // if(node->sub_nodes.size()>0) {
-        //     print("t_parse_expression::972 Warning, odd subnode count on a_node!");
-        // }
         result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
         result->right = t_literal_handlers.get(node->tokens[1]->getType())(node->tokens[1]);
     } 
     else if (node->tokens.size() == 1) {
         if(node->sub_nodes.size()==0) {
-            //result->left = left; // <- This creates recursion if we have a single value like (x), but is critical for 7+8+9
-            // result->right = t_make_literal(node->tokens[0]);
-            //result = t_make_literal(node->tokens[0]); // <- This fixes the recursion bug but breaks chained left expressions
-
-            //The potential solution
             if(left) {
                 result->left = left;
                 result->right = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-                if(node->in_scope) {
+                if(node->in_scope) { //Removes left refrence by taking it's place
                     if(node->in_scope->t_nodes.last()==left) {
                         node->in_scope->t_nodes.last()=result;
                         return nullptr;
@@ -908,12 +906,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
                 }
             }
             else {
-                if(node->tokens[0]->getType()==GET_TYPE(IDENTIFIER)) { //For opperators like i* or i++
-                    #if PRINT_ALL
-                    if(!t_functions.hasKey(node->type)) {
-                        print("t_parse_expression::910 missing handler for opperator type ",TO_STRING(node->type));
-                    }
-                    #endif
+               if(t_functions.hasKey(node->type)) { //For opperators like i* or i++
                     t_context ctx(result,node,nullptr);
                     ctx.left = left;
                     result = t_functions.get(node->type)(ctx);
@@ -946,7 +939,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
         else if(node->sub_nodes.size()==1) {
             result->left = left;
             result->right = t_parse_expression(node->sub_nodes[0],nullptr); //By passing nullptr we stop the recursion
-            if(left&&node->in_scope) { //Not sure if this goes here or what this will do
+            if(left&&node->in_scope) { //This removes duplicate left refrences, such as with var_decl + assignment
                 if(node->in_scope->t_nodes.last()==left) {
                     node->in_scope->t_nodes.last()=result;
                     return nullptr;
@@ -1034,16 +1027,13 @@ static void parse_nodes(g_ptr<s_node> root) {
     #if PRINT_ALL
     print("==PARSE NODES PASS==");
     #endif
-    g_ptr<t_node> result = nullptr;
+    g_ptr<t_node> last = nullptr;
     for(int i = 0; i < root->a_nodes.size(); i++) {
         auto node = root->a_nodes[i];
-        // auto left = (i > 0) ? root->a_nodes[i-1] : nullptr;
-        // auto right = (i < root->a_nodes.size()-1) ? root->a_nodes[i+1] : nullptr;
-
-        g_ptr<t_node> sub = parse_a_node(node,root,result);
+        g_ptr<t_node> sub = parse_a_node(node,root,last);
+        last = sub;
         if(sub) {
-            result = sub;
-            root->t_nodes << result;
+            root->t_nodes << last;
         }
     }
 
@@ -1251,7 +1241,7 @@ struct r_context {
     
     r_context(g_ptr<t_node> _node, g_ptr<s_node> _scope,g_ptr<Frame> _frame) : node(_node), scope(_scope), frame(_frame) {}
 };
-map<uint32_t, std::function<void(g_ptr<r_node>, r_context&)>> r_handlers;
+map<uint32_t, std::function<void(g_ptr<r_node>&, r_context&)>> r_handlers;
 
 static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr<Frame> frame) {
     g_ptr<r_node> result = make<r_node>();

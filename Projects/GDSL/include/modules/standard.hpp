@@ -28,17 +28,22 @@ namespace base_module {
         });
         t_functions.put(print_call_id, [t_print_id](t_context& ctx) -> g_ptr<t_node> {
             ctx.result->type = t_print_id;
-            g_ptr<t_node> sub = nullptr;
+            g_ptr<t_node> last = nullptr;
             for(auto a : ctx.node->sub_nodes) {
-                g_ptr<t_node> n_sub = parse_a_node(a, ctx.root, sub);
-                if(sub && n_sub->left == sub) {
-                    ctx.result->children.erase(sub);
+                g_ptr<t_node> sub = parse_a_node(a, ctx.root, last);
+                if(sub) {
+                    if(last && sub->left == last) {
+                        ctx.result->children.erase(last);
+                    }
+                    last = sub;
+                    ctx.result->children << last;
+                } else {
+                    last = nullptr;
                 }
-                sub = n_sub;
-                ctx.result->children << sub;
             }
             return ctx.result;
         });
+
         r_handlers.put(t_print_id, [r_print_call_id](g_ptr<r_node> result, r_context& ctx) {
             result->type = r_print_call_id;
             for(auto c : ctx.node->children) {
@@ -94,12 +99,18 @@ namespace paren_module {
         });  
 
         size_t comma_id = reg::new_type("COMMA");
-        a_functions.put(comma_id, [](a_context& ctx) {
+        a_functions.put(comma_id, [comma_id](a_context& ctx) {
             if(ctx.local && ctx.state != GET_TYPE(UNTYPED)) {
+                ctx.end_lambda();
+                ctx.state = comma_id;
                 ctx.end_lambda();
                 ctx.state = GET_TYPE(UNTYPED);
             }
+            ctx.pos = 0;
         });
+        t_functions.put(comma_id, [](t_context& ctx) -> g_ptr<t_node>{
+            return nullptr; //Do nothing
+        });  
 
         size_t lbrace_id = reg::new_type("LBRACE");
         size_t enter_scope_id = reg::new_type("ENTER_SCOPE"); 
@@ -184,12 +195,12 @@ namespace control_module {
         size_t if_key_id = reg::new_type("IF_KEY"); 
         reg_t_key("if", if_key_id, 0, GET_TYPE(F_KEYWORD));
         size_t if_decl_id = reg::new_type("IF_DECL"); 
-        size_t t_if_id = reg::new_type("T_IF");
-        t_opp_conversion.put(if_decl_id, t_if_id); 
-        size_t r_if_id = reg::new_type("R_IF");  
         a_functions.put(if_key_id, [if_decl_id](a_context& ctx) {
             ctx.state = if_decl_id;
         });
+        size_t t_if_id = reg::new_type("T_IF");
+        t_opp_conversion.put(if_decl_id, t_if_id); 
+        size_t r_if_id = reg::new_type("R_IF");  
         auto if_handler = [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
             new_scope->scope_type = GET_TYPE(IF_BLOCK);
             new_scope->owner = owner_node;
@@ -396,8 +407,15 @@ namespace type_module {
         t_functions.put(method_call_id, [](t_context& ctx) -> g_ptr<t_node> {
             ctx.result = t_parse_expression(ctx.node, ctx.left);
             if(!ctx.node->sub_nodes.empty()) {
+                g_ptr<t_node> last = nullptr;
                 for(auto c : ctx.node->sub_nodes) {
-                    ctx.result->children << parse_a_node(c, ctx.root);
+                    g_ptr<t_node> sub = parse_a_node(c, ctx.root, last);
+                    if(sub) {
+                        last = sub;
+                        ctx.result->children << last;
+                    } else {
+                        last = nullptr;
+                    }
                 }
             }
             return ctx.result;
@@ -513,8 +531,15 @@ namespace type_module {
             ctx.result->scope = ctx.node->owned_scope;
             ctx.result->scope->t_owner = ctx.result;
             if(!ctx.node->sub_nodes.empty()) {
+                g_ptr<t_node> last = nullptr;
                 for(auto c : ctx.node->sub_nodes) {
-                    ctx.result->children << parse_a_node(c, ctx.root);
+                    g_ptr<t_node> sub = parse_a_node(c, ctx.root, last);
+                    if(sub) {
+                        last = sub;
+                        ctx.result->children << last;
+                    } else {
+                        last = nullptr;
+                    }
                 }
             }
             return ctx.result;
@@ -770,9 +795,48 @@ namespace opperator_module {
     type_precdence.put(subtract_id,2); 
     size_t t_subtract_id = reg::new_type("T_SUBTRACT"); 
     t_opp_conversion.put(subtract_id, t_subtract_id);
+    size_t t_dash_id = reg::new_type("T_DASH"); 
+    t_functions.put(subtract_id, [t_subtract_id,t_dash_id](t_context& ctx) -> g_ptr<t_node> {
+        if(!ctx.root)
+        {
+            g_ptr<t_node> left = t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
+            if(left->type==GET_TYPE(T_LITERAL)) {
+                left->value.negate();
+                ctx.result = left;
+            } else {
+                ctx.result->type = t_dash_id;
+                ctx.result->left = left;
+            }
+        } else {
+            ctx.result = t_parse_expression(ctx.node,ctx.left);
+        }
+        return ctx.result;
+    });
     size_t r_subtract_id = reg::new_type("R_SUBTRACT");
     r_handlers.put(t_subtract_id, binary_op_handler(r_subtract_id));
     exec_handlers.put(r_subtract_id, arithmetic_handler([](auto a, auto b){ return a-b; }, GET_TYPE(INT)));
+
+    size_t r_dash_id = reg::new_type("R_DASH");
+    r_handlers.put(t_dash_id,[r_dash_id](g_ptr<r_node>& result, r_context& ctx) {
+        result->type = r_dash_id;
+        if(ctx.node->left) {
+            result->left = resolve_symbol(ctx.node->left,ctx.scope,ctx.frame);
+        }
+    });
+    exec_handlers.put(r_dash_id, [](exec_context& ctx) -> g_ptr<r_node> { 
+        if(ctx.node->left) {
+            execute_r_node(ctx.node->left,ctx.frame,ctx.index);
+            if(ctx.node->left->resolved_type) {
+                //add opperator overloading for dash
+            }
+            else {
+                ctx.node->left->value.negate();
+                ctx.node->value = std::move(ctx.node->left->value);
+            }
+          
+         }
+        return ctx.node;
+    });
 
 
     size_t at_id = reg::new_type("AT"); 
@@ -788,8 +852,10 @@ namespace opperator_module {
         execute_r_node(ctx.node->right,ctx.frame,ctx.index);
         int size = *(int*)ctx.node->left->value.data;
         uint64_t addr = (uint64_t)ctx.node->right->value.data;
-        print(size," at ",addr);
-        print(*(int*)addr);
+        for(int i=0;i<32;i++)
+        print(*(int*)(addr+i));
+       //type_key_to_type.get(ctx.node->left->type)
+        print(value_to_string.get(ctx.node->left->value.type)(ctx.node->right->value.data));
         return ctx.node;
     });
 
@@ -806,12 +872,11 @@ namespace opperator_module {
 
     size_t t_ptr_id = reg::new_type("T_POINTER"); 
     t_functions.put(multiply_id, [t_multiply_id,t_ptr_id](t_context& ctx) -> g_ptr<t_node> {
-        if(ctx.node->tokens.length()==1&&ctx.node->sub_nodes.length()==0)
+        if(!ctx.root)
         {
-            ctx.result = t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
             g_ptr<t_node> result = make<t_node>();
             result->type = t_ptr_id;
-            result->left = ctx.result;
+            result->left = t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
             ctx.result = result;
         } else {
             ctx.result = t_parse_expression(ctx.node,ctx.left);
@@ -828,16 +893,16 @@ namespace opperator_module {
     exec_handlers.put(r_ptr_id, [](exec_context& ctx) -> g_ptr<r_node> {
         if(ctx.node->left) {
            execute_r_node(ctx.node->left,ctx.frame,ctx.index);
-           if(ctx.node->left->resolved_type) {
-            print("is an object");
-           }
            ctx.node->value.type = GET_TYPE(U64);
-           ctx.node->value.data = Type::get(ctx.node->left->value.address, ctx.index, ctx.node->left->value.size);
-           for(int i = 0; i<32 ; i++)
-            print(*(int*)((uintptr_t)ctx.node->value.data+i));
-        //   print(*(int*)ctx.frame->context->get(0,0,4));
-        //   print(*(int*)ctx.frame->context->get(1,0,4));
-           print(ctx.node->value.data);
+           ctx.node->value.size = 8;
+           if(ctx.node->left->resolved_type) {
+            //add opperator overloading
+            ctx.node->value.data = &ctx.node->left->resolved_type->objects.get(ctx.frame->slots.get(ctx.node->left->slot));
+           }
+           else {
+            ctx.node->value.data = Type::get(ctx.node->left->value.address, ctx.index, ctx.node->left->value.size);
+           }
+           //ctx.node->left->value.address;
         }
         return ctx.node;
     });
@@ -879,6 +944,7 @@ namespace opperator_module {
 namespace variables_module {
     static void initialize() {
         size_t var_decl_id = reg::new_type("VAR_DECL");
+        state_is_opp.put(var_decl_id,true);
         type_precdence.put(var_decl_id,1);
         size_t t_var_decl_id = reg::new_type("T_VAR_DECL");
         size_t object_id = reg::new_type("OBJECT");
@@ -895,8 +961,15 @@ namespace variables_module {
             }
             ctx.result->name = ctx.node->tokens[1]->content;
             if(!ctx.node->sub_nodes.empty()) {
+                g_ptr<t_node> last = nullptr;
                 for(auto c : ctx.node->sub_nodes) {
-                    ctx.result->children << parse_a_node(c, ctx.root);
+                    g_ptr<t_node> sub = parse_a_node(c, ctx.root, last);
+                    if(sub) {
+                        last = sub;
+                        ctx.result->children << last;
+                    } else {
+                        last = nullptr;
+                    }
                 }
             }
             return ctx.result;
@@ -1019,6 +1092,9 @@ namespace literals_module {
         value_to_string.put(int_id,[](void* data){
             return std::to_string(*(int*)data);
         });
+        negate_value.put(int_id,[](void* data){
+            *(int*)data = -(*(int*)data);
+        });
         a_functions.put(int_id, literal_handler);
         type_key_to_type.put(int_key_id, int_id);
         t_literal_handlers.put(int_id, [t_literal_id, int_id](g_ptr<Token> token) -> g_ptr<t_node> {
@@ -1035,6 +1111,9 @@ namespace literals_module {
         size_t u64_id = reg::new_type("U64");
         value_to_string.put(u64_id,[](void* data){
             return std::to_string(*(uint64_t*)data);
+        });
+        negate_value.put(u64_id,[](void* data){
+            *(uint64_t*)data = -(*(uint64_t*)data);
         });
         a_functions.put(u64_id, literal_handler);
         type_key_to_type.put(u64_key_id, u64_id);
@@ -1053,6 +1132,9 @@ namespace literals_module {
         value_to_string.put(double_id,[](void* data){
             return std::to_string(*(double*)data);
         });
+        negate_value.put(double_id,[](void* data){
+            *(double*)data = -(*(double*)data);
+        });
         a_functions.put(double_id, literal_handler);
         type_key_to_type.put(double_key_id, double_id);
         t_literal_handlers.put(double_id, [t_literal_id, double_id](g_ptr<Token> token) -> g_ptr<t_node> {
@@ -1069,6 +1151,9 @@ namespace literals_module {
         size_t float_id = reg::new_type("FLOAT");
         value_to_string.put(float_id,[](void* data){
             return std::to_string(*(float*)data);
+        });
+        negate_value.put(float_id,[](void* data){
+            *(float*)data = -(*(float*)data);
         });
         a_functions.put(float_id, literal_handler);
         type_key_to_type.put(float_key_id, float_id);
