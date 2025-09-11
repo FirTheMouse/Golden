@@ -83,7 +83,7 @@ public:
             case 4: {
                 std::string header = "--- ";
                 for(int c=0;c<byte4_columns.length();c++) {
-                    header.append(std::to_string(c)+"          ");
+                    header.append(std::to_string(c)+":"+std::to_string((uintptr_t)&byte4_columns[c]).append(" ").insert(5,"-").insert(8,"-"));
                 }
                 table.append(header+"\n");
                 int lr = -1; //Longest length
@@ -93,13 +93,21 @@ public:
                         lr = byte4_columns[c].length();
                     }
                 }
-                for(int r=0;r<lr;r++) {
-                    std::string row = " "+std::to_string(r)+": ";
+                for(int r=-1;r<lr;r++) {
+                    std::string row = " ";
+                    if(r==-1) {
+                        row.append("  ");
+                        for(int c=0;c<byte4_columns.length();c++) {
+                            row.append("  -------------");
+                        }
+                    } else {
+                    row.append(std::to_string(r)+": ");
                     for(int c=0;c<byte4_columns.length();c++) {
                         if(r<byte4_columns[c].length())
-                            row.append(std::to_string((uintptr_t)&byte4_columns[c][r])+" ");
+                            row.append("  "+std::to_string((uintptr_t)&byte4_columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
                         else
-                            row.append("           ");
+                            row.append("             ");
+                    }
                     }
                     table.append(row+(r!=lr-1?"\n":""));
                 }

@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 1
+#define PRINT_ALL 0
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -1074,47 +1074,6 @@ class r_node : public Object {
     std::string name;
     g_ptr<Frame> frame;
 };
-
-//Encodes information in the s_node for future access, this happens before not during resolution so as to
-//stop addresses from being invalidated by resizes
-//Fix this walking pattern later with a designated entry point so we're not processing parallel scope
-static void discover_var_decleration(g_ptr<t_node> node, g_ptr<s_node> root,size_t& idx) 
-{
-    if(node->value.type==GET_TYPE(OBJECT)) {
-        //Can add short circuiting and error handeling here
-        g_ptr<s_node> on_scope = root;
-        g_ptr<Type> type = nullptr;
-        //This scope walking for types needs to be inspected further, potential cause of problems.
-        for(auto c : root->children) {
-            if(c->type_ref && c->type_ref->type_name == node->deferred_identifier) {
-                type = c->type_ref;
-            }
-        }
-        while(!type) {
-            if(on_scope->type_ref) {
-                if(on_scope->type_ref->type_name == node->deferred_identifier) {
-                    type = on_scope->type_ref;
-                }
-            }
-            if(type) break;
-            if(on_scope->parent) {
-                on_scope = on_scope->parent;
-            }
-            else break;
-        }
-        if(type) {
-            root->type_map.put(node->name,type);
-        }
-        root->slot_map.put(node->name,root->slot_map.size()); //Linking slot
-        root->type_ref->note_value(node->name,sizeof(size_t)); //Adding local variable
-        //Need size map entry here too?
-    }
-    else {
-        root->type_ref->note_value(node->name,node->value.size); //Adding local variable slot
-        root->size_map.put(node->name,node->value.size); //Adding size for future access in resolution
-        root->o_type_map.put(node->name,node->value.type); //Adding type for future access in resolution
-    }
-}
 
 static g_ptr<s_node> discover_type_decl(g_ptr<t_node> node, g_ptr<s_node> root) {
     g_ptr<s_node> on_scope = root;

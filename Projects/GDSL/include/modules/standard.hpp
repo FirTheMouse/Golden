@@ -167,7 +167,7 @@ namespace paren_module {
 
         state_is_opp.put(indexing_id,true);
         token_to_opp.put(brackets_id,indexing_id);
-        type_precdence.put(indexing_id,2); //Unsure
+        type_precdence.put(indexing_id,20);
         size_t t_indexing_id = reg::new_type("T_INDEXING"); 
         t_opp_conversion.put(indexing_id, t_indexing_id);
         t_functions.put(indexing_id, [t_indexing_id](t_context& ctx) -> g_ptr<t_node> {
@@ -581,8 +581,10 @@ namespace type_module {
                 node->scope->type_ref->type_name = node->name;
                 
                 for(auto c : node->children) {
-                    if(c->type == GET_TYPE(T_VAR_DECL))
-                        discover_var_decleration(c, node->scope, ctx.idx);
+                    if(c->type == GET_TYPE(T_VAR_DECL)) {
+                        d_context tctx(node->scope,ctx.idx);
+                        discover_symbol(c,tctx);
+                    }
                 }
             }
         });
@@ -684,6 +686,12 @@ namespace property_module {
                     if(search_scope->type_ref && search_scope->type_ref == result->resolved_type) {
                         result->value.type = search_scope->o_type_map.get(ctx.node->right->name);
                         break;
+                    }
+                    for(auto c : search_scope->children) {
+                        if(c->type_ref && c->type_ref == result->resolved_type) {
+                            result->value.type = c->o_type_map.get(ctx.node->right->name);
+                            break;
+                        }
                     }
                     if(result->value.type != GET_TYPE(OBJECT)) break;
                     if(search_scope->parent) {
@@ -1005,8 +1013,42 @@ namespace variables_module {
             }
             return ctx.result;
         });
+        //This is immensely important, all objects are created here.
         discover_handlers.put(t_var_decl_id, [](g_ptr<t_node> node, d_context& ctx) {
-            discover_var_decleration(node, ctx.root, ctx.idx);
+             if(node->value.type==GET_TYPE(OBJECT)) {
+                //Can add short circuiting and error handeling here
+                g_ptr<s_node> on_scope = ctx.root;
+                g_ptr<Type> type = nullptr;
+                //This scope walking for types needs to be inspected further, potential cause of problems.
+                for(auto c : ctx.root->children) {
+                    if(c->type_ref && c->type_ref->type_name == node->deferred_identifier) {
+                        type = c->type_ref;
+                    }
+                }
+                while(!type) {
+                    if(on_scope->type_ref) {
+                        if(on_scope->type_ref->type_name == node->deferred_identifier) {
+                            type = on_scope->type_ref;
+                        }
+                    }
+                    if(type) break;
+                    if(on_scope->parent) {
+                        on_scope = on_scope->parent;
+                    }
+                    else break;
+                }
+                if(type) {
+                    ctx.root->type_map.put(node->name,type);
+                }
+                ctx.root->slot_map.put(node->name,ctx.root->slot_map.size()); //Linking slot
+                ctx.root->type_ref->note_value(node->name,sizeof(size_t)); //Adding local variable
+                //Need size map entry here too?
+            }
+            else {
+                ctx.root->type_ref->note_value(node->name,node->value.size); //Adding local variable slot
+                ctx.root->size_map.put(node->name,node->value.size); //Adding size for future access in resolution
+                ctx.root->o_type_map.put(node->name,node->value.type); //Adding type for future access in resolution
+            }
         });    
         value_to_string.put(object_id,[](void* data){
             return "OBJECT";

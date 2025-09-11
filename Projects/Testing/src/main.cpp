@@ -17,7 +17,7 @@ double time_function(int ITERATIONS,std::function<void(int)> process) {
 }
 
 
-void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int ITERATIONS,int C_ITS) {
+void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
     list<list<double>> t_table;
 
     for(int c=0;c<f_table.length();c++) {
@@ -41,7 +41,7 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
             for(int c=0;c<f_table.length();c++) {
                 for(int r=0;r<f_table[c].length();r++) {
                     // if(r==0) print("Running: ",s_table[c][r]);
-                    double time = time_function(ITERATIONS,f_table[c][r]);
+                    double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
                     t_table[c][r]+=time;
                 }
             }
@@ -52,7 +52,7 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
         for(int c=0;c<t_table.length();c++) {
             for(int r=0;r<t_table[c].length();r++) {
                 t_table[c][r]/=C_ITERATIONS;
-                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / ITERATIONS," ns per operation)");
+                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
             }
             print("-------------------------");
         }
@@ -80,22 +80,17 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 int main() {
   
-    g_ptr<Type> t = make<Type>();
-    t->add_column(4);
-    t->add_column(4);
-    t->add_row(0,4);
-    t->add_row(1,4);
-    t->add_row(1,4);
-    t->add_row(1,4);
-    print(t->table_to_string(4));
+    // g_ptr<Type> t = make<Type>();
+    // for(int i=0;i<1;i++) t->add_column(4);
     // void* addr = &t->byte4_columns[0];
-
-    // for(int i=0;i<10000;i++) {
-    //     print(i,": ");
+    // t->push<int>(8);
+    // for(int i=0;i<9;i++) {
+    //     print(i,"i\n"+t->table_to_string(4));
     //     t->add_column(4); //We can't add more columns otherwise it breaks
     //     //Perhaps a special resize that updates all addresses?
-    //     t->push<int>(i);
-    //     print(*(int*)Type::get(addr,i,4));
+    //     //t->push<int>(i);
+    //     t->add_rows(4);
+    //     //int j = *(int*)Type::get(addr,i,4);
     //     //Type::set(addr,&i,0,4);
     // }
 
@@ -124,7 +119,58 @@ int main() {
 
 
     print("==DONE==");
-    // list<list<std::function<void(int)>>> f_table;
+    list<list<std::function<void(int)>>> f_table;
+    list<list<std::string>> s_table;
+    list<vec4> comps;
+    int z = 0;
+    f_table << list<std::function<void(int)>>{};
+    s_table << list<std::string>{};
+    g_ptr<Type> type = make<Type>();
+    z = 0;
+    type->add_column(4);
+    s_table[z] << "setup"; //0
+    f_table[z] << [type](int i){
+       type->add_row(0,4);
+    };
+    void* address = &type->byte4_columns[0];
+    s_table[z] << "method-get"; //1
+    f_table[z] << [type,address](int i){
+       volatile int a = *(int*)Type::get(address,i,4);
+    };
+    s_table[z] << "dir-get"; //2
+    f_table[z] << [type,address](int i){
+        volatile int a = (int)(*(list<uint32_t>*)address)[i];
+    };
+    s_table[z] << "ptr-get"; //3
+    f_table[z] << [type,address](int i){
+        volatile int a = *(int*)type->get(0,i,4);
+    };
+
+    z=1;
+    f_table << list<std::function<void(int)>>{};
+    s_table << list<std::string>{};
+    list<int> list;
+    s_table[z] << "list-push"; //0
+    f_table[z] << [&list](int i){
+       list << i;
+    };
+    s_table[z] << "list-get"; //1
+    f_table[z] << [&list](int i){
+       volatile int a = list[i];
+    };
+   
+    comps << vec4(0,0 , 1,0);
+    comps << vec4(0,1 , 0,2);
+    comps << vec4(0,1 , 1,1);
+    comps << vec4(0,2 , 1,1);
+    comps << vec4(0,1 , 0,3);
+
+    run_rig(f_table,s_table,comps,true,5,10000);
+
+    return 0;
+}
+
+// list<list<std::function<void(int)>>> f_table;
     // list<list<std::string>> s_table;
     // list<vec4> comps;
     // int z = 0;
@@ -166,9 +212,6 @@ int main() {
     // comps << vec4(0,2 , 1,1);
 
     // run_rig(f_table,s_table,comps,true,3,100);
-
-    return 0;
-}
 
 //Pointer Lunchbox
 // auto* int_list = (list<uint32_t>*)&data->byte4_columns[0];

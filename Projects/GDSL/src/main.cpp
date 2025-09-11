@@ -15,7 +15,7 @@ double time_function(int ITERATIONS,std::function<void(int)> process) {
 }
 
 
-void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int ITERATIONS,int C_ITS) {
+void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
     list<list<double>> t_table;
 
     for(int c=0;c<f_table.length();c++) {
@@ -39,7 +39,7 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
             for(int c=0;c<f_table.length();c++) {
                 for(int r=0;r<f_table[c].length();r++) {
                     // if(r==0) print("Running: ",s_table[c][r]);
-                    double time = time_function(ITERATIONS,f_table[c][r]);
+                    double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
                     t_table[c][r]+=time;
                 }
             }
@@ -50,7 +50,7 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
         for(int c=0;c<t_table.length();c++) {
             for(int r=0;r<t_table[c].length();r++) {
                 t_table[c][r]/=C_ITERATIONS;
-                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / ITERATIONS," ns per operation)");
+                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
             }
             print("-------------------------");
         }
@@ -138,16 +138,16 @@ int main() {
         //     joe.name = "Joe";
         //     std::string word;
         //     word = joe.name;
-        //     print("Word is: ",word,"!");
+        //     // print("Word is: ",word,"!");
         //     joe.name = "Is Joe";
-        //     print("The name of Joe is: ", joe.name);
+        //     // print("The name of Joe is: ", joe.name);
         //     mary.name = "Mary";
-        //     print("The name of Mary is: ", mary.name);
+        //     // print("The name of Mary is: ", mary.name);
         // };
 
         // comps << vec4(0,0 , 0,3);
         // comps << vec4(0,2 , 0,3);
-        // run_rig(f_table,s_table,comps,true,3,500);
+        // run_rig(f_table,s_table,comps,true,1,500);
         
     }
     else if (mode==1) {
