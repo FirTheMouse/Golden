@@ -1,3 +1,16 @@
-int x[3] = 5;
-x[0] = 8;
-print(x[0]);
+int x[3];
+
+x[0] = 4;
+x[1] = 8;
+x[2] = 16;
+
+int inc = 0;
+while(inc<3) {
+    x[inc] = x[inc]+1;
+    inc = inc+1;
+}
+inc = 0;
+while(inc<3) {
+    print(x[inc]);
+    inc = inc+1;
+}

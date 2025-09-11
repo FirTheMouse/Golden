@@ -83,7 +83,7 @@ public:
             case 4: {
                 std::string header = "--- ";
                 for(int c=0;c<byte4_columns.length();c++) {
-                    header.append(std::to_string(c)+" ");
+                    header.append(std::to_string(c)+"          ");
                 }
                 table.append(header+"\n");
                 int lr = -1; //Longest length
@@ -97,9 +97,9 @@ public:
                     std::string row = " "+std::to_string(r)+": ";
                     for(int c=0;c<byte4_columns.length();c++) {
                         if(r<byte4_columns[c].length())
-                            row.append("O ");
+                            row.append(std::to_string((uintptr_t)&byte4_columns[c][r])+" ");
                         else
-                            row.append("  ");
+                            row.append("           ");
                     }
                     table.append(row+(r!=lr-1?"\n":""));
                 }

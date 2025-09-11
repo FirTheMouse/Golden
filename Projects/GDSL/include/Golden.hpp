@@ -1068,6 +1068,7 @@ class r_node : public Object {
     list<g_ptr<r_node>> children;
     t_value value;
     g_ptr<Type> resolved_type = nullptr;
+    g_ptr<Type> in_scope = nullptr;
     size_t slot = 0;
     int index = -1;
     std::string name;
@@ -1230,6 +1231,7 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
         if(on_scope->size_map.hasKey(node->name)) {
             result->value.size = on_scope->size_map.get(node->name);
             result->value.type = on_scope->o_type_map.get(node->name);
+            result->in_scope = on_scope->type_ref;
         }
     }
     else print("resolve_symbol::1418 No address found for identifier ",node->name);

@@ -25,10 +25,10 @@ namespace paren_module {
         a_functions.put(end_id, [end_id](a_context& ctx) {
             if(ctx.state != GET_TYPE(UNTYPED)) {
                 ctx.end_lambda();
-                ctx.state = end_id;
-                ctx.end_lambda();
-                ctx.state = GET_TYPE(UNTYPED);
-            }
+            } 
+            ctx.state = end_id;
+            ctx.end_lambda();
+            ctx.state = GET_TYPE(UNTYPED);
             ctx.pos = 0;
         });
         t_functions.put(end_id, [](t_context& ctx) -> g_ptr<t_node>{
@@ -120,9 +120,10 @@ namespace paren_module {
             }
         });
 
+        size_t brackets_id = reg::new_type("BRACKETS"); 
+        size_t indexing_id = reg::new_type("INDEXING"); 
         size_t lbracket_id = reg::new_type("LBRACKET"); 
-        reg::new_type("ENTER_BRACKET");
-        a_functions.put(lbracket_id, [](a_context& ctx) {
+        a_functions.put(lbracket_id, [brackets_id,indexing_id](a_context& ctx) {
             auto bracket_range = balance_tokens(ctx.tokens, GET_TYPE(LBRACKET), GET_TYPE(RBRACKET), ctx.index-1);
             if (bracket_range.x() < 0 || bracket_range.y() < 0) {
                 print("parse_tokens::128 Unmatched brackets at ", ctx.index);
@@ -139,10 +140,17 @@ namespace paren_module {
             for(int i=bracket_range.x()+1;i<bracket_range.y();i++) {
                 sub_list.push(ctx.tokens[i]);
             }
-            ctx.node->sub_nodes = parse_tokens(sub_list,true);
-            if(ctx.state != GET_TYPE(UNTYPED)) {
+
+            if(ctx.state == GET_TYPE(LITERAL_IDENTIFIER)) {
+                ctx.end_lambda();   
+                ctx.node->tokens << ctx.result.pop()->tokens.pop();   
+            }   
+            else if(ctx.state != GET_TYPE(UNTYPED)) {
                 ctx.end_lambda();     
             }
+            ctx.state = indexing_id;
+            ctx.node->sub_nodes = parse_tokens(sub_list,true);
+            ctx.end_lambda();
             ctx.state = GET_TYPE(UNTYPED);        
             ctx.index = bracket_range.y()-1;
             ctx.it = ctx.tokens.begin() + (int)(bracket_range.y());
@@ -150,12 +158,60 @@ namespace paren_module {
         });
         
         size_t rbracket_id = reg::new_type("RBRACKET"); 
-        reg::new_type("EXIT_BRACKET"); 
         a_functions.put(rbracket_id, [](a_context& ctx) {
             if(ctx.local && ctx.state != GET_TYPE(UNTYPED)) {
                 ctx.end_lambda();
                 ctx.state = GET_TYPE(UNTYPED);
             }
+        });
+
+        state_is_opp.put(indexing_id,true);
+        token_to_opp.put(brackets_id,indexing_id);
+        type_precdence.put(indexing_id,2); //Unsure
+        size_t t_indexing_id = reg::new_type("T_INDEXING"); 
+        t_opp_conversion.put(indexing_id, t_indexing_id);
+        t_functions.put(indexing_id, [t_indexing_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = t_indexing_id;
+            if(ctx.node->sub_nodes.length()>1) {
+                print("indexing::171 the brackets/indexing opperator only accepts one opperand right now");
+            }
+            // ctx.result->left = t_parse_expression(ctx.node,ctx.left);
+            ctx.result->left = t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]) ;
+            ctx.result->right = t_parse_expression(ctx.node->sub_nodes[0],ctx.left);
+            return ctx.result;
+        });
+        size_t r_indexing_id = reg::new_type("R_INDEXING"); 
+        r_handlers.put(t_indexing_id,[r_indexing_id](g_ptr<r_node>& result, r_context& ctx) {
+            result->type = r_indexing_id;
+            if(ctx.node->left) {
+                result->left = resolve_symbol(ctx.node->left,ctx.scope,ctx.frame);
+            }
+            if(ctx.node->right) {
+                result->right = resolve_symbol(ctx.node->right,ctx.scope,ctx.frame);
+            }
+        });
+        exec_handlers.put(r_indexing_id, [](exec_context& ctx) -> g_ptr<r_node> { 
+            if(ctx.node->left) {
+                execute_r_node(ctx.node->left,ctx.frame,ctx.index);
+                if(ctx.node->left->resolved_type) {
+                    //add opperator overloading for indexing
+                }
+                else if(ctx.node->right) {
+                    execute_r_node(ctx.node->right,ctx.frame,ctx.index);
+                    int index = ctx.node->left->in_scope->notes.get(ctx.node->left->name).index;
+                    int sub_index = *(int*)ctx.node->right->value.data;
+                    if(sub_index==-1) {
+                        print(ctx.node->left->in_scope->table_to_string(ctx.node->left->value.size));
+                    }
+                    else {
+                        ctx.node->index = sub_index;
+                        ctx.node->value = std::move(ctx.node->left->value);
+                        ctx.node->value.data = ctx.node->left->in_scope->get(index,sub_index,4);
+                    }
+                }
+              
+             }
+            return ctx.node;
         });
     }
 }
@@ -679,7 +735,7 @@ namespace property_module {
             execute_r_node(ctx.node->right, ctx.frame, ctx.index);
 
             size_t target_index = (ctx.node->left->type == r_prop_access_id) ? 
-                ctx.frame->slots.get(ctx.node->left->slot) : ctx.index;
+                ctx.frame->slots.get(ctx.node->left->slot) : (ctx.node->left->index==-1?ctx.index:ctx.node->left->index);
             Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
                                    target_index, ctx.node->right->value.size);
 
@@ -984,8 +1040,11 @@ namespace variables_module {
         exec_handlers.put(r_var_decl_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
             if(!ctx.node->children.empty()) {
                 execute_r_node(ctx.node->children[0],ctx.frame,ctx.index);
-                int size = *(int*)ctx.node->children[0]->value.data;
-                print("Creating array of size ",size);
+                int size = *(int*)ctx.node->children[0]->right->value.data;
+                int index = ctx.frame->context->notes.get(ctx.node->name).index;
+                while(ctx.frame->context->row_length(index,4)<size) {
+                    ctx.frame->context->add_row(index,4);
+                }
             }
             else if(ctx.node->value.type == object_id) {
                 g_ptr<Object> obj = ctx.node->resolved_type->create();
@@ -1015,6 +1074,8 @@ namespace variables_module {
         
         size_t identifier_id = reg::new_type("IDENTIFIER");
         size_t literal_identifier_id = reg::new_type("LITERAL_IDENTIFIER");
+        // state_is_opp.put(literal_identifier_id,true); Not a good idea
+        // type_precdence.put(literal_identifier_id,4);
         a_functions.put(identifier_id, [literal_identifier_id,var_decl_id](a_context& ctx) {
             if(ctx.state == GET_TYPE(UNTYPED)) {
                 ctx.state = literal_identifier_id;
@@ -1060,19 +1121,9 @@ namespace variables_module {
             }
         });
         exec_handlers.put(r_identifier_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
-            if(!ctx.node->children.empty()) {
-                if(ctx.node->value.type==object_id) {
-                    //Opperator overloading for () and [] here
-                } else {
-                execute_r_node(ctx.node->children[0],ctx.frame,ctx.index);
-                int index = *(int*)ctx.node->children[0]->value.data;
-                print("Accesing index of array ",index);
-                }
-            }
-            else {
             if(ctx.node->value.type!=object_id) //So we don't perform set opperations on objects
                 ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
-            }
+
             return ctx.node;
         });
 

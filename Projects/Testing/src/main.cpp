@@ -81,12 +81,12 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 int main() {
   
     g_ptr<Type> t = make<Type>();
-    t->note_value("test",4);
-    t->add_rows(4);
-    t->create();
-    t->note_value("other_test",4);
-    t->create();
-    t->create();
+    t->add_column(4);
+    t->add_column(4);
+    t->add_row(0,4);
+    t->add_row(1,4);
+    t->add_row(1,4);
+    t->add_row(1,4);
     print(t->table_to_string(4));
     // void* addr = &t->byte4_columns[0];
 
