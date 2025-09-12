@@ -1,11 +1,10 @@
-type person {
-    string name = "noname";
+type num {
+    int value = 3;
+    int nums[3];
 }
 
-person joe;
-person mary;
-joe.name = "Joe";
-string word;
-word = joe.name;
-joe.name = "Not Joe";
-mary.name = "Mary";
+num one;
+one.value = 4;
+one.nums[0] = 10;
+one.nums[1] = 20;
+print(one.nums[0]);

@@ -76,81 +76,196 @@ public:
         return toReturn;
     }
 
-    //Currently only works with size 4, add the other sizes later
-    std::string table_to_string(size_t size) {
+    template<typename T>
+    std::string make_table_from_size(const T& columns,size_t size,int mode) {
         std::string table = "";
-        switch(size) {
-            case 4: {
-                std::string header = "--- ";
-                for(int c=0;c<byte4_columns.length();c++) {
-                    header.append(std::to_string(c)+":"+std::to_string((uintptr_t)&byte4_columns[c]).append(" ").insert(5,"-").insert(8,"-"));
-                }
-                table.append(header+"\n");
-                int lr = -1; //Longest length
-                for(int c=0;c<byte4_columns.length();c++) {
-                    int l = byte4_columns[c].length();
-                    if(l>lr) {
-                        lr = byte4_columns[c].length();
-                    }
-                }
-                for(int r=-1;r<lr;r++) {
-                    std::string row = " ";
-                    if(r==-1) {
-                        row.append("  ");
-                        for(int c=0;c<byte4_columns.length();c++) {
+        int lr = -1; //Longest length
+        for(int c=0;c<columns.length();c++) {
+            int l = columns[c].length();
+            if(l>lr) lr = l;
+        }
+
+        if(mode==1) { //Auto
+            if(columns.length()<10) mode = 2;
+            else mode = 3;
+        }
+        if(mode==2) //Full
+        {
+            std::string header = "COL: ";
+            for(int c=0;c<columns.length();c++) {
+                header.append(std::to_string(c)+":"+std::to_string((uintptr_t)&columns[c]).append(" ").insert(5,"-").insert(8,"-"));
+            }
+            table.append(header+"\n");
+            for(int r=-1;r<lr;r++) {
+                std::string row = "";
+                if(r==-1) {
+                    std::string size_s = std::to_string(size);
+                    row.append(size_s);
+                    if(size_s.length()==1) row.append("   ");
+                    if(size_s.length()==2) row.append("  ");
+                    if(size_s.length()==3) row.append(" ");
+                    for(int c=0;c<columns.length();c++) {
+                        if(c<10)
                             row.append("  -------------");
-                        }
-                    } else {
-                    row.append(std::to_string(r)+": ");
-                    for(int c=0;c<byte4_columns.length();c++) {
-                        if(r<byte4_columns[c].length())
-                            row.append("  "+std::to_string((uintptr_t)&byte4_columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
+                        else
+                            row.append("   -------------");
+                    }
+                } else {
+                    if(r<10) row.append("   ");
+                    else if(r<100) row.append("  ");
+                    row.append(std::to_string(r)+":");
+                    for(int c=0;c<columns.length();c++) {
+                        if(r<columns[c].length())
+                            row.append("  "+std::to_string((uintptr_t)&columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
                         else
                             row.append("             ");
                     }
-                    }
-                    table.append(row+(r!=lr-1?"\n":""));
                 }
+                table.append(row+(r!=lr-1?"\n":""));
             }
-            break;
-            case 24: {
-                std::string header = "--- ";
-                for(int c=0;c<byte24_columns.length();c++) {
-                    header.append(std::to_string(c)+":"+std::to_string((uintptr_t)&byte24_columns[c]).append(" ").insert(5,"-").insert(8,"-"));
-                }
-                table.append(header+"\n");
-                int lr = -1; //Longest length
-                for(int c=0;c<byte24_columns.length();c++) {
-                    int l = byte24_columns[c].length();
-                    if(l>lr) {
-                        lr = byte24_columns[c].length();
-                    }
-                }
-                for(int r=-1;r<lr;r++) {
-                    std::string row = " ";
-                    if(r==-1) {
-                        row.append("  ");
-                        for(int c=0;c<byte24_columns.length();c++) {
-                            row.append("  -------------");
-                        }
-                    } else {
-                    row.append(std::to_string(r)+": ");
-                    for(int c=0;c<byte24_columns.length();c++) {
-                        if(r<byte24_columns[c].length())
-                            row.append("  "+std::to_string((uintptr_t)&byte24_columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
+        }
+        else if(mode==3) //Compact
+        {
+            std::string header = "COL: ";
+            for(int c=0;c<columns.length();c++) {
+                header.append(std::to_string(c)+" ");
+            }
+            table.append(header+"\n");
+
+            for(int r=-1;r<lr;r++) {
+                std::string row = "";
+                if(r==-1) {
+                    std::string size_s = std::to_string(size);
+                    row.append(size_s);
+                    if(size_s.length()==1) row.append("   ");
+                    if(size_s.length()==2) row.append("  ");
+                    if(size_s.length()==3) row.append(" ");
+                    for(int c=0;c<columns.length();c++) {
+                        if(c<10)
+                            row.append(" =");
                         else
-                            row.append("             ");
+                            row.append(" ==");
                     }
+                } else {
+                if(r<10) row.append("  ");
+                else if(r<100) row.append(" ");
+                row.append(std::to_string(r)+":");
+                for(int c=0;c<columns.length();c++) {
+                    if(r<columns[c].length())
+                        row.append(" O");
+                    else
+                        row.append("  ");
+                }
+                }
+                table.append(row+(r!=lr-1?"\n":""));
+            }
+        }
+        else if(mode==4) {
+            list<list<std::string>> ids(columns.length());
+            list<int> ids_max_size(columns.length());
+            for(int i=0;i<columns.length();i++) {
+                ids_max_size[i] = 0;
+                list<std::string> sl(lr);
+                for(int r=0;r<lr;r++) sl[r] = "";
+                ids[i] = sl;
+            }
+            if(notes.size()!=0) { //Do we have map entries?
+                for(auto e : notes.entrySet()) {
+                    ids[e.value.index][e.value.sub_index] = e.key;
+                    if(e.key.length()>ids_max_size[e.value.index]) {
+                        ids_max_size[e.value.index] = e.key.length();
                     }
-                    table.append(row+(r!=lr-1?"\n":""));
                 }
             }
-            break;
-            default: 
-                print("print_column::84 invalid size for print ",size);
-            break;
+            if(array.size()!=0) { //Do we have array entires?
+                for(int a=0;a<array.length();a++) {
+                    if(ids[array[a].index][array[a].sub_index]=="") {
+                        std::string s_of = std::to_string(a);
+                        ids[array[a].index][array[a].sub_index] = s_of;
+                        if(s_of.length()>ids_max_size[array[a].index]) {
+                            ids_max_size[array[a].index] = s_of.length();
+                        }
+                    } 
+                }
+            }
+            if(objects.size()!=0) { //Do we have objects?
+                for(int o=0;o<objects.length();o++) {
+                    int rid = objects[o]->ID;
+                    for(int c=0;c<columns.length();c++) {
+                        if(ids[c][rid]=="") {
+                            std::string s_of = type_name+":"+std::to_string(rid);
+                            ids[c][rid] = s_of;
+                            if(s_of.length()>ids_max_size[c]) {
+                                ids_max_size[c] = s_of.length();
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::string header = "COL: ";
+            for(int c=0;c<columns.length();c++) {
+                header.append(std::to_string(c)+" ");
+                for(int i = 0;i<ids_max_size[c]-std::to_string(c).length();i++) {
+                    header.append(" ");
+                }
+            }
+            table.append(header+"\n");
+
+            for(int r=-1;r<lr;r++) {
+                std::string row = "";
+                if(r==-1) {
+                    std::string size_s = std::to_string(size);
+                    row.append(size_s);
+                    if(size_s.length()==1) row.append("   ");
+                    if(size_s.length()==2) row.append("  ");
+                    if(size_s.length()==3) row.append(" ");
+                    for(int c=0;c<columns.length();c++) {
+                        row.append(" ");
+                        for(int i = 0;i<ids_max_size[c]+1-std::to_string(c).length();i++) {
+                            row.append("=");
+                        }
+                    }
+                } else {
+                if(r<10) row.append("  ");
+                else if(r<100) row.append(" ");
+                row.append(std::to_string(r)+":");
+                for(int c=0;c<columns.length();c++) {
+                    if(ids[c][r]!="") {
+                        for(int i = 0;i<ids_max_size[c]-ids[c][r].length();i++)
+                            row.append(" ");
+                        row.append(" "+ids[c][r]);
+                    }
+                    else {
+                        row.append(" ");
+                        for(int i = 0;i<ids_max_size[c];i++) 
+                            row.append(" ");
+                    }
+                }
+                }
+                table.append(row+(r!=lr-1?"\n":""));
+            }
+
+            
         }
         return table;
+    }
+
+    //Modes: 1 == Auto, 2 == Full, 3 == Compact, 4 == Pretty
+    std::string table_to_string(size_t size,int mode = 1) {
+        switch(size) {
+            case 1: return make_table_from_size<list<list<uint8_t>>>(byte1_columns,1,mode);
+            case 2: return make_table_from_size<list<list<uint16_t>>>(byte2_columns,2,mode);
+            case 4: return make_table_from_size<list<list<uint32_t>>>(byte4_columns,4,mode);
+            case 8: return make_table_from_size<list<list<uint64_t>>>(byte8_columns,8,mode);
+            case 16: return make_table_from_size<list<list<byte16_t>>>(byte16_columns,16,mode);
+            case 24: return make_table_from_size<list<list<byte24_t>>>(byte24_columns,24,mode);
+            case 32: return make_table_from_size<list<list<byte32_t>>>(byte32_columns,32,mode);
+            case 64: return make_table_from_size<list<list<byte64_t>>>(byte64_columns,64,mode);
+            default: 
+                return "print_column::84 invalid size for print "+std::to_string(size);
+            break;
+        }
     }
 
     // for(int r=0;r<byte4_columns.length();r++) {
@@ -557,13 +672,14 @@ public:
     }
 
     void data_set(const std::string& name,void* value) {
-        set_from_note(notes.getOrDefault(name,note_fallback),value);
+        set_from_note(get_note(name),value);
     }
 
     void array_set(int index,void* value) {
         set_from_note(array[index],value);
     }
 
+    //Uses data set
     template<typename T>
     void set(const std::string& label,T value) {
      data_set(label,&value);
@@ -581,8 +697,6 @@ public:
      set(index,sub_index,sizeof(T),&value);
     }
     
-
-
     /// @brief For use in the ARRAY strategy
     void push(void* value, size_t size,int t) {
         switch(size) {
@@ -643,6 +757,7 @@ public:
         }
     }
 
+    /// @brief For use in the ARRAY strategy
     template<typename T>
     void push(T value,int t = 0) {
         push(&value,sizeof(T),t);

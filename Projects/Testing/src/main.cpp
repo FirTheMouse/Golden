@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include<core/type.hpp>
+#include<util/string_generator.hpp>
 
 
 double time_function(int ITERATIONS,std::function<void(int)> process) {
@@ -80,19 +81,23 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
 
 int main() {
   
-    // g_ptr<Type> t = make<Type>();
-    // for(int i=0;i<1;i++) t->add_column(4);
-    // void* addr = &t->byte4_columns[0];
-    // t->push<int>(8);
-    // for(int i=0;i<9;i++) {
-    //     print(i,"i\n"+t->table_to_string(4));
-    //     t->add_column(4); //We can't add more columns otherwise it breaks
-    //     //Perhaps a special resize that updates all addresses?
-    //     //t->push<int>(i);
-    //     t->add_rows(4);
-    //     //int j = *(int*)Type::get(addr,i,4);
-    //     //Type::set(addr,&i,0,4);
-    // }
+    g_ptr<Type> t = make<Type>();
+    t->type_name = "test";
+    for(int i=0;i<4;i++) t->add_column(4);
+    //for(int i=0;i<13;i++) t->add_rows(4);
+    t->create();
+    t->create();
+    for(int i=0;i<16;i++) {
+        // t->add_column(4);
+        if(i<10) t->add<int>(name::randname(),i,randi(0,3));
+        if(i>6) t->add<int>(std::to_string(i)+"b",i,randi(0,3));
+        if(i<3) t->add<int>(name::randname(),i,randi(0,3));
+        if(i>10) t->add<int>(std::to_string(i)+"cd",i,randi(0,3));
+        if(i>4&&i<8) t->push<int>(i,randi(0,3));
+        if(i>6&&i<11) t->push<int>(i,randi(0,3));
+        //t->add_rows(4);
+    }
+    print(t->table_to_string(4,4));
 
     // void* tt;
     // tt = malloc(sizeof(t));
@@ -165,7 +170,7 @@ int main() {
     comps << vec4(0,2 , 1,1);
     comps << vec4(0,1 , 0,3);
 
-    run_rig(f_table,s_table,comps,true,5,10000);
+    //run_rig(f_table,s_table,comps,true,5,10000);
 
     return 0;
 }

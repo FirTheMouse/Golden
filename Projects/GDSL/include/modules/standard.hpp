@@ -701,8 +701,9 @@ namespace property_module {
             }
         });
         exec_handlers.put(r_prop_access_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            if(ctx.node->frame) {
-                ctx.node->value.data = ctx.node->frame->context->get(ctx.node->value.address, 
+            if(ctx.node->resolved_type) {
+                print(ctx.node->value.address,"-",ctx.node->frame->slots.get(ctx.node->slot),"\n", ctx.node->resolved_type->table_to_string(ctx.node->value.size),"\n", ctx.node->frame->context->table_to_string(ctx.node->value.size));
+                ctx.node->value.data = ctx.node->resolved_type->get(ctx.node->value.address, 
                     ctx.node->frame->slots.get(ctx.node->slot), 
                     ctx.node->value.size);
                 // if(!ctx.node->value.data) print("Data failed");
@@ -711,13 +712,13 @@ namespace property_module {
                 //     ctx.node->frame->slots.get(ctx.node->slot, "execute_r_node::prop_access"), 
                 //     " -> ", ctx.node->value.to_string());
             }
-            else print("execute_r_node::1970 No frame in node for prop access");
+            else print("r_prop_access::715 Object is missing a resolved type");
             return ctx.node;
         });
         stream_handlers.put(r_prop_access_id, [](exec_context& ctx) -> std::function<void()>{ 
             void** l_data = &ctx.node->value.data; 
             //Also: t_value* result_location = &ctx.node->value;
-            g_ptr<Type> l_type = ctx.node->frame->context;
+            g_ptr<Type> l_type = ctx.node->resolved_type;
             int l_address = ctx.node->value.address;
             size_t slot = ctx.node->frame->slots.get(ctx.node->slot);
             size_t size = ctx.node->value.size;      
@@ -743,10 +744,16 @@ namespace property_module {
             execute_r_node(ctx.node->left, ctx.frame, ctx.index);
             execute_r_node(ctx.node->right, ctx.frame, ctx.index);
 
-            size_t target_index = (ctx.node->left->type == r_prop_access_id) ? 
-                ctx.frame->slots.get(ctx.node->left->slot) : (ctx.node->left->index==-1?ctx.index:ctx.node->left->index);
-            ctx.frame->context->set(ctx.node->left->value.address, target_index, 
-                                   ctx.node->right->value.size, ctx.node->right->value.data);
+            if(ctx.node->left->resolved_type) { //Is an object
+                size_t target_index = ctx.frame->slots.get(ctx.node->left->slot);
+                ctx.node->left->resolved_type->set(ctx.node->left->value.address, target_index, 
+                    ctx.node->right->value.size, ctx.node->right->value.data);
+            }
+            else {
+                size_t target_index = ctx.node->left->index==-1?ctx.index:ctx.node->left->index;
+                ctx.frame->context->set(ctx.node->left->value.address, target_index, 
+                    ctx.node->right->value.size, ctx.node->right->value.data);
+            }
 
             return ctx.node;
         });

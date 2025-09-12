@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 1
+#define PRINT_ALL 0
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -1264,6 +1264,7 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
     frame->type = root->scope_type;
     frame->context = root->type_ref; //This should've been filled in during discovery
     root->frame = frame;
+    //frame->context->type_name = TO_STRING(root->scope_type);
 
     for(int i = 0; i < root->t_nodes.size(); i++) {
         auto node = root->t_nodes[i];
