@@ -18,8 +18,8 @@ struct _note {
     _note() {}
     _note(int _index, size_t _size) : index(_index), size(_size) {}
     _note(int _index, size_t _size, int _sub_index) : index(_index), size(_size), sub_index(_sub_index) {}
-    int index = 0;
-    int sub_index = 0;
+    int index = -1;
+    int sub_index = -1;
     size_t size = 0;
 };
 
@@ -105,6 +105,39 @@ public:
                     for(int c=0;c<byte4_columns.length();c++) {
                         if(r<byte4_columns[c].length())
                             row.append("  "+std::to_string((uintptr_t)&byte4_columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
+                        else
+                            row.append("             ");
+                    }
+                    }
+                    table.append(row+(r!=lr-1?"\n":""));
+                }
+            }
+            break;
+            case 24: {
+                std::string header = "--- ";
+                for(int c=0;c<byte24_columns.length();c++) {
+                    header.append(std::to_string(c)+":"+std::to_string((uintptr_t)&byte24_columns[c]).append(" ").insert(5,"-").insert(8,"-"));
+                }
+                table.append(header+"\n");
+                int lr = -1; //Longest length
+                for(int c=0;c<byte24_columns.length();c++) {
+                    int l = byte24_columns[c].length();
+                    if(l>lr) {
+                        lr = byte24_columns[c].length();
+                    }
+                }
+                for(int r=-1;r<lr;r++) {
+                    std::string row = " ";
+                    if(r==-1) {
+                        row.append("  ");
+                        for(int c=0;c<byte24_columns.length();c++) {
+                            row.append("  -------------");
+                        }
+                    } else {
+                    row.append(std::to_string(r)+": ");
+                    for(int c=0;c<byte24_columns.length();c++) {
+                        if(r<byte24_columns[c].length())
+                            row.append("  "+std::to_string((uintptr_t)&byte24_columns[c][r]).append(" ").insert(5,"-").insert(8,"-"));
                         else
                             row.append("             ");
                     }
@@ -313,10 +346,10 @@ public:
     // }
 
     /// @brief For use in the MAP strategy
-    void* adress_column(const std::string& name) {
+    void* address_column(const std::string& name) {
         _note note = notes.getOrDefault(name,note_fallback);
         switch(note.size) {
-            case 0: return nullptr; //print("adress_column::175 Note not found for ",name); 
+            case 0: return nullptr; //print("address_column::175 Note not found for ",name); 
             case 1: return &byte1_columns[note.index];
             case 2: return &byte2_columns[note.index];
             case 4: return &byte4_columns[note.index];
@@ -325,7 +358,7 @@ public:
             case 24: return &byte24_columns[note.index];
             case 32: return &byte32_columns[note.index];
             case 64: return &byte64_columns[note.index];
-            default: print("adress_column::180 Invalid note size ",note.size); return nullptr;
+            default: print("address_column::180 Invalid note size ",note.size); return nullptr;
         }
     }
 
@@ -346,7 +379,7 @@ public:
     }
 
     void set(const std::string& label,void* value,size_t index,size_t size) {
-        void* ptr = adress_column(label);
+        void* ptr = address_column(label);
         if (!ptr) return;
         return set(ptr,value,index,size);
     }
@@ -375,7 +408,7 @@ public:
     }
 
     void* get(const std::string& label, size_t index, size_t size) {
-        void* ptr = adress_column(label);
+        void* ptr = address_column(label);
         if (!ptr) return nullptr;
         return get(ptr,index,size);
     }

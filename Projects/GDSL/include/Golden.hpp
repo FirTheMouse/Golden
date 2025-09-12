@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 0
+#define PRINT_ALL 1
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -412,9 +412,13 @@ static std::string data_to_string(uint32_t type,void* data) {
 
 /// @brief BIG WARNING! These leak right now and we need to add cleanup for data in the future!
 struct t_value {
+
+    ~t_value() {
+        free(data);
+    }
     uint32_t type = GET_TYPE(UNDEFINED);
     void* data;
-    void* address;
+    int address = -1;
     size_t size;
 
     template<typename T>
@@ -426,7 +430,7 @@ struct t_value {
             data = malloc(sizeof(T));
             size = sizeof(T);
         }
-        *(T*)data = value; 
+        new(data) T(value);
     }
 
     std::string to_string() {
@@ -1057,6 +1061,7 @@ class Frame : public Object {
     list<g_ptr<r_node>> nodes;
     list<size_t> slots;
     t_value return_val;
+    list<g_ptr<Object>> active_objects;
     list<std::function<void()>> stored_functions;
 };
 
@@ -1162,17 +1167,17 @@ static g_ptr<s_node> find_type_decl(g_ptr<Type> type, g_ptr<s_node> root) {
 
 //This very much needs to be replaced and changed, cleaned up
 static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame) {
-    void* ptr = nullptr;
+    int index = -1;
     g_ptr<s_node> on_scope = scope;
-    while(!ptr) {
-        ptr = on_scope->type_ref->adress_column(node->name);
-        if(ptr) break;
+    while(index==-1) {
+        index = on_scope->type_ref->get_note(node->name).index;
+        if(index!=-1) break;
         if(on_scope->parent) {
             on_scope = on_scope->parent;
         }
         else break;
     }
-    if(ptr) {
+    if(index!=-1) {
         result->name = node->name;
         if(on_scope->slot_map.hasKey(node->name)) {
             if(on_scope->frame) {
@@ -1185,8 +1190,8 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             result->resolved_type = on_scope->type_map.get(node->name);
             result->value.type = GET_TYPE(OBJECT);
         }
-        result->value.address = ptr;
-        //print("Set address of ",result->name," to ",&ptr);
+        result->value.address = index;
+
         if(on_scope->size_map.hasKey(node->name)) {
             result->value.size = on_scope->size_map.get(node->name);
             result->value.type = on_scope->o_type_map.get(node->name);
@@ -1336,6 +1341,7 @@ static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t
     return node;
 }
 
+
 static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
     if(!context) { 
         //This is bassicly just to push rows and mark them as usable or not to a thread
@@ -1353,6 +1359,9 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
         }
     }
     frame->context->recycle(context);
+    for(int i=frame->active_objects.length()-1;i>=0;i--) {
+        frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
+    }
 }   
 
 map<uint32_t, std::function<std::function<void()>(exec_context&)>> stream_handlers;
@@ -1372,6 +1381,9 @@ static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
 }
 
 static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
+    #if PRINT_ALL
+    print("==STREAM NODES==");
+    #endif
     if(!context) { 
         context = frame->context->create();
     }
@@ -1380,12 +1392,19 @@ static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
         stream_r_node(node,frame,context->ID);
     }
     frame->context->recycle(context);
+    // for(int i=frame->active_objects.length()-1;i>=0;i--) {
+    //     frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
+    // }
 }   
 
 static void execute_stream(g_ptr<Frame> frame) {
     for(int i =0;i<frame->stored_functions.length();i++) {
         frame->stored_functions[i]();
     }
+    for(int i=frame->active_objects.length()-1;i>=0;i--) {
+        frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
+    }
+    
     // if(frame->context->byte32_columns.length()>0) {
     //     void* stream_addr = &frame->context->byte32_columns[1];
     //     list<byte32_t>* stream = (list<byte32_t>*)stream_addr;

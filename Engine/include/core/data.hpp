@@ -136,17 +136,17 @@ namespace Golden {
         }
 
         /// @brief For use in the MAP strategy
-        void* adress_column(const std::string& name) {
+        void* address_column(const std::string& name) {
             _note note = notes.getOrDefault(name,note_fallback);
             switch(note.size) {
-                case 0: return nullptr; //print("adress_column::175 Note not found for ",name); 
+                case 0: return nullptr; //print("address_column::175 Note not found for ",name); 
                 case 1: return &byte1_columns[note.index];
                 case 4: return &byte4_columns[note.index];
                 case 8: return &byte8_columns[note.index];
                 case 16: return &byte16_columns[note.index];
                 case 32: return &byte24_columns[note.index];
                 case 64: return &byte64_columns[note.index];
-                default: print("adress_column::180 Invalid note size ",note.size); return nullptr;
+                default: print("address_column::180 Invalid note size ",note.size); return nullptr;
             }
         }
 
@@ -163,7 +163,7 @@ namespace Golden {
         }
 
         void set(const std::string& label,void* value,size_t index,size_t size) {
-            void* ptr = adress_column(label);
+            void* ptr = address_column(label);
             if (!ptr) return;
             return set(ptr,value,index,size);
         }
@@ -190,7 +190,7 @@ namespace Golden {
         }
 
         void* get(const std::string& label, size_t index, size_t size) {
-            void* ptr = adress_column(label);
+            void* ptr = address_column(label);
             if (!ptr) return nullptr;
             return get(ptr,index,size);
         }
@@ -253,14 +253,14 @@ namespace Golden {
                 _note note = array.get(index);
                 // print("S: ",note.size," I:",note.index);
                 switch(note.size) {
-                    case 0: return nullptr; //print("adress_column::84 Note not found for ",name); 
+                    case 0: return nullptr; //print("address_column::84 Note not found for ",name); 
                     case 1: return &byte1_columns[t][note.index];
                     case 4: return &byte4_columns[t][note.index];
                     case 8: return &byte8_columns[t][note.index];
                     case 16: return &byte16_columns[t][note.index];
                     case 32: return &byte24_columns[t][note.index];
                     case 64: return &byte64_columns[t][note.index];
-                    default: print("adress_column::91 Invalid note size ",note.size); return nullptr;
+                    default: print("address_column::91 Invalid note size ",note.size); return nullptr;
                 }
         }
 

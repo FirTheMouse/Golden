@@ -668,7 +668,7 @@ namespace property_module {
                 result->slot = info->slot;
                 if(ctx.frame->slots.length() <= result->slot) ctx.frame->slots << 0;
                 result->resolved_type = info->resolved_type;
-                result->value.address = result->resolved_type->adress_column(ctx.node->right->name);
+                result->value.address = result->resolved_type->get_note(ctx.node->right->name).index;
                 result->value.size = result->resolved_type->notes.get(ctx.node->right->name).size;
                 result->value.type = info->value.type;
                 result->name = ctx.node->left->name;
@@ -702,7 +702,7 @@ namespace property_module {
         });
         exec_handlers.put(r_prop_access_id, [](exec_context& ctx) -> g_ptr<r_node> {
             if(ctx.node->frame) {
-                ctx.node->value.data = Type::get(ctx.node->value.address, 
+                ctx.node->value.data = ctx.node->frame->context->get(ctx.node->value.address, 
                     ctx.node->frame->slots.get(ctx.node->slot), 
                     ctx.node->value.size);
                 // if(!ctx.node->value.data) print("Data failed");
@@ -717,11 +717,12 @@ namespace property_module {
         stream_handlers.put(r_prop_access_id, [](exec_context& ctx) -> std::function<void()>{ 
             void** l_data = &ctx.node->value.data; 
             //Also: t_value* result_location = &ctx.node->value;
-            void* l_address = ctx.node->value.address;
+            g_ptr<Type> l_type = ctx.node->frame->context;
+            int l_address = ctx.node->value.address;
             size_t slot = ctx.node->frame->slots.get(ctx.node->slot);
             size_t size = ctx.node->value.size;      
-            std::function<void()> func = [l_data,l_address,slot,size](){
-                *l_data = Type::get(l_address,slot,size);
+            std::function<void()> func = [l_type,l_data,l_address,slot,size](){
+                *l_data = l_type->get(l_address,slot,size);
             };
             return func;
         });
@@ -744,29 +745,26 @@ namespace property_module {
 
             size_t target_index = (ctx.node->left->type == r_prop_access_id) ? 
                 ctx.frame->slots.get(ctx.node->left->slot) : (ctx.node->left->index==-1?ctx.index:ctx.node->left->index);
-            Type::set(ctx.node->left->value.address, ctx.node->right->value.data, 
-                                   target_index, ctx.node->right->value.size);
+            ctx.frame->context->set(ctx.node->left->value.address, target_index, 
+                                   ctx.node->right->value.size, ctx.node->right->value.data);
 
             return ctx.node;
         });
-        stream_handlers.put(r_assignment_id, [](exec_context& ctx) -> std::function<void()>{
+        stream_handlers.put(r_assignment_id, [r_prop_access_id](exec_context& ctx) -> std::function<void()>{
             execute_r_node(ctx.node->left, ctx.frame, ctx.index);
             execute_r_node(ctx.node->right, ctx.frame, ctx.index);
             
-            size_t target_index = (ctx.node->left->type == GET_TYPE(R_IDENTIFIER)) ? 
-                ctx.index : ctx.frame->slots.get(ctx.node->left->slot);
+            size_t target_index = (ctx.node->left->type == r_prop_access_id) ? 
+                ctx.frame->slots.get(ctx.node->left->slot) : (ctx.node->left->index==-1?ctx.index:ctx.node->left->index);
             
-            void* l_addr = ctx.node->left->value.address;
-                if(!l_addr) print("r_assignment::stream_handler: l_addr not resolved");
+            int l_addr = ctx.node->left->value.address;
+                if(l_addr==-1) print("r_assignment::stream_handler: l_addr not resolved");
             void** r_data = &ctx.node->right->value.data;
                 if(!r_data) print("r_assignment::stream_handler: r_data not resolved");
             size_t r_size = ctx.node->right->value.size;
-            //Can turn this into a switch statment returning functions so we bake size in here to gain about 27% more performance
-            //by not using Type's API
-            //(*(list<uint32_t>*)l_addr)[target_index] = *(uint32_t*)r_data;
-            //Though in testing it doesn't make that much of a difference
-            std::function<void()> func = [l_addr,r_data,target_index,r_size]() {
-                Type::set(l_addr, *r_data, target_index, r_size);
+            g_ptr<Type> l_type = ctx.frame->context;
+            std::function<void()> func = [l_type,l_addr,r_data,target_index,r_size]() {
+                l_type->set(l_addr, target_index, r_size, *r_data);
             };
             return func;
         });
@@ -939,7 +937,7 @@ namespace opperator_module {
             ctx.node->value.data = &ctx.node->left->resolved_type->objects.get(ctx.frame->slots.get(ctx.node->left->slot));
            }
            else {
-            ctx.node->value.data = Type::get(ctx.node->left->value.address, ctx.index, ctx.node->left->value.size);
+            ctx.node->value.data = ctx.node->left->in_scope->get(ctx.node->left->value.address, ctx.index, ctx.node->left->value.size);
            }
            //ctx.node->left->value.address;
         }
@@ -1059,8 +1057,8 @@ namespace variables_module {
             result->value.type = ctx.node->value.type;
             result->value.size = ctx.node->value.size;
             result->name = ctx.node->name;
-            void* address = ctx.scope->type_ref->adress_column(ctx.node->name);
-            if(address) {
+            int address = ctx.scope->type_ref->get_note(ctx.node->name).index;
+            if(address!=-1) {
                 result->value.address = address;
             } else print("r_var_decl::r_handler No address found");
             if(ctx.node->value.type == object_id) {
@@ -1091,6 +1089,9 @@ namespace variables_module {
             else if(ctx.node->value.type == object_id) {
                 g_ptr<Object> obj = ctx.node->resolved_type->create();
                 ctx.frame->slots[ctx.node->slot] = obj->ID;
+                ctx.frame->active_objects << obj;
+                // print("ID: ",obj->ID,"\n",obj->type_->table_to_string(24));
+
             }
             else if(ctx.node->value.type == GET_TYPE(LIST)) {
                 g_ptr<Type> array = make<Type>();
@@ -1105,6 +1106,7 @@ namespace variables_module {
                 g_ptr<Frame> frame = ctx.frame;
                 g_ptr<Object> obj = resolved_type->create();
                 frame->slots[slot] = obj->ID;
+                frame->active_objects << obj;
                 std::function<void()> func = [resolved_type,frame,slot](){
                    //Run constructor
                 };
@@ -1164,7 +1166,7 @@ namespace variables_module {
         });
         exec_handlers.put(r_identifier_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
             if(ctx.node->value.type!=object_id) //So we don't perform set opperations on objects
-                ctx.node->value.data = Type::get(ctx.node->value.address, ctx.index, ctx.node->value.size);
+                ctx.node->value.data = ctx.node->in_scope->get(ctx.node->value.address, ctx.index, ctx.node->value.size);
 
             return ctx.node;
         });
