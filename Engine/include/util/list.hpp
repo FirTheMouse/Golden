@@ -296,6 +296,13 @@ public:
         capacity_ = new_capacity;
     }
 
+    void resize(size_t new_size) {
+        if (new_size > capacity_) {
+            reserve(new_size);
+        }
+        size_ = new_size;
+    }
+
     void shrink_to_fit() {
         if (size_ == capacity_ || capacity_ == 0) return;
         

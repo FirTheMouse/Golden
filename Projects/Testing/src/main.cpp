@@ -78,26 +78,37 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
     }
 }
 
+struct lt {
+    uint8_t tt[100];
+    std::string name = "DEF";
+};
 
 int main() {
-  
-    g_ptr<Type> t = make<Type>();
-    t->type_name = "test";
-    for(int i=0;i<4;i++) t->add_column(4);
-    //for(int i=0;i<13;i++) t->add_rows(4);
-    t->create();
-    t->create();
-    for(int i=0;i<16;i++) {
-        // t->add_column(4);
-        if(i<10) t->add<int>(name::randname(),i,randi(0,3));
-        if(i>6) t->add<int>(std::to_string(i)+"b",i,randi(0,3));
-        if(i<3) t->add<int>(name::randname(),i,randi(0,3));
-        if(i>10) t->add<int>(std::to_string(i)+"cd",i,randi(0,3));
-        if(i>4&&i<8) t->push<int>(i,randi(0,3));
-        if(i>6&&i<11) t->push<int>(i,randi(0,3));
-        //t->add_rows(4);
-    }
-    print(t->table_to_string(4,4));
+
+    // g_ptr<Type> t = make<Type>();
+    // t->type_name = "test";
+    // //for(int i=0;i<4;i++) t->add_column(4);
+    // //for(int i=0;i<13;i++) t->add_rows(4);
+    // lt l;
+    // l.name = "test_name";
+    // t->push<lt>(l);
+    // print("Name: ",t->get<lt>(0).name,"!");
+
+    // t->create();
+    // t->create();
+    // for(int i=0;i<16;i++) {
+    //     // t->add_column(4);
+    //     if(i<10) t->add<int>(name::randname(),i,randi(0,3));
+    //     if(i>6) t->add<int>(std::to_string(i)+"b",i,randi(0,3));
+    //     if(i<3) t->add<int>(name::randname(),i,randi(0,3));
+    //     if(i>10) t->add<int>(std::to_string(i)+"cd",i,randi(0,3));
+    //     if(i>4&&i<8) t->push<int>(i,randi(0,3));
+    //     if(i>6&&i<11) t->push<int>(i,randi(0,3));
+    //     //t->add_rows(4);
+    // }
+    // print(t->table_to_string(4,4));
+
+
 
     // void* tt;
     // tt = malloc(sizeof(t));
@@ -133,44 +144,52 @@ int main() {
     g_ptr<Type> type = make<Type>();
     z = 0;
     type->add_column(4);
-    s_table[z] << "setup"; //0
+    s_table[z] << "push_32"; //0
     f_table[z] << [type](int i){
-       type->add_row(0,4);
+       byte32_t t;
+       type->push<byte32_t>(t);
     };
-    void* address = &type->byte4_columns[0];
-    s_table[z] << "method-get"; //1
-    f_table[z] << [type,address](int i){
-       volatile int a = *(int*)Type::get(address,i,4);
+    s_table[z] << "push_64"; //1
+    f_table[z] << [type](int i){
+       byte64_t t;
+       type->push<byte64_t>(t);
     };
-    s_table[z] << "dir-get"; //2
-    f_table[z] << [type,address](int i){
-        volatile int a = (int)(*(list<uint32_t>*)address)[i];
+    s_table[z] << "push_128"; //2
+    f_table[z] << [type](int i){
+       lt t;
+       type->push<lt>(t);
     };
-    s_table[z] << "ptr-get"; //3
-    f_table[z] << [type,address](int i){
-        volatile int a = *(int*)type->get(0,i,4);
+    s_table[z] << "get_32"; //3
+    f_table[z] << [type](int i){
+       volatile byte32_t b = type->get<byte32_t>(0,i);
     };
+    s_table[z] << "get_64"; //4
+    f_table[z] << [type](int i){
+       volatile byte64_t b = type->get<byte64_t>(0,i);
+    };
+    s_table[z] << "get_128"; //5
+    f_table[z] << [type](int i){
+        volatile lt b = type->get<lt>(0,i);
+    };
+    list<lt> ltl;
+    s_table[z] << "list:push_128"; //6
+    f_table[z] << [type,&ltl](int i){
+        lt t;
+        ltl.push(t);
+    };
+    s_table[z] << "list:get_128"; //7
+    f_table[z] << [type,&ltl](int i){
+        volatile lt b = ltl.get(i);
+    };
+ 
+    comps << vec4(0,1 , 0,0);
+    comps << vec4(0,4 , 0,3);
+    comps << vec4(0,2 , 0,1);
+    comps << vec4(0,5 , 0,4);
+    comps << vec4(0,2 , 0,6);
+    comps << vec4(0,5 , 0,7);
 
-    z=1;
-    f_table << list<std::function<void(int)>>{};
-    s_table << list<std::string>{};
-    list<int> list;
-    s_table[z] << "list-push"; //0
-    f_table[z] << [&list](int i){
-       list << i;
-    };
-    s_table[z] << "list-get"; //1
-    f_table[z] << [&list](int i){
-       volatile int a = list[i];
-    };
-   
-    comps << vec4(0,0 , 1,0);
-    comps << vec4(0,1 , 0,2);
-    comps << vec4(0,1 , 1,1);
-    comps << vec4(0,2 , 1,1);
-    comps << vec4(0,1 , 0,3);
-
-    //run_rig(f_table,s_table,comps,true,5,10000);
+    run_rig(f_table,s_table,comps,true,200,50000);
 
     return 0;
 }

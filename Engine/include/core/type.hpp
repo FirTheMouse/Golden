@@ -4,6 +4,7 @@
 #include <util/util.hpp>
 
 
+
 namespace Golden {
 
 struct value_ {
@@ -29,12 +30,29 @@ struct byte16_t { uint8_t data[16]; };
 struct byte24_t { uint8_t data[24]; };
 struct byte32_t { uint8_t data[32]; };
 struct byte64_t { uint8_t data[64]; };
-
 struct _fallback_list {
-    _fallback_list() {}
-    _fallback_list(size_t _size) : size(_size) {}
-    size_t size = 32;
-    list<uint64_t> rows;
+    _fallback_list(size_t _size = 1) : component_size(_size) {}
+    size_t component_size;
+    list<uint8_t> storage;
+    
+    void* get(size_t index) {
+        return &storage[index * component_size];
+    }
+
+    size_t length() {
+       return storage.length() / component_size;
+    }
+    
+    void push(const void* component) {
+        size_t old_size = storage.size();
+        size_t new_size = old_size + component_size;
+        
+        if (new_size > storage.capacity()) {
+            storage.reserve(std::max(new_size, storage.capacity() * 2));
+        }
+        storage.resize(new_size);
+        memcpy(&storage[old_size], component, component_size);
+    }
 };
 
 class Type : public q_object {
@@ -62,9 +80,12 @@ public:
     list<list<byte24_t>> byte24_columns; // strings, list, medium objects (24 bytes)
     list<list<byte32_t>> byte32_columns; // strings on some systems (32 bytes)
     list<list<byte64_t>> byte64_columns; // mat4, large objects (64 bytes)
+    map<size_t,list<_fallback_list>> fallback_columns;
 
-    //In the future, add a fallback path for larger data sizes, similar to Bevy's system by not using list but instead manual
-    //managment and a size tab in the column itself
+    //The _fallback_list strategy, while vastly less performant than the pointer strategy for allocating >64 byte obejcts
+    //should have better memory saftey, if in the future leaks and memory saftey become an issue, consdier switching to using it
+
+
     size_t next_size(size_t size) {
         size_t toReturn = 0;
         for(int i=0;i<8;i++) {
@@ -325,7 +346,14 @@ public:
                 list.push(byte64_t{});  
             }
         break;
-        default: print("add_rows::100 invalid size ",size); break;
+        default: 
+            size = next_size(size);
+            if(size==0) {
+                print("add_rows::331 size is too large "); 
+            } 
+            else 
+                add_rows(size);
+        break;
         }
     }
 
@@ -359,7 +387,14 @@ public:
         case 64:
             byte64_columns[index].push(byte64_t{});  
         break;
-        default: print("add_row::130 invalid size ",size); break;
+        default:
+            size = next_size(size);
+            if(size==0) {
+                print("add_row::365 size is too large "); 
+            } 
+            else 
+                add_row(size);
+        break;
         }
     }
 
@@ -393,7 +428,14 @@ public:
         case 64:
             byte64_columns.push(list<byte64_t>());
         break;
-        default: print("add_column::130 invalid size ",size); byte32_columns.get(64,"breaking"); break;
+        default: 
+            size = next_size(size);
+            if(size==0) {
+                print("add_column::406 size is too large"); 
+            } 
+            else 
+                add_column(size);
+         break;
         }
     }
 
@@ -408,7 +450,14 @@ public:
             case 24: return byte24_columns.length();
             case 32: return byte32_columns.length();
             case 64: return byte64_columns.length();
-            default: print("column_length::130 invalid size ",size); return 0;
+            default: 
+            size = next_size(size);
+            if(size==0) {
+                print("column_length::414 size is too large ");
+                return 0;
+            } 
+            else 
+                return column_length(size);
         }
     }
 
@@ -423,7 +472,14 @@ public:
             case 24: return byte24_columns[index].length();
             case 32: return byte32_columns[index].length();
             case 64: return byte64_columns[index].length();
-            default: print("row_length::180 invalid size ",size); return 0;
+            default:
+            size = next_size(size);
+            if(size==0) {
+                print("row_length::436 size is too large ");
+                return 0;
+            } 
+            else 
+                return row_length(index,size);
         }
     }
 
@@ -432,7 +488,7 @@ public:
     bool validate(list<std::string> check) {
         for(auto c : check) {
             if(!notes.hasKey(c)) {
-                print("validate::190 type missing ",c);
+                print("validate::470 type missing ",c);
                 return false;
             }
         }
@@ -627,7 +683,15 @@ public:
             case 24: return &byte24_columns[index][sub_index];
             case 32: return &byte32_columns[index][sub_index];
             case 64: return &byte64_columns[index][sub_index];
-            default: print("get::330 Invalid size ",size); return nullptr;
+            default: 
+                size_t o_size = next_size(size);
+                if(o_size==0) {
+                    //print("get::633 Pointer fallback triggered");
+                    return *(void**)&byte8_columns[index][sub_index];
+                    //return fallback_columns.get(size)[index].get(sub_index);
+                } 
+                else 
+                    return get(index,sub_index,o_size);
         }
     }
 
@@ -643,14 +707,21 @@ public:
         return get_from_note(array[index]);
     }
 
+   //Uses data get
    template<typename T>
    T& get(const std::string& label) {
     return *(T*)data_get(label);
    }
 
+   //Uses array get
    template<typename T>
    T& get(int index) {
     return *(T*)array_get(index);
+   }
+
+   template<typename T>
+   T& get(int index,int sub_index) {
+    return *(T*)get(index,sub_index,sizeof(T));
    }
 
    void set(int index,int sub_index,size_t size,void* value) {
@@ -663,7 +734,13 @@ public:
         case 24: memcpy(&(byte24_columns[index])[sub_index], value, 24); break;
         case 32: memcpy(&(byte32_columns[index])[sub_index], value, 32); break;
         case 64: memcpy(&(byte64_columns[index])[sub_index], value, 64); break;
-        default: print("set::360 Invalid size ",size); break;
+        default: 
+            size = next_size(size);
+            if(size==0) {
+                print("set::670 Pointer fallback triggered");
+            } 
+            else set(index,sub_index,size,value);
+        break;
     }
     }
 
@@ -698,7 +775,7 @@ public:
     }
     
     /// @brief For use in the ARRAY strategy
-    void push(void* value, size_t size,int t) {
+    void push(void* value, size_t size,int t = 0) {
         switch(size) {
             case 1: 
             {
@@ -749,10 +826,17 @@ public:
             }
             break;
             default: 
-            size = next_size(size);
-            if(size==0) {
-                print("push::540 Pointer fallback triggered");
-            } else push(value,size,t);
+                size_t o_size = next_size(size);
+                if(o_size==0) {
+                    //print("push::540 Pointer fallback triggered");
+                    while(column_length(8)<=t) {add_column(8);}
+                    _note note(t,size,byte8_columns[t].length()); byte8_columns[t].push(*(uint64_t*)&value); array<<note;
+
+                    // list<_fallback_list>& fallback = fallback_columns.getOrPut(size,list<_fallback_list>{});
+                    // while(fallback.length()<=t) {fallback.push(_fallback_list{size});}
+                    // _note note(t,size,fallback[t].length()); fallback[t].push(value); array<<note;
+                } 
+                else push(value,o_size,t);
             break;
         }
     }
