@@ -1,10 +1,12 @@
 type num {
     int value = 3;
     int nums[3];
+    double d;
+    string n;
 }
 
 num one;
-one.value = 4;
+one.value = 8;
 one.nums[0] = 10;
 one.nums[1] = 20;
 print(one.nums[0]);

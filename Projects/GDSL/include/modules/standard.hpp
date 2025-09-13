@@ -200,8 +200,8 @@ namespace paren_module {
                     execute_r_node(ctx.node->right,ctx.frame,ctx.index);
                     int index = ctx.node->left->in_scope->notes.get(ctx.node->left->name).index;
                     int sub_index = *(int*)ctx.node->right->value.data;
-                    if(sub_index==-1) {
-                        print(ctx.node->left->in_scope->table_to_string(ctx.node->left->value.size));
+                    if(sub_index<0) {
+                        print(ctx.node->left->in_scope->type_to_string(std::abs(sub_index)));
                     }
                     else {
                         ctx.node->index = sub_index;
@@ -702,7 +702,8 @@ namespace property_module {
         });
         exec_handlers.put(r_prop_access_id, [](exec_context& ctx) -> g_ptr<r_node> {
             if(ctx.node->resolved_type) {
-                print(ctx.node->value.address,"-",ctx.node->frame->slots.get(ctx.node->slot),"\n", ctx.node->resolved_type->table_to_string(ctx.node->value.size),"\n", ctx.node->frame->context->table_to_string(ctx.node->value.size));
+                //print(ctx.node->value.address,"-",ctx.node->frame->slots.get(ctx.node->slot),"\n", ctx.node->resolved_type->table_to_string(ctx.node->value.size),"\n", ctx.node->frame->context->table_to_string(ctx.node->value.size));
+                print(ctx.node->value.address,"-",ctx.node->frame->slots.get(ctx.node->slot),"\n", ctx.node->resolved_type->type_to_string(4));
                 ctx.node->value.data = ctx.node->resolved_type->get(ctx.node->value.address, 
                     ctx.node->frame->slots.get(ctx.node->slot), 
                     ctx.node->value.size);
@@ -751,6 +752,11 @@ namespace property_module {
             }
             else {
                 size_t target_index = ctx.node->left->index==-1?ctx.index:ctx.node->left->index;
+                // size_t target_size = std::max(ctx.node->right->value.size,ctx.node->left->value.size);
+                // if(ctx.node->left->value.size>ctx.node->right->value.size) {
+                //     ctx.node->right->value.size = ctx.node->left->value.size;
+                //     ctx.node->right->value.type = ctx.node->left->value.type;
+                // }
                 ctx.frame->context->set(ctx.node->left->value.address, target_index, 
                     ctx.node->right->value.size, ctx.node->right->value.data);
             }

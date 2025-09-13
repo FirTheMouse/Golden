@@ -100,6 +100,7 @@ public:
     template<typename T>
     std::string make_table_from_size(const T& columns,size_t size,int mode) {
         std::string table = "";
+        if(columns.length()==0) return table;
         int lr = -1; //Longest length
         for(int c=0;c<columns.length();c++) {
             int l = columns[c].length();
@@ -184,17 +185,28 @@ public:
         else if(mode==4) {
             list<list<std::string>> ids(columns.length());
             list<int> ids_max_size(columns.length());
+            list<std::string> headers(columns.length());
             for(int i=0;i<columns.length();i++) {
                 ids_max_size[i] = 0;
                 list<std::string> sl(lr);
                 for(int r=0;r<lr;r++) sl[r] = "";
                 ids[i] = sl;
+                headers[i] = "";
             }
             if(notes.size()!=0) { //Do we have map entries?
                 for(auto e : notes.entrySet()) {
-                    ids[e.value.index][e.value.sub_index] = e.key;
-                    if(e.key.length()>ids_max_size[e.value.index]) {
-                        ids_max_size[e.value.index] = e.key.length();
+                    if(e.value.size==size) {
+                        if(e.value.sub_index!=-1) {
+                            ids[e.value.index][e.value.sub_index] = e.key;
+                            if(e.key.length()>ids_max_size[e.value.index]) {
+                                ids_max_size[e.value.index] = e.key.length();
+                            }
+                        } else {
+                            headers[e.value.index] = e.key;
+                            if(e.key.length()>ids_max_size[e.value.index]) {
+                                ids_max_size[e.value.index] = e.key.length();
+                            }
+                        }
                     }
                 }
             }
@@ -219,15 +231,21 @@ public:
                             if(s_of.length()>ids_max_size[c]) {
                                 ids_max_size[c] = s_of.length();
                             }
+                        } else {
+                            std::string s_of = std::to_string(rid)+":"+ids[c][rid];
+                            ids[c][rid] = s_of;
+                            if(s_of.length()>ids_max_size[c]) {
+                                ids_max_size[c] = s_of.length();
+                            }
                         }
                     }
                 }
             }
-
             std::string header = "COL: ";
             for(int c=0;c<columns.length();c++) {
-                header.append(std::to_string(c)+" ");
-                for(int i = 0;i<ids_max_size[c]-std::to_string(c).length();i++) {
+                std::string c_h = headers[c]==""?std::to_string(c):headers[c];
+                header.append(c_h+" ");
+                for(int i = 0;i<ids_max_size[c]-c_h.length();i++) {
                     header.append(" ");
                 }
             }
@@ -287,6 +305,16 @@ public:
                 return "print_column::84 invalid size for print "+std::to_string(size);
             break;
         }
+    }
+
+    std::string type_to_string(int mode = 1) {
+        std::string result = "";
+        for(int i=0;i<8;i++) {
+            std::string table = table_to_string(sizes[i],mode);
+            if(table!="")
+                result.append(table_to_string(sizes[i],mode)+(i==7?"":"\n"));
+        }
+        return result;
     }
 
     // for(int r=0;r<byte4_columns.length();r++) {
