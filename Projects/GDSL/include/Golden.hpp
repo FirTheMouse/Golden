@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 0
+#define PRINT_ALL 1
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -414,12 +414,15 @@ static std::string data_to_string(uint32_t type,void* data) {
 struct t_value {
 
     ~t_value() {
-        free(data);
+        //Can't do any of this because it would cause a double free
+        //I should really just make t_value a g_ptr...
+        //free(data);
     }
     uint32_t type = GET_TYPE(UNDEFINED);
     void* data;
     int address = -1;
     size_t size;
+    int sub_size = -1;
 
     template<typename T>
     T get() { return *(T*)data; }
@@ -507,6 +510,7 @@ public:
     map<std::string,size_t> slot_map;
     map<std::string,g_ptr<Type>> type_map;
     map<std::string,size_t> size_map;
+    map<std::string,size_t> total_size_map;
     map<std::string,uint32_t> o_type_map;
     map<std::string,g_ptr<r_node>> method_map;
 
@@ -1141,6 +1145,9 @@ static void discover_symbols(g_ptr<s_node> root) {
     }
     
     for(auto child_scope : root->children) {
+        for(auto e : root->slot_map.entrySet()) {
+            child_scope->slot_map.put(e.key,e.value);
+        }
         discover_symbols(child_scope);
     }
 }
@@ -1165,21 +1172,49 @@ static g_ptr<s_node> find_type_decl(g_ptr<Type> type, g_ptr<s_node> root) {
     return nullptr;
 }
 
-//This very much needs to be replaced and changed, cleaned up
+static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start) {
+    g_ptr<s_node> on_scope = start;
+    for(auto c : start->children) {
+        if(c->type_ref && c->type_ref->type_name == match) {
+            return c;
+        }
+    }
+    while(true) {
+        if(on_scope->type_ref) {
+            if(on_scope->type_ref->type_name == match) {
+               return on_scope;
+            }
+        }
+        for(auto c : on_scope->children) {
+            if(c==start||c==on_scope) continue;
+            if(c->type_ref && c->type_ref->type_name == match) {
+               return c;
+            }
+        }
+        if(on_scope->parent) {
+            on_scope = on_scope->parent;
+        }
+        else 
+            break;
+    }
+    return nullptr;
+}
+
 static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame) {
     int index = -1;
     g_ptr<s_node> on_scope = scope;
     while(index==-1) {
         index = on_scope->type_ref->get_note(node->name).index;
+        if(on_scope->type_map.hasKey(node->name)) index = 0;
         if(index!=-1) break;
         if(on_scope->parent) {
             on_scope = on_scope->parent;
         }
         else break;
     }
-    if(index!=-1) {
+    if(index>-1) {
         result->name = node->name;
-        if(on_scope->slot_map.hasKey(node->name)) {
+        if(on_scope->type_map.hasKey(node->name)) {
             if(on_scope->frame) {
                 if(on_scope->frame->slots.length()<=result->slot) on_scope->frame->slots << 0;
                 result->frame = on_scope->frame;
@@ -1188,17 +1223,34 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
                 print("resolve_identifier::1621 no frame for scope!");
             result->slot = on_scope->slot_map.get(node->name);
             result->resolved_type = on_scope->type_map.get(node->name);
+            result->in_scope = on_scope->type_ref;
             result->value.type = GET_TYPE(OBJECT);
-        }
-        result->value.address = index;
+        } 
+        else
+            result->value.address = index;
 
         if(on_scope->size_map.hasKey(node->name)) {
             result->value.size = on_scope->size_map.get(node->name);
             result->value.type = on_scope->o_type_map.get(node->name);
             result->in_scope = on_scope->type_ref;
+            if(on_scope->total_size_map.hasKey(node->name)) {
+                result->value.sub_size = on_scope->total_size_map.get(node->name);
+            }
         }
     }
-    else print("resolve_symbol::1418 No address found for identifier ",node->name);
+    else { //This is the foundation for using type keys in debug
+        on_scope = find_type_ref(node->name,scope);
+        if(on_scope) {
+            result->name = node->name;
+            result->value.address = -1;
+            result->value.size = 0;
+            result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
+            result->in_scope = on_scope->type_ref;
+            result->resolved_type = on_scope->type_ref;
+        }
+        else
+            print("resolve_symbol::1418 No address found for identifier ",node->name);
+    }
 }
 
 struct r_context {
@@ -1214,6 +1266,7 @@ static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr
     g_ptr<r_node> result = make<r_node>();
     r_context ctx(node,scope,frame);
     try {
+        result->in_scope = scope->type_ref;
         r_handlers.get(node->type)(result,ctx);
     }
     catch(std::exception e) {
@@ -1264,7 +1317,7 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
     frame->type = root->scope_type;
     frame->context = root->type_ref; //This should've been filled in during discovery
     root->frame = frame;
-    //frame->context->type_name = TO_STRING(root->scope_type);
+    if(frame->context->type_name=="bullets") frame->context->type_name = TO_STRING(root->scope_type);
 
     for(int i = 0; i < root->t_nodes.size(); i++) {
         auto node = root->t_nodes[i];
@@ -1281,6 +1334,8 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
     
     for(auto child_scope : root->children) {
         resolve_symbols(child_scope);
+        // g_ptr<Frame> child_frame = resolve_symbols(child_scope);
+        // child_frame->slots << frame->slots;
     }
     return frame;
 }   
@@ -1364,6 +1419,16 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
         frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
     }
 }   
+
+static void execute_sub_frame(g_ptr<Frame> sub_frame, g_ptr<Frame> frame,g_ptr<Object> context = nullptr) {
+    for(int i=0;i<frame->slots.length();i++) {
+        sub_frame->slots[i] = frame->slots[i];
+    }
+    execute_r_nodes(sub_frame);
+    for(int i=0;i<frame->slots.length();i++) {
+        frame->slots[i] = sub_frame->slots[i];
+    }
+}
 
 map<uint32_t, std::function<std::function<void()>(exec_context&)>> stream_handlers;
 

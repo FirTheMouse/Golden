@@ -312,7 +312,10 @@ public:
         for(int i=0;i<8;i++) {
             std::string table = table_to_string(sizes[i],mode);
             if(table!="")
-                result.append(table_to_string(sizes[i],mode)+(i==7?"":"\n"));
+                result.append(table_to_string(sizes[i],mode)+"\n");
+        }
+        if (!result.empty() && result.back() == '\n') {
+            result.pop_back();
         }
         return result;
     }
@@ -457,12 +460,12 @@ public:
             byte64_columns.push(list<byte64_t>());
         break;
         default: 
-            size = next_size(size);
-            if(size==0) {
-                print("add_column::406 size is too large"); 
+            size_t o_size = next_size(size);
+            if(o_size==0) {
+                print("add_column::406 size is too large: ",size); 
             } 
             else 
-                add_column(size);
+                add_column(o_size);
          break;
         }
     }

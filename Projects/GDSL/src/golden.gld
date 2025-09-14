@@ -1,12 +1,10 @@
-type num {
-    int value = 3;
-    int nums[3];
-    double d;
-    string n;
-}
+int x[3];
+x[0] = 4;
+x[1] = 8;
+x[2] = 16;
 
-num one;
-one.value = 8;
-one.nums[0] = 10;
-one.nums[1] = 20;
-print(one.nums[0]);
+int inc = 0;
+while(inc<3) {
+    print(x[inc]);
+    inc = inc+1;
+}

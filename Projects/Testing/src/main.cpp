@@ -189,7 +189,7 @@ int main() {
     comps << vec4(0,2 , 0,6);
     comps << vec4(0,5 , 0,7);
 
-    run_rig(f_table,s_table,comps,true,200,50000);
+    //run_rig(f_table,s_table,comps,true,200,50000);
 
     return 0;
 }

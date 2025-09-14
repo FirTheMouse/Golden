@@ -81,8 +81,9 @@ int main() {
 
     if(mode==0) {
         base_module::initialize();
-        variables_module::initialize();
         literals_module::initialize();
+        array_module::initialize();
+        variables_module::initialize();
         opperator_module::initialize();
         property_module::initialize();
         control_module::initialize();
