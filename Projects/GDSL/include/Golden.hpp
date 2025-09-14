@@ -437,7 +437,14 @@ struct t_value {
     }
 
     std::string to_string() {
-        if (!data) return "[null]";
+        if (!data) {
+            if(type==GET_TYPE(OBJECT)) {
+                return "OBJ";
+            }
+            else {
+                return "[null]";
+            }
+        }
         
         try {
             return value_to_string.get(type)(data);
@@ -908,8 +915,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
                 result->right = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
                 if(node->in_scope) { //Removes left refrence by taking it's place
                     if(node->in_scope->t_nodes.last()==left) {
-                        node->in_scope->t_nodes.last()=result;
-                        return nullptr;
+                        node->in_scope->t_nodes.pop();
                     }
                 }
             }
@@ -950,8 +956,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
             result->right = t_parse_expression(node->sub_nodes[0],nullptr); //By passing nullptr we stop the recursion
             if(left&&node->in_scope) { //This removes duplicate left refrences, such as with var_decl + assignment
                 if(node->in_scope->t_nodes.last()==left) {
-                    node->in_scope->t_nodes.last()=result;
-                    return nullptr;
+                    node->in_scope->t_nodes.pop(); //Used to be set last to result, return nullptr
                 }
             }
         }
@@ -970,6 +975,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
     return result;
 }
 
+
 static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_node> left = nullptr)
 {
     g_ptr<t_node> result = make<t_node>();
@@ -982,12 +988,33 @@ static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_
     else {
         if(state_is_opp.getOrDefault(node->type,false)) {
             result = t_parse_expression(node,left);
+            if(!result) {
+                print("NULL RETURNED: ",TO_STRING(node->type));
+            }
         }
         else {
             print("parse_a_node::940 missing parsing code for a_node type: ",TO_STRING(node->type)); 
         }
     }
     return result;
+}
+
+static void parse_sub_nodes(t_context& ctx, bool deduplicate = false) {
+    if(!ctx.node->sub_nodes.empty()) {
+        g_ptr<t_node> last = nullptr;
+        for(auto c : ctx.node->sub_nodes) {
+            g_ptr<t_node> sub = parse_a_node(c, ctx.root, last);
+            if(sub) {
+                if(deduplicate && last && sub->left == last) {
+                    ctx.result->children.erase(last);
+                }
+                last = sub;
+                ctx.result->children << last;
+            } else {
+                last = nullptr;
+            }
+        }
+    }
 }
 
 void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
@@ -1060,10 +1087,13 @@ static void parse_nodes(g_ptr<s_node> root) {
 
 class Frame : public Object {
     public:
+    Frame() {
+        slots << list<size_t>();
+    }
     uint32_t type = GET_TYPE(GLOBAL);
     g_ptr<Type> context;
     list<g_ptr<r_node>> nodes;
-    list<size_t> slots;
+    list<list<size_t>> slots;
     t_value return_val;
     list<g_ptr<Object>> active_objects;
     list<std::function<void()>> stored_functions;
@@ -1076,35 +1106,13 @@ class r_node : public Object {
     g_ptr<r_node> right;
     list<g_ptr<r_node>> children;
     t_value value;
-    g_ptr<Type> resolved_type = nullptr;
     g_ptr<Type> in_scope = nullptr;
-    size_t slot = 0;
+    g_ptr<Frame> in_frame = nullptr;
+    int slot = -1;
     int index = -1;
     std::string name;
     g_ptr<Frame> frame;
 };
-
-static g_ptr<s_node> discover_type_decl(g_ptr<t_node> node, g_ptr<s_node> root) {
-    g_ptr<s_node> on_scope = root;
-    g_ptr<Type> type = nullptr;
-    for(auto c : root->children) {
-        if(c->type_ref && c->type_ref->type_name == node->deferred_identifier) {
-            return c;
-        }
-    }
-    while(!type) {
-        if(on_scope->type_ref) {
-            if(on_scope->type_ref->type_name == node->deferred_identifier) {
-                type = on_scope->type_ref;
-            }
-        }
-        if(on_scope->parent) {
-            on_scope = on_scope->parent;
-        }
-        else break;
-    }
-    return on_scope;
-}
 
 struct d_context {
     g_ptr<s_node> root;
@@ -1154,40 +1162,22 @@ static void discover_symbols(g_ptr<s_node> root) {
 
 static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root);
 
-static g_ptr<s_node> find_type_decl(g_ptr<Type> type, g_ptr<s_node> root) {
-    g_ptr<s_node> on_scope = root;
-    for(auto c : root->children) {
-        if(c->type_ref && c->type_ref == type) {
-            return c;
-        }
-    }
-    while(on_scope->parent) {
-        if(on_scope->type_ref) {
-            if(on_scope->type_ref  == type) {
-                return on_scope;
-            }
-        }
-        on_scope = on_scope->parent;
-    }
-    return nullptr;
-}
-
-static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start) {
+static g_ptr<s_node> find_scope(g_ptr<s_node> start, std::function<bool(g_ptr<s_node>)> check) {
     g_ptr<s_node> on_scope = start;
     for(auto c : start->children) {
-        if(c->type_ref && c->type_ref->type_name == match) {
+        if(check(c)) {
             return c;
         }
     }
     while(true) {
         if(on_scope->type_ref) {
-            if(on_scope->type_ref->type_name == match) {
+            if(check(on_scope)) {
                return on_scope;
             }
         }
         for(auto c : on_scope->children) {
             if(c==start||c==on_scope) continue;
-            if(c->type_ref && c->type_ref->type_name == match) {
+            if(check(c)) {
                return c;
             }
         }
@@ -1200,30 +1190,32 @@ static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start)
     return nullptr;
 }
 
-static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame) {
+static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start) {
+    return find_scope(start,[match](g_ptr<s_node> c){
+        if(!c->type_ref) return false;
+        return c->type_ref->type_name == match;
+    });
+}
+
+static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame = nullptr) {
     int index = -1;
-    g_ptr<s_node> on_scope = scope;
-    while(index==-1) {
-        index = on_scope->type_ref->get_note(node->name).index;
-        if(on_scope->type_map.hasKey(node->name)) index = 0;
-        if(index!=-1) break;
-        if(on_scope->parent) {
-            on_scope = on_scope->parent;
-        }
-        else break;
-    }
+    g_ptr<s_node> on_scope = find_scope(scope,[node](g_ptr<s_node> c){
+        return (c->type_ref->get_note(node->name).index!=-1 || c->type_map.hasKey(node->name));
+    });
+    if(on_scope->type_map.hasKey(node->name)) index = 0;
+    else index = on_scope->type_ref->get_note(node->name).index;
     if(index>-1) {
         result->name = node->name;
         if(on_scope->type_map.hasKey(node->name)) {
             if(on_scope->frame) {
-                if(on_scope->frame->slots.length()<=result->slot) on_scope->frame->slots << 0;
+                //if(on_scope->frame->slots[0].length()<=result->slot) on_scope->frame->slots[0] << 0;
                 result->frame = on_scope->frame;
             }
             else
                 print("resolve_identifier::1621 no frame for scope!");
             result->slot = on_scope->slot_map.get(node->name);
-            result->resolved_type = on_scope->type_map.get(node->name);
-            result->in_scope = on_scope->type_ref;
+            result->in_scope = on_scope->type_map.get(node->name);
+            result->in_frame = on_scope->frame;
             result->value.type = GET_TYPE(OBJECT);
         } 
         else
@@ -1233,10 +1225,23 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             result->value.size = on_scope->size_map.get(node->name);
             result->value.type = on_scope->o_type_map.get(node->name);
             result->in_scope = on_scope->type_ref;
+            result->in_frame = on_scope->frame;
             if(on_scope->total_size_map.hasKey(node->name)) {
                 result->value.sub_size = on_scope->total_size_map.get(node->name);
             }
         }
+
+        // if(node->deferred_identifier!="") {
+        //     std::string o_name = node->name; //For cleanup if we ever reuse the nodes
+        //     std::string o_def_id = node->deferred_identifier;
+        //     node->name = node->deferred_identifier;
+        //     node->deferred_identifier = "";
+        //     g_ptr<r_node> sub = make<r_node>();
+        //     resolve_identifier(node,sub,scope);
+        //     result->value = std::move(sub->value);
+        //     node->name = o_name;
+        //     node->deferred_identifier = o_def_id;
+        // }
     }
     else { //This is the foundation for using type keys in debug
         on_scope = find_type_ref(node->name,scope);
@@ -1246,7 +1251,6 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             result->value.size = 0;
             result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
             result->in_scope = on_scope->type_ref;
-            result->resolved_type = on_scope->type_ref;
         }
         else
             print("resolve_symbol::1418 No address found for identifier ",node->name);
@@ -1262,11 +1266,12 @@ struct r_context {
 };
 map<uint32_t, std::function<void(g_ptr<r_node>&, r_context&)>> r_handlers;
 
-static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr<Frame> frame) {
-    g_ptr<r_node> result = make<r_node>();
+static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr<Frame> frame,g_ptr<r_node> result = nullptr) {
+    if(!result) result = make<r_node>();
     r_context ctx(node,scope,frame);
     try {
         result->in_scope = scope->type_ref;
+        result->in_frame = scope->frame;
         r_handlers.get(node->type)(result,ctx);
     }
     catch(std::exception e) {
@@ -1326,7 +1331,7 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
     }
 
     #if PRINT_ALL
-    print("==RESOLVED SYMBOLS==");
+    print("==RESOLVED SYMBOLS: ",frame->context->type_name,"==");
     for(auto r : frame->nodes) {
         print_r_node(r);
     }
@@ -1341,15 +1346,15 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
 }   
 
 
-static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context = nullptr);
-static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index);
+static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_index);
+static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index,int sub_index);
 
 template<typename Op>
 void execute_r_operation(g_ptr<r_node> node, Op operation,uint32_t result_type, g_ptr<Frame> frame) {
     if(node->left)
-        execute_r_node(node->left,frame,0);
+        execute_r_node(node->left,frame,0,-1);
     if(node->right)
-        execute_r_node(node->right,frame,0);
+        execute_r_node(node->right,frame,0,-1);
     
     t_value& left_val = node->left->value;
     t_value& right_val = node->right->value;
@@ -1377,15 +1382,16 @@ struct exec_context {
     g_ptr<r_node> node;
     g_ptr<Frame> frame;
     size_t index;
+    int sub_index = -1;
     
-    exec_context(g_ptr<r_node> _node, g_ptr<Frame> _frame, size_t _index) 
-        : node(_node), frame(_frame), index(_index) {}
+    exec_context(g_ptr<r_node> _node, g_ptr<Frame> _frame, size_t _index,int _sub_index) 
+        : node(_node), frame(_frame), index(_index), sub_index(_sub_index) {}
 };
 
 map<uint32_t, std::function<g_ptr<r_node>(exec_context&)>> exec_handlers;
 
-static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
-    exec_context ctx(node,frame,index);
+static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index, int sub_index) {
+    exec_context ctx(node,frame,index,sub_index);
     try {
         exec_handlers.get(node->type)(ctx);
     }
@@ -1398,15 +1404,16 @@ static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t
 }
 
 
-static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
+static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_index) {
     if(!context) { 
         //This is bassicly just to push rows and mark them as usable or not to a thread
         //Want to replace this later with something more efficent, or, make more use of context
         context = frame->context->create();
     }
+
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
-        execute_r_node(node,frame,context->ID);
+        execute_r_node(node,frame,context->ID,sub_index);
         if(frame->return_val.type != GET_TYPE(UNDEFINED)) {
             break;
         }
@@ -1420,6 +1427,21 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context) {
     }
 }   
 
+static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context = nullptr) {
+    execute_r_nodes(frame,context,-1);
+}
+
+static void execute_constructor(g_ptr<Frame> frame,int index) {
+    for(int i = 0; i < frame->nodes.size(); i++) {
+        auto node = frame->nodes[i];
+        execute_r_node(node,frame,index,-1);
+        if(!frame->isActive()) {
+            break;
+        }
+    }
+}
+
+//Maintains slot cohesion when executing sub frames, such as a lower "if" or components of a loop
 static void execute_sub_frame(g_ptr<Frame> sub_frame, g_ptr<Frame> frame,g_ptr<Object> context = nullptr) {
     for(int i=0;i<frame->slots.length();i++) {
         sub_frame->slots[i] = frame->slots[i];
@@ -1433,7 +1455,7 @@ static void execute_sub_frame(g_ptr<Frame> sub_frame, g_ptr<Frame> frame,g_ptr<O
 map<uint32_t, std::function<std::function<void()>(exec_context&)>> stream_handlers;
 
 static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
-    exec_context ctx(node,frame,index);
+    exec_context ctx(node,frame,index,-1);
     try {
         std::function<void()> func = stream_handlers.get(node->type)(ctx);
         //frame->context->push(&func,32,1);
