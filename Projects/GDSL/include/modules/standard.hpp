@@ -550,7 +550,8 @@ namespace type_module {
             // Execute pre-wired parameter assignments
             for(auto assignment : ctx.node->children) {
                 if(assignment->left->value.type == GET_TYPE(OBJECT)) {
-                    ctx.node->frame->slots[assignment->left->slot] = ctx.frame->slots[assignment->right->slot];
+                    //This may be wrong
+                    ctx.node->frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][assignment->left->slot] = ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][assignment->right->slot];
                 }
                 else {
                     execute_r_node(assignment, ctx.node->frame, context->ID,ctx.sub_index);
@@ -785,13 +786,16 @@ namespace opperator_module {
         }
         execute_r_node(ctx.node->left, ctx.frame, ctx.index,ctx.sub_index);
         if(ctx.node->left->slot!=-1) { //Is an object
+            size_t target_index = ctx.node->left->index!=-1?ctx.node->left->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
             if(ctx.node->left->value.type == GET_TYPE(OBJECT)) {
                 //Add opperator overloading for = here
-                ctx.frame->slots[ctx.node->left->slot] = ctx.frame->slots[ctx.node->right->slot];
+                size_t r_target_index = ctx.node->right->index!=-1?ctx.node->right->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
+                print("FROM R: ",ctx.node->right->in_frame->context->type_name,":",target_index,"-",ctx.node->right->slot," TO L: ",ctx.node->left->in_frame->context->type_name,":",r_target_index,"-",ctx.node->left->slot);
+                ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot] = ctx.node->right->in_frame->slots[r_target_index][ctx.node->right->slot];
             } else { //It's a property access or other refrence
                 ctx.node->left->in_scope->set(
                     ctx.node->left->value.address, 
-                    ctx.node->left->in_frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->left->slot], 
+                    ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot], 
                     ctx.node->right->value.size,
                     ctx.node->right->value.data);
             }
@@ -1168,16 +1172,20 @@ namespace variables_module {
                 ctx.node->in_scope = ctx.node->left->in_scope;
                 execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
                 int new_sub_index = ctx.sub_index;
+                int target_index = ctx.node->left->index!=-1?ctx.node->left->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
                 if(ctx.node->left->slot!=-1)
-                    new_sub_index = ctx.node->left->in_frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->left->slot];
+                    new_sub_index = ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot];
                 else if(ctx.node->left->index!=-1)  
-                    new_sub_index = ctx.node->left->index;
+                    new_sub_index = target_index;
                 g_ptr<r_node> right_result = execute_r_node(ctx.node->right, ctx.frame, ctx.index, new_sub_index);
                 ctx.node->value = std::move(right_result->value); 
                 if(new_sub_index!=-1)
                     ctx.node->index = new_sub_index;
                 ctx.node->in_frame = right_result->in_frame;
                 ctx.node->in_scope = right_result->in_scope;
+                ctx.node->slot = right_result->slot;
+                //print("SLOT: ",ctx.node->slot," L: ",ctx.node->left->slot," R: ",right_result->slot," INDEX: ",ctx.node->index," SL: ",ctx.node->slot!=-1?ctx.node->in_frame->slots[target_index][ctx.node->slot]:ctx.node->slot);
+                //print("R: ",right_result->in_frame->context->type_name," L: ",ctx.node->left->in_frame->context->type_name," C: ",ctx.node->in_frame->context->type_name);
                 //print(right_result->in_scope->type_name,":",new_sub_index==-1?ctx.index:new_sub_index,":",right_result->name," = ",ctx.node->value.to_string(),"-",TO_STRING(ctx.node->value.type));
             }
             if(!ctx.node->right&&!ctx.node->left) {

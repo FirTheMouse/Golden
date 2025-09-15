@@ -25,6 +25,11 @@ void print(Args&&... args) {
   (std::cout << ... << args) << std::endl;
 }
 
+template<typename... Args>
+void printnl(Args&&... args) {
+  (std::cout << ... << args);
+}
+
 
 
 class Data{

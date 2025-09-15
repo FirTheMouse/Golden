@@ -6,6 +6,7 @@
 #include<util/d_list.hpp>
 
 #define PRINT_ALL 1
+#define PRINT_STYLE 1
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -539,6 +540,7 @@ public:
 };
 
 void print_a_node(const g_ptr<a_node>& node, int depth = 0, int index = 0) {
+#if PRINT_STYLE == 0
     std::string indent(depth * 2, ' '); 
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type), " Subs: ", node->sub_nodes.size());
 
@@ -556,6 +558,28 @@ void print_a_node(const g_ptr<a_node>& node, int depth = 0, int index = 0) {
             print_a_node(sub, depth + 1, sub_index++);
         }
     }
+#endif
+#if PRINT_STYLE == 1
+    std::string indent(depth * 2, ' '); 
+    if(node->type==GET_TYPE(END)) {
+        print(indent,"END");
+    }
+    else {
+        printnl(indent,TO_STRING(node->type));
+        if (!node->tokens.empty()) {
+            printnl("[");
+            for (auto& t : node->tokens) {
+                printnl(t->content,t==node->tokens.last()?"]":", ");
+            }
+        }
+
+        if (!node->sub_nodes.empty()) {
+            for (auto& sub : node->sub_nodes) {
+                print(""); print_a_node(sub,depth+1);
+            }
+        }
+    }
+#endif
 }
 
 static vec2 balance_tokens(list<g_ptr<Token>> tokens, uint32_t a, uint32_t b,int start = 0) {
@@ -716,10 +740,20 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
         {
             if(type_precdence.get(left->type)<type_precdence.get(state))
             {
+                #if PRINT_ALL && PRINT_STYLE == 1
+                //std::string report = TO_STRING(right->type)+" rotating into "+TO_STRING(left->type);
+                print("");
+                print_a_node(left); printnl(" <- "); print_a_node(right);
+                print("\n v v v v v v v v");
+                #endif
                 left->sub_nodes << right;
-                if(!left->tokens.empty())
+                if(!left->tokens.empty()) {
                     right->tokens.insert(left->tokens.pop(),0);
+                }
                 result.removeAt(i);
+                #if PRINT_ALL && PRINT_STYLE == 1
+                print_a_node(left); print("\n");
+                #endif
                 corrections++;
             }
         }
@@ -957,8 +991,10 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
             if(left&&node->in_scope) { //This removes duplicate left refrences, such as with var_decl + assignment
                 if(node->in_scope->t_nodes.last()==left) {
                     node->in_scope->t_nodes.pop(); //Used to be set last to result, return nullptr
+                    // node->in_scope->t_nodes.last() = result;
+                    // return nullptr;
                 }
-            }
+            } 
         }
         else if(node->sub_nodes.size()>=2) {
             result->left = left;
@@ -967,6 +1003,11 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
                sub = t_parse_expression(a,sub);
                 if(a==node->sub_nodes.last()) {
                     result->right = sub;
+                }
+            }
+            if(left&&node->in_scope) {
+                if(node->in_scope->t_nodes.last()==left) {
+                    node->in_scope->t_nodes.pop();
                 }
             }
         }
