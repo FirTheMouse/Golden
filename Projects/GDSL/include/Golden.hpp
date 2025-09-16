@@ -741,9 +741,7 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
         g_ptr<a_node> left = result[i-1];
         if(state_is_opp.getOrDefault(state,false)&&state_is_opp.getOrDefault(left->type,false)) 
         {
-            // if(left->balanced) print("LEFT WAS BALANCED");
-            // if(right->balanced) print("RIGHT WAS BALANCED");
-            printnl("LEFT:",type_precdence.get(left->type),":",left->balanced,": "); print_a_node(left); printnl("   "); printnl("RIGHT:",type_precdence.get(state),":",right->balanced,": "); print_a_node(right); print("");
+            //printnl("LEFT:",type_precdence.get(left->type),":",left->balanced,": "); print_a_node(left); printnl("   "); printnl("RIGHT:",type_precdence.get(state),":",right->balanced,": "); print_a_node(right); print("");
             if(type_precdence.get(left->type)<type_precdence.get(state))
             {
                 #if PRINT_ALL && PRINT_STYLE == 1
@@ -1464,7 +1462,7 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_ind
     }
     if(!frame->isActive())
         frame->resurrect();
-        
+
     frame->context->recycle(context);
     for(int i=frame->active_objects.length()-1;i>=0;i--) {
         frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
@@ -1490,7 +1488,7 @@ static void execute_sub_frame(g_ptr<Frame> sub_frame, g_ptr<Frame> frame,g_ptr<O
     for(int i=0;i<frame->slots.length();i++) {
         sub_frame->slots[i] = frame->slots[i];
     }
-    execute_r_nodes(sub_frame);
+    execute_r_nodes(sub_frame,context);
     for(int i=0;i<frame->slots.length();i++) {
         frame->slots[i] = sub_frame->slots[i];
     }

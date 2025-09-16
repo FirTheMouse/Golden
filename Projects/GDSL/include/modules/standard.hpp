@@ -299,7 +299,6 @@ namespace control_module {
 
         reg::new_type("IF_BLOCK");  
         reg::new_type("WHILE_LOOP"); 
-        reg::new_type("FOR_LOOP");
 
         size_t if_key_id = reg::new_type("IF_KEY"); 
         reg_t_key("if", if_key_id, 0, GET_TYPE(F_KEYWORD));
@@ -366,6 +365,78 @@ namespace control_module {
         r_handlers.put(t_else_id, [r_else_id](g_ptr<r_node> result, r_context& ctx) {
             result->type = r_else_id;
             result->frame = resolve_symbols(ctx.node->scope);
+        });
+
+
+
+
+        reg::new_type("FOR_LOOP");
+        size_t for_key_id = reg::new_type("FOR_KEY"); 
+        reg_t_key("for", for_key_id, 0, GET_TYPE(F_KEYWORD)); 
+        size_t for_decl_id = reg::new_type("FOR_DECL"); 
+        size_t t_for_id = reg::new_type("T_FOR");
+        t_opp_conversion.put(for_decl_id, t_for_id);
+        size_t r_for_id = reg::new_type("R_FOR"); 
+        a_functions.put(for_key_id, [for_decl_id](a_context& ctx) {
+            ctx.state = for_decl_id;
+        });
+        scope_link_handlers.put(for_decl_id, [](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
+            new_scope->scope_type = GET_TYPE(FOR_LOOP);
+            new_scope->owner = owner_node;
+            owner_node->owned_scope = new_scope.getPtr();
+        });
+        scope_precedence.put(for_decl_id, 3); 
+        t_functions.put(for_decl_id, [t_for_id](t_context& ctx) -> g_ptr<t_node> {
+           // print(TO_STRING(ctx.root->scope_type)," or ",TO_STRING(ctx.node->owned_scope->scope_type));
+            //ctx.root = ctx.node->owned_scope;
+            parse_sub_nodes(ctx,true); 
+            for(auto c : ctx.result->children) {
+                //print("Belongs to ",TO_STRING(ctx.root->scope_type)," going to ",TO_STRING(ctx.node->owned_scope->scope_type));
+               // ctx.root->t_nodes.erase(c); ctx.node->owned_scope->t_nodes << c;
+            }
+            ctx.result->type = t_for_id;
+            ctx.result->scope = ctx.node->owned_scope;
+            return ctx.result;
+        });
+        discover_handlers.put(t_for_id, [](g_ptr<t_node> node, d_context& ctx) { 
+            // print("DISCOVER: ",TO_STRING(ctx.root->scope_type)," otherwise ",TO_STRING(node->scope->scope_type));
+            if(!node->scope->type_ref)
+                node->scope->type_ref = make<Type>();
+            ctx.root = node->scope;
+            for(auto c : node->children) 
+                discover_symbol(c,ctx);
+        });
+        r_handlers.put(t_for_id, [r_for_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = r_for_id;
+            result->frame = resolve_symbols(ctx.node->scope);
+            for(auto c : ctx.node->children) {
+                // print(ctx.node->scope->type_ref->type_name," vs ",ctx.scope->type_ref->type_name);
+                // if(!ctx.node->scope->frame) print("NO FRAMEEEEE");
+                g_ptr<r_node> sub = resolve_symbol(c, ctx.node->scope, ctx.frame);
+                //print("Sub in ",sub->in_scope->type_name);
+                result->children << sub;
+            }
+            // for(int i=0;i<3;i++) {
+            //     result->children << result->frame->nodes.get(0);
+            //     result->frame->nodes.removeAt(0);
+            // }
+            // if(result->children.length()>2) {
+            //     result->right = result->children[1];
+            //     result->left = result->children[0];
+            // } 
+        });
+        exec_handlers.put(r_for_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            g_ptr<Object> context = ctx.node->frame->context->create();
+            execute_r_node(ctx.node->children[0],ctx.node->frame,ctx.index,ctx.sub_index); //Var decl
+            execute_r_node(ctx.node->children[1],ctx.node->frame,ctx.index,ctx.sub_index);
+            while(ctx.node->children[1]->value.is_true()) {
+                execute_r_node(ctx.node->children[1],ctx.node->frame,ctx.index,ctx.sub_index);
+                if(!ctx.node->children[1]->value.is_true()) break;
+                execute_sub_frame(ctx.node->frame,ctx.frame,context);
+                execute_r_node(ctx.node->children[2],ctx.node->frame,ctx.index,ctx.sub_index); //Increment
+            }
+            ctx.node->frame->context->recycle(context);
+            return ctx.node;
         });
     
 
@@ -471,7 +542,7 @@ namespace control_module {
             if(ctx.node->frame)
                 ctx.node->frame->stop();
             return ctx.node;
-        });    
+        });  
     }
 
 }
@@ -829,6 +900,8 @@ namespace opperator_module {
         else {
             size_t target_index = ctx.node->left->index==-1?ctx.index:ctx.node->left->index;
             if(!ctx.node->left->in_scope) print("r_assignment::859 no scope on left opperand for assignment");
+            // print("T: ",target_index," S: ",ctx.frame->context->type_name," LS: ",ctx.node->left->in_scope->type_name);
+            // print("AD: ",ctx.node->left->value.address," ",ctx.node->right->value.size," ");
             ctx.node->left->in_scope->set(
                 ctx.node->left->value.address, 
                 target_index, 
@@ -1055,7 +1128,7 @@ namespace variables_module {
         });
         //This is immensely important, all objects are created here.
         discover_handlers.put(t_var_decl_id, [object_id](g_ptr<t_node> node, d_context& ctx) {
-             if(node->value.type==object_id) {
+            if(node->value.type==object_id) {
                 g_ptr<s_node> on_scope = find_type_ref(node->deferred_identifier,ctx.root);
                 if(on_scope) {
                     ctx.root->type_map.put(node->name,on_scope->type_ref);
@@ -1110,7 +1183,6 @@ namespace variables_module {
             }
         });
         exec_handlers.put(r_var_decl_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
-            
             if(ctx.node->value.type == object_id) {
                 g_ptr<Object> obj = ctx.node->in_scope->create();
                 while(ctx.frame->slots.length() <= ctx.index) {
