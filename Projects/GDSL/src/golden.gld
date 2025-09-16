@@ -1,1 +1,19 @@
-child = (one.other.sub);
+type sub_num {
+    int value = 0;
+}
+
+type num {
+    sub_num child;
+    int giveOne() {
+        return child.value;
+    }
+}
+
+print("==START==");
+num one;
+num two;
+one.child.value = 10;
+print(one.child.value);
+print(two.child.value)
+two.child.value = one.giveOne()+10;
+print(two.child.value);

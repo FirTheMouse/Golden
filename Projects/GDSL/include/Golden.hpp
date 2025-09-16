@@ -6,7 +6,7 @@
 #include<util/d_list.hpp>
 
 #define PRINT_ALL 1
-#define PRINT_STYLE 1
+#define PRINT_STYLE 0
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -396,6 +396,7 @@ public:
     list<g_ptr<a_node>> sub_nodes;
     s_node* owned_scope = nullptr;
     s_node* in_scope = nullptr;
+    bool balanced = false;
 };
 
 map<uint32_t,std::function<std::string(void*)>> value_to_string;
@@ -728,37 +729,42 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
     for (int i = result.size() - 1; i >= 0; i--) {
         g_ptr<a_node> right = result[i];
         if(!right->sub_nodes.empty()) {
-            balance_nodes(right->sub_nodes);
+            bool changed = true;
+            int depth = 0;
+            while (changed&&depth<1000) {
+                depth++;
+                changed = balance_nodes(right->sub_nodes);
+            }
         }
         if(i==0) continue;
-        //print("Checking index:", i, " against ", i-1);
         state=result[i]->type;
         g_ptr<a_node> left = result[i-1];
-        // print("LEFT: ",a_type_string(left->type));
-        // print("RIGHT: ",a_type_string(right->type));
         if(state_is_opp.getOrDefault(state,false)&&state_is_opp.getOrDefault(left->type,false)) 
         {
+            // if(left->balanced) print("LEFT WAS BALANCED");
+            // if(right->balanced) print("RIGHT WAS BALANCED");
+            printnl("LEFT:",type_precdence.get(left->type),":",left->balanced,": "); print_a_node(left); printnl("   "); printnl("RIGHT:",type_precdence.get(state),":",right->balanced,": "); print_a_node(right); print("");
             if(type_precdence.get(left->type)<type_precdence.get(state))
             {
                 #if PRINT_ALL && PRINT_STYLE == 1
-                //std::string report = TO_STRING(right->type)+" rotating into "+TO_STRING(left->type);
-                print("");
-                print_a_node(left); printnl(" <- "); print_a_node(right);
-                print("\n v v v v v v v v");
+                    print("");
+                    print_a_node(left); printnl(" <- "); print_a_node(right);
+                    print("\n v v v v v v v v");
                 #endif
                 left->sub_nodes << right;
-                if(!left->tokens.empty()) {
+                if(!left->tokens.empty()&&!left->balanced) {
                     right->tokens.insert(left->tokens.pop(),0);
                 }
                 result.removeAt(i);
+                right->balanced = true;
+                left->balanced = true;
                 #if PRINT_ALL && PRINT_STYLE == 1
-                print_a_node(left); print("\n");
+                    print_a_node(left); print("\n");
                 #endif
                 corrections++;
             }
         }
     }
-
     return corrections!=0;
 }
 
@@ -767,7 +773,7 @@ static bool balance_nodes(list<g_ptr<a_node>>& result) {
 static void balance_precedence(list<g_ptr<a_node>>& result) {
     bool changed = true;
     int depth = 0;
-    while (changed&&depth<10) {
+    while (changed&&depth<1000) {
         depth++;
         #if PRINT_ALL
         print("==BALANCING PASS ",depth,"==");
@@ -934,9 +940,6 @@ map<uint32_t,std::function<g_ptr<t_node>(t_context& ctx)>> t_functions;
 static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nullptr) {
     g_ptr<t_node> result = make<t_node>();
     result->type = t_opp_conversion.getOrDefault(node->type,GET_TYPE(UNDEFINED));
-    // if(result->type==GET_TYPE(UNDEFINED)) {
-    //     print("t_parse_expression::878 missing t_opp_conversion for: ",TO_STRING(node->type));
-    // }
     
     if (node->tokens.size() == 2) {
         result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
@@ -954,7 +957,7 @@ static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nu
                 }
             }
             else {
-               if(t_functions.hasKey(node->type)) { //For opperators like i* or i++
+               if(state_is_opp.getOrDefault(node->type,false)&&t_functions.hasKey(node->type)) { //For opperators like i* or i++
                     t_context ctx(result,node,nullptr);
                     ctx.left = left;
                     result = t_functions.get(node->type)(ctx);
@@ -1135,7 +1138,7 @@ class Frame : public Object {
     g_ptr<Type> context;
     list<g_ptr<r_node>> nodes;
     list<list<size_t>> slots;
-    t_value return_val;
+    g_ptr<r_node> return_to = nullptr;
     list<g_ptr<Object>> active_objects;
     list<std::function<void()>> stored_functions;
 };
@@ -1455,13 +1458,13 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_ind
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
         execute_r_node(node,frame,context->ID,sub_index);
-        if(frame->return_val.type != GET_TYPE(UNDEFINED)) {
-            break;
-        }
-        else if(!frame->isActive()) {
+        if(!frame->isActive()) {
             break;
         }
     }
+    if(!frame->isActive())
+        frame->resurrect();
+        
     frame->context->recycle(context);
     for(int i=frame->active_objects.length()-1;i>=0;i--) {
         frame->active_objects[i]->type_->recycle(frame->active_objects.pop());

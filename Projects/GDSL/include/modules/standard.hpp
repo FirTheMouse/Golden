@@ -506,12 +506,23 @@ namespace data_module {
 
 namespace type_module {
     static void initialize() {
+
+        size_t dot_id = reg::new_type("DOT");
+
+        size_t prop_access_id = reg::new_type("PROP_ACCESS"); 
+        state_is_opp.put(prop_access_id,true); 
+        token_to_opp.put(dot_id,prop_access_id);
+        type_precdence.put(prop_access_id,8);
+        t_opp_conversion.put(prop_access_id, GET_TYPE(T_IDENTIFIER));
+
         size_t method_id = reg::new_type("METHOD");
         size_t function_id = reg::new_type("FUNCTION");
         size_t method_key_id = reg::new_type("METHOD_KEY");
         size_t method_call_id = reg::new_type("METHOD_CALL"); 
         size_t t_method_call_id = reg::new_type("T_METHOD_CALL"); 
         size_t r_method_call_id =reg::new_type("R_METHOD_CALL"); 
+        state_is_opp.put(method_call_id,true); 
+        type_precdence.put(method_call_id,8);
         t_opp_conversion.put(method_call_id, t_method_call_id); 
         t_functions.put(method_call_id, [](t_context& ctx) -> g_ptr<t_node> {
             ctx.result = t_parse_expression(ctx.node, ctx.left);
@@ -557,12 +568,9 @@ namespace type_module {
                     execute_r_node(assignment, ctx.node->frame, context->ID,ctx.sub_index);
                 }
             }
+            ctx.node->frame->return_to = ctx.node;
             execute_r_nodes(ctx.node->frame,context,ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->slot]);
-            if(ctx.node->frame->return_val.type != GET_TYPE(UNDEFINED)) {
-                ctx.node->value = std::move(ctx.node->frame->return_val);
-            }
-            ctx.node->frame->return_val.type = GET_TYPE(UNDEFINED);
-            return ctx.node;
+            return ctx.node->frame->return_to;
         });
         stream_handlers.put(r_method_call_id, [](exec_context& ctx) -> std::function<void()>{
             g_ptr<Frame> frame = ctx.node->frame;
@@ -667,13 +675,36 @@ namespace type_module {
         size_t r_return_id =reg::new_type("R_RETURN");
         a_functions.put(return_key_id, [return_call_id](a_context& ctx) {
             ctx.state = return_call_id;
+            int next_end = 0;
+            for(int i=ctx.index+1;i<ctx.tokens.length();i++) {
+                if(ctx.tokens[i]->getType()==GET_TYPE(END)) {
+                    next_end = i;
+                    break;
+                }
+            }
+            list<g_ptr<Token>> sub_list;
+            for(int i=ctx.index+1;i<next_end;i++) {
+                sub_list.push(ctx.tokens[i]);
+            }
+            sub_list.push(make<Token>(GET_TYPE(END),""));
+            ctx.node->sub_nodes = parse_tokens(sub_list,true);
+            if(ctx.state != GET_TYPE(UNTYPED)) {
+                ctx.end_lambda();
+            }
+            ctx.state = GET_TYPE(UNTYPED);        
+            ctx.index = next_end-1;
+            ctx.it = ctx.tokens.begin() + (int)(next_end);
+            ctx.skip_inc = 1; 
         });
         t_opp_conversion.put(return_call_id, t_return_id);
-        t_functions.put(return_call_id, [](t_context& ctx) -> g_ptr<t_node> {
-            return t_parse_expression(ctx.node, ctx.result);
+
+        t_functions.put(return_call_id, [t_return_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = t_return_id;
+            parse_sub_nodes(ctx,true);
+            return ctx.result;
         });
         r_handlers.put(t_return_id, [method_id,function_id,r_return_id] (g_ptr<r_node> result, r_context& ctx) {
-            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+            result->right = resolve_symbol(ctx.node->children[0], ctx.scope, ctx.frame);
             g_ptr<s_node> on_scope = ctx.scope;
             g_ptr<Frame> method_frame = nullptr;
             while(!method_frame) {
@@ -688,12 +719,19 @@ namespace type_module {
                 } else break;
             }
             result->frame = method_frame;
+            result->in_frame = method_frame;
+            result->in_scope = method_frame->context;
             result->type = r_return_id;
         });
         exec_handlers.put(r_return_id, [](exec_context& ctx) -> g_ptr<r_node> {
             execute_r_node(ctx.node->right, ctx.frame, ctx.index,ctx.sub_index);
-            if(ctx.node->frame)
-                ctx.node->frame->return_val = std::move(ctx.node->right->value);
+            if(ctx.node->frame) {
+                ctx.node->frame->return_to->slot = ctx.node->right->slot;
+                ctx.node->frame->return_to->index = ctx.node->right->index;
+                ctx.node->frame->return_to->in_frame = ctx.node->right->in_frame;
+                ctx.node->frame->return_to->in_scope = ctx.node->right->in_scope;
+                ctx.node->frame->return_to->value = std::move(ctx.node->right->value);
+            }
             return ctx.node;
         });
         stream_handlers.put(r_return_id, [](exec_context& ctx) -> std::function<void()>{
@@ -701,18 +739,6 @@ namespace type_module {
          });
     }
     
-}
-
-namespace property_module {
-    static void initialize() {
-        size_t dot_id = reg::new_type("DOT");
-
-        size_t prop_access_id = reg::new_type("PROP_ACCESS"); 
-        state_is_opp.put(prop_access_id,true); 
-        token_to_opp.put(dot_id,prop_access_id);
-        type_precdence.put(prop_access_id,8);
-        t_opp_conversion.put(prop_access_id, GET_TYPE(T_IDENTIFIER));
-    }
 }
 
 namespace opperator_module {
@@ -790,7 +816,7 @@ namespace opperator_module {
             if(ctx.node->left->value.type == GET_TYPE(OBJECT)) {
                 //Add opperator overloading for = here
                 size_t r_target_index = ctx.node->right->index!=-1?ctx.node->right->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
-                print("FROM R: ",ctx.node->right->in_frame->context->type_name,":",target_index,"-",ctx.node->right->slot," TO L: ",ctx.node->left->in_frame->context->type_name,":",r_target_index,"-",ctx.node->left->slot);
+                //print("FROM R: ",ctx.node->right->in_frame->context->type_name,":",target_index,"-",ctx.node->right->slot," TO L: ",ctx.node->left->in_frame->context->type_name,":",r_target_index,"-",ctx.node->left->slot);
                 ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot] = ctx.node->right->in_frame->slots[r_target_index][ctx.node->right->slot];
             } else { //It's a property access or other refrence
                 ctx.node->left->in_scope->set(
@@ -1431,11 +1457,9 @@ namespace functions_module {
             int mode = 1;
             if(!ctx.node->children.empty()) {
                 execute_r_node(ctx.node->children[0],ctx.frame,ctx.index,ctx.sub_index);
-                if(ctx.node->children[0]->in_scope) {
-                    if(ctx.node->children.length()>1) {
-                        execute_r_node(ctx.node->children[1],ctx.frame,ctx.index,ctx.sub_index);
-                        mode = ctx.node->children[1]->value.get<int>();
-                    }
+                if(ctx.node->children.length()>1) {
+                    execute_r_node(ctx.node->children[1],ctx.frame,ctx.index,ctx.sub_index);
+                    mode = ctx.node->children[1]->value.get<int>();
                     print(ctx.node->children[0]->in_scope->type_to_string(mode));
                 }
                 else {

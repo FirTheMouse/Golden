@@ -85,7 +85,6 @@ int main() {
         array_module::initialize();
         variables_module::initialize();
         opperator_module::initialize();
-        property_module::initialize();
         control_module::initialize();
         type_module::initialize();
         data_module::initialize();
