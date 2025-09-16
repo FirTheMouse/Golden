@@ -199,7 +199,6 @@ namespace array_module {
                 else {
                     int ammount = indexer->right->value.get<int>();
                     int size = ammount*node->value.size;
-                    // void* bytes = malloc(size);
                     //ctx.frame->context->add(ctx.node->name,bytes,size,ctx.index);
                     ctx.root->type_ref->note_value(node->name,size); //Adding local variable slot
                     ctx.root->total_size_map.put(node->name,size); //For sub size so we can know the array size
@@ -212,11 +211,17 @@ namespace array_module {
         });    
         size_t r_indexing_decl_id = reg::new_type("R_INDEXING_DECL");
         r_handlers.put(t_indexing_decl_id, [r_indexing_decl_id,object_id](g_ptr<r_node> result, r_context& ctx) {
+            if(!ctx.node->children.empty()) {
+                for(auto c : ctx.node->children) {
+                    result->children.push(resolve_symbol(c,ctx.scope,ctx.frame));
+                }
+            }
             ctx.node = ctx.node->children[0];
             result->type = r_indexing_decl_id;
-            result->value.type = ctx.node->value.type;
-            result->value.size = ctx.node->value.size;
+            result->value = std::move(result->children[0]->left->value);
             result->name = ctx.node->name;
+            result->in_frame = result->children[0]->left->in_frame;
+            result->in_scope = result->children[0]->left->in_scope;
             int address = ctx.scope->type_ref->get_note(ctx.node->left->name).index;
             if(address!=-1) {
                 result->value.address = address;
@@ -234,13 +239,18 @@ namespace array_module {
                 //     result->name = info->name;
                 //     result->value.type = object_id;
                 // }
-            } else if(!ctx.node->children.empty()) { //Values to intilize the array
-                for(auto c : ctx.node->children) {
-                    result->children.push(resolve_symbol(c,ctx.scope,ctx.frame));
-                }
-            }
+            } 
         });
         exec_handlers.put(r_indexing_decl_id, [object_id](exec_context& ctx) -> g_ptr<r_node> {
+
+            if(ctx.node->value.type!=object_id) {
+                if(ctx.node->in_scope->next_size(ctx.node->value.sub_size)==0) { //Suppoused to detect if it's a pointer
+                    void* bytes = malloc(ctx.node->value.sub_size);
+                    ctx.node->in_scope->set(ctx.node->value.address,ctx.index,ctx.node->value.sub_size,bytes);
+                    ctx.node->in_frame->active_memory.push(bytes); //To clean up allocated arrays
+                }
+            }
+
             if(!ctx.node->children.empty()) { //For initilizing
                 //Do something here
             }
@@ -387,19 +397,12 @@ namespace control_module {
         });
         scope_precedence.put(for_decl_id, 3); 
         t_functions.put(for_decl_id, [t_for_id](t_context& ctx) -> g_ptr<t_node> {
-           // print(TO_STRING(ctx.root->scope_type)," or ",TO_STRING(ctx.node->owned_scope->scope_type));
-            //ctx.root = ctx.node->owned_scope;
             parse_sub_nodes(ctx,true); 
-            for(auto c : ctx.result->children) {
-                //print("Belongs to ",TO_STRING(ctx.root->scope_type)," going to ",TO_STRING(ctx.node->owned_scope->scope_type));
-               // ctx.root->t_nodes.erase(c); ctx.node->owned_scope->t_nodes << c;
-            }
             ctx.result->type = t_for_id;
             ctx.result->scope = ctx.node->owned_scope;
             return ctx.result;
         });
         discover_handlers.put(t_for_id, [](g_ptr<t_node> node, d_context& ctx) { 
-            // print("DISCOVER: ",TO_STRING(ctx.root->scope_type)," otherwise ",TO_STRING(node->scope->scope_type));
             if(!node->scope->type_ref)
                 node->scope->type_ref = make<Type>();
             ctx.root = node->scope;
@@ -410,26 +413,14 @@ namespace control_module {
             result->type = r_for_id;
             result->frame = resolve_symbols(ctx.node->scope);
             for(auto c : ctx.node->children) {
-                // print(ctx.node->scope->type_ref->type_name," vs ",ctx.scope->type_ref->type_name);
-                // if(!ctx.node->scope->frame) print("NO FRAMEEEEE");
                 g_ptr<r_node> sub = resolve_symbol(c, ctx.node->scope, ctx.frame);
-                //print("Sub in ",sub->in_scope->type_name);
                 result->children << sub;
             }
-            // for(int i=0;i<3;i++) {
-            //     result->children << result->frame->nodes.get(0);
-            //     result->frame->nodes.removeAt(0);
-            // }
-            // if(result->children.length()>2) {
-            //     result->right = result->children[1];
-            //     result->left = result->children[0];
-            // } 
         });
         exec_handlers.put(r_for_id, [](exec_context& ctx) -> g_ptr<r_node> {
             g_ptr<Object> context = ctx.node->frame->context->create();
             execute_r_node(ctx.node->children[0],ctx.node->frame,ctx.index,ctx.sub_index); //Var decl
-            execute_r_node(ctx.node->children[1],ctx.node->frame,ctx.index,ctx.sub_index);
-            while(ctx.node->children[1]->value.is_true()) {
+            while(true) {
                 execute_r_node(ctx.node->children[1],ctx.node->frame,ctx.index,ctx.sub_index);
                 if(!ctx.node->children[1]->value.is_true()) break;
                 execute_sub_frame(ctx.node->frame,ctx.frame,context);

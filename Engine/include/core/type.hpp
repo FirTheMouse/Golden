@@ -536,7 +536,13 @@ public:
 
     /// @brief For use in the MAP strategy
     void note_value(const std::string& name, size_t size) {
+        size_t o_size = next_size(size);
+        if(o_size==0) {
+            note_value(name,8);
+        } 
+        else {
         _note note(column_length(size),size); add_column(size); notes.put(name,note);
+        }
     }
 
     // void note_value(const std::string& name, size_t size,int t = 0) {
@@ -768,7 +774,8 @@ public:
         default: 
             size = next_size(size);
             if(size==0) {
-                print("set::670 Pointer fallback triggered");
+                //print("set::670 Pointer fallback triggered");
+                memcpy(&(byte8_columns[index])[sub_index],&value, 8);
             } 
             else set(index,sub_index,size,value);
         break;

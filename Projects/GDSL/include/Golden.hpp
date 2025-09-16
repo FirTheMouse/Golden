@@ -5,7 +5,7 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 1
+#define PRINT_ALL 0
 #define PRINT_STYLE 0
 
 constexpr uint32_t hashString(const char* str) {
@@ -1138,6 +1138,7 @@ class Frame : public Object {
     list<list<size_t>> slots;
     g_ptr<r_node> return_to = nullptr;
     list<g_ptr<Object>> active_objects;
+    list<void*> active_memory;
     list<std::function<void()>> stored_functions;
 };
 
@@ -1466,6 +1467,9 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_ind
     frame->context->recycle(context);
     for(int i=frame->active_objects.length()-1;i>=0;i--) {
         frame->active_objects[i]->type_->recycle(frame->active_objects.pop());
+    }
+    for(int i=frame->active_memory.length()-1;i>=0;i--) {
+        free(frame->active_memory[i]);
     }
 }   
 

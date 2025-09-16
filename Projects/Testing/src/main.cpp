@@ -85,14 +85,44 @@ struct lt {
 
 int main() {
 
-    // g_ptr<Type> t = make<Type>();
-    // t->type_name = "test";
-    // //for(int i=0;i<4;i++) t->add_column(4);
-    // //for(int i=0;i<13;i++) t->add_rows(4);
+    g_ptr<Type> t = make<Type>();
+    t->type_name = "test";
+
     // lt l;
     // l.name = "test_name";
     // t->push<lt>(l);
     // print("Name: ",t->get<lt>(0).name,"!");
+
+    void* bytes = malloc(320);
+    void* target_element = (char*)bytes + (4);
+    int i = 8;
+    lt l;
+    memcpy(target_element,&i,4);
+    t->note_value("bytes",320);
+    t->note_value("other",sizeof(l));
+    t->create();
+
+    t->set(0,0,320,bytes);
+
+    l.name = "test_name";
+    t->set(1,0,sizeof(l),&l);
+
+    print(t->type_to_string(3));
+
+    print((*(lt*)t->get(1,0,sizeof(l))).name);
+    void* start = t->get(0,0,320);
+    void* element = (char*)start + (4);
+
+    print(start);
+    print(bytes);
+    print(*(int*)element);
+
+    // lt l;
+    // l.name = "test_name";
+    // t->push<lt>(l);
+    // print("Name: ",t->get<lt>(0).name,"!");
+    // //for(int i=0;i<4;i++) t->add_column(4);
+    // //for(int i=0;i<13;i++) t->add_rows(4);
 
     // t->create();
     // t->create();
