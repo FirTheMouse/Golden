@@ -53,6 +53,9 @@ public:
     Single& startAnim(float duration);
 
     vec3 markerPos(std::string marker);
+    list<std::string> markers() {
+        return model->markers.keySet();
+    }
 
     BoundingBox getWorldBounds();
 

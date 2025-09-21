@@ -162,7 +162,7 @@ namespace name {
                 if(meta[i][1].at(0)=='!') continue;
                 else toReturn = toReturn+meta[i][1]+s.get<str>(meta[i][1])+(i<meta.length()-1?"\n":"");
             }
-            if(times>1) toReturn = toReturn+"----------------\n";
+            if(times>1) toReturn = toReturn+"\n----------------\n";
         });
         gen g;
         g.dl = finished;
@@ -175,7 +175,10 @@ namespace name {
         return done.s;
     }
 
-    std::string randname(const std::string& line = "|, ,Ja|Be|Ma|Cer|Le,ck|de|ly|th|ch|un|el") {
+    const std::string STANDARD = "|, ,Ja|Be|Ma|Cer|Le,ck|de|ly|th|ch|un|el";
+    const std::string AVAL_WEST_TAMOR = "|, ," "Bu|Ahm|He|Ol|Mo|In|Bir|Ba|Tu," "|||||||||||||||||||ha|ck|a|ch," "el|ba|ak|ael|he|med";
+
+    std::string randname(const std::string& line = STANDARD) {
         return randsgen({line});
     }
 }

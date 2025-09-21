@@ -85,37 +85,69 @@ struct lt {
 
 int main() {
 
-    g_ptr<Type> t = make<Type>();
-    t->type_name = "test";
+    list<std::string> names;
+    for(int i=0;i<50;i++) {
+        names << name::randsgen({
+            "|, ,"
+            "Ka|Ke|Ce|Oe|Po|Pa|Lo,"
+            "|||||||||ck|th|sh|ch|pe|en|on,"
+            "os|os|si|sa|es|is"
+        });
+    }
+    int lret = 0;
+    for(auto s : names) {
+        printnl(s);
+        if((lret+=s.length())>70) {
+            lret = 0;
+            print();
+        }
+    }
+    print();
 
+
+
+    // struct num {
+    //     int value = 0;
+    // };
+    // num nums[50];
+    // for(int i=1;i<50;i=(i+1)) {
+    //     nums[i].value = (nums[i-1].value+2);
+    // }
+    // print(nums[20].value);
+
+    // g_ptr<Type> tl;
+
+    // g_ptr<Type> t = make<Type>();
+    // t->type_name = "test";
+
+    // // lt l;
+    // // l.name = "test_name";
+    // // t->push<lt>(l);
+    // // print("Name: ",t->get<lt>(0).name,"!");
+
+    // void* bytes = malloc(320);
+    // void* target_element = (char*)bytes + (4);
+    // int i = 8;
     // lt l;
+    // memcpy(target_element,&i,4);
+    // t->note_value("bytes",320);
+    // t->note_value("other",sizeof(l));
+    // t->create();
+
+    // t->set(0,0,320,bytes);
+
     // l.name = "test_name";
-    // t->push<lt>(l);
-    // print("Name: ",t->get<lt>(0).name,"!");
+    // t->set(1,0,sizeof(l),&l);
 
-    void* bytes = malloc(320);
-    void* target_element = (char*)bytes + (4);
-    int i = 8;
-    lt l;
-    memcpy(target_element,&i,4);
-    t->note_value("bytes",320);
-    t->note_value("other",sizeof(l));
-    t->create();
+    // print(t->type_to_string(3));
 
-    t->set(0,0,320,bytes);
+    // print((*(lt*)t->get(1,0,sizeof(l))).name);
+    // void* start = t->get(0,0,320);
+    // void* element = (char*)start + (4);
 
-    l.name = "test_name";
-    t->set(1,0,sizeof(l),&l);
-
-    print(t->type_to_string(3));
-
-    print((*(lt*)t->get(1,0,sizeof(l))).name);
-    void* start = t->get(0,0,320);
-    void* element = (char*)start + (4);
-
-    print(start);
-    print(bytes);
-    print(*(int*)element);
+    // print(start);
+    // print(bytes);
+    // print(*(int*)element);
 
     // lt l;
     // l.name = "test_name";

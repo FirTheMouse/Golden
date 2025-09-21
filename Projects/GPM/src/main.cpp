@@ -45,16 +45,27 @@ void startProject(std::string name)
         out.write(makeFile.data(), len);
 
         out.close();
-
+        std::string lower = "";
+        std::transform(name.begin(),name.end(),lower.begin(),::tolower);
         std::string main = ""
         "#include<core/helper.hpp>"
         "\n"
         "\n"
         "\nint main() {"
+        "\nusing namespace Golden;"
+        "\nusing namespace helper;"
         "\n"
-        "\nprint(\"hello world\");"
+        "\n     print(\"hello world\");"
         "\n"
-        "\nreturn 0;"
+        "\n     Window window = Window(1280, 768, \""+name+" 0.1"+"\");"
+        "\n     g_ptr<Scene> scene = make<Scene>(window,2);"
+        "\n     Data d = make_config(scene,K);"
+        "\n     //load_gui(scene, \""+name+"\", \""+lower+"gui"+".fab\");"
+        "\n"
+        "\n"
+        "\n     start::run(window,d,[&]{"
+        "\n     });"
+        "\n     return 0;"
         "\n}";
 
         out = std::ofstream (dirPath + "src/main.cpp", std::ios::binary);
@@ -141,11 +152,10 @@ int main()
     scene->camera.speedMod = 0.01f;
 
 
-    // std::string name = "FirChess";
+    // std::string name = "ThymeLoop";
     // startProject(name);
     // addProjectToCMake(name);
-
-    std::string p1 = "FirChess";
+    std::string p1 = "ThymeLoop";
     std::string p2 = "GUIDE";
     std::string p3 = "GDSL";
     std::string p4 = "Testing";

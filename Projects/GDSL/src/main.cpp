@@ -130,19 +130,14 @@ int main() {
 
         // s_table[z] << "CPP"; //3
         // f_table[z] << [](int i){
-        // struct person {
-        //     std::string name = "noname";
+        // struct num {
+        //     int value = 0;
         // };
-        //     person joe;
-        //     person mary;
-        //     joe.name = "Joe";
-        //     std::string word;
-        //     word = joe.name;
-        //     // print("Word is: ",word,"!");
-        //     joe.name = "Is Joe";
-        //     //print("The name of Joe is: ", joe.name);
-        //     mary.name = "Mary";
-        //     // print("The name of Mary is: ", mary.name);
+        //     num nums[50];
+        //     for(int i=1;i<50;i=(i+1)) {
+        //         nums[i].value = (nums[i-1].value+2);
+        //     }
+        //     print(nums[20].value);
         // };
 
         // comps << vec4(0,0 , 0,3);

@@ -4,6 +4,8 @@
 #include<rendering/scene.hpp>
 //#include <GLFW/glfw3.h>
 
+
+//The performance for this text is absolutely horrendus, because we're using Data all over the place, this desperetly needs to be fixed in the future
 namespace Golden
 {
     void Font::loadFromTTF(const std::string& path, int pxHeight) {
@@ -100,10 +102,19 @@ namespace Golden
     namespace text {
     g_ptr<Quad> makeChar(char c,g_ptr<Font> font,g_ptr<Scene> scene)
     {
+         //This is to intilize the pooling for text characters, it shouldn't really be here but I don't know where else to put it
+         if(!scene->pools.hasKey("_text_char")) {
+            Script<> make_char("make_char",[scene](ScriptContext& ctx){
+                auto q = make<Quad>();
+                scene->add(q);
+                ctx.set<g_ptr<Object>>("toReturn",q);
+            });
+            scene->define("_text_char",make_char);
+        }
+
         if(c=='\n')
         {
-            auto nl = make<Quad>(); 
-            scene->add(nl);
+            auto nl = scene->create<Quad>("_text_char");
             nl->set<float>("advance", 0.f);
             nl->set<vec2>("bearing", vec2(0,0));
             nl->scale(vec2(0,0));  
@@ -115,8 +126,7 @@ namespace Golden
         }
         else if(c=='\"')
         {
-            auto nl = make<Quad>(); 
-            scene->add(nl);
+            auto nl = scene->create<Quad>("_text_char");
             nl->set<float>("advance", 0.f);
             nl->set<vec2>("bearing", vec2(0,0));
             nl->scale(vec2(0,0));  
@@ -130,8 +140,8 @@ namespace Golden
         if (!font->glyphs.hasKey(c)) return nullptr;
         F_Glyph& g = font->glyphs.get(c);
         if(c=='|') g.advance = 5.0f;
-        auto q = make<Quad>();
-        scene->add(q);
+
+        auto q = scene->create<Quad>("_text_char");
         q->setTexture(font->atlasTexID,0);
         q->scale(g.size);
         q->uvRect = glm::vec4(g.uvPos.x(), g.uvPos.y(), g.uvSize.x(), g.uvSize.y());
@@ -276,7 +286,7 @@ namespace Golden
         if(at==parent) {at->detatchAll();}
         else {at->removeFromParent();}
         chars->removeAt(at->get<size_t>("pID"));
-        scene->deactivate(at);
+        scene->recycle(at,"_text_char");
 
         bool onLine = true;
         for (std::size_t i = idx; i < chars->length(); ++i)

@@ -6,10 +6,11 @@
 #include<util/logger.hpp>
 
 using namespace Golden;
+using namespace log;
 
 #define EVALUATE 0
 #define LOG 1
-static int max_depth = 6;
+static int max_depth = 4;
 #define ENABLE_AB 1
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
@@ -2145,7 +2146,7 @@ int main() {
     // phys_thread->start();
 
     
-    bool auto_turn = false;
+    bool auto_turn = true;
     if(auto_turn) bot->start();
     int last_col = 1-turn_color;
 

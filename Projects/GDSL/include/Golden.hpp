@@ -516,7 +516,7 @@ public:
     list<g_ptr<t_node>> t_nodes;
     list<g_ptr<s_node>> children;
 
-    map<std::string,size_t> slot_map;
+    map<std::string,int> slot_map;
     map<std::string,g_ptr<Type>> type_map;
     map<std::string,size_t> size_map;
     map<std::string,size_t> total_size_map;
@@ -1256,7 +1256,7 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             }
             else
                 print("resolve_identifier::1621 no frame for scope!");
-            result->slot = on_scope->slot_map.get(node->name);
+            result->slot = on_scope->slot_map.getOrDefault(node->name,-2);
             result->in_scope = on_scope->type_map.get(node->name);
             result->in_frame = on_scope->frame;
             result->value.type = GET_TYPE(OBJECT);
@@ -1336,6 +1336,14 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
     
     if (!node->name.empty()) {
         print(indent, "  Name: ", node->name);
+    }
+
+    if(node->in_scope) {
+        print(indent,"  Scope: ", node->in_scope->type_name);
+    }
+
+    if(node->slot!=-1) {
+        print(indent,"  Slot: ", node->slot);
     }
     
     if (node->left) {

@@ -282,7 +282,7 @@ Model::Model(const std::string& path) {
     }
 
     void Model::extractAnimations(const tinygltf::Model& model) {
-        // print("Found ", model.skins.size(), " skins and ", model.animations.size(), " animations");
+        //print("Found ", model.skins.size(), " skins and ", model.animations.size(), " animations");
         
         // STEP 1: Extract skeleton data from skins
         for (size_t skinIndex = 0; skinIndex < model.skins.size(); skinIndex++) {
@@ -591,7 +591,10 @@ Model::Model(const std::string& path) {
             currentAnimTime = 0.0f;
             isPlaying = true;
         } else {
-            print("Animation not found: ", animName);
+            print("Animation not found: ", animName,", valid animations are ");
+            for(auto e : animationNames.keySet()) {
+                print("     ",e);
+            }
         }
     }
     

@@ -1,0 +1,6 @@
+dtype,name,func,func_num
+[TYPE],string,string,int
+knife,knife,cut,0
+table,table,none,0
+tomato,tomato,be_cut,4
+tomato_cut,tomato_cut,cook,2
