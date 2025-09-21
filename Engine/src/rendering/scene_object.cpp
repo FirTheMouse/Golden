@@ -5,8 +5,7 @@ namespace Golden {
 
     void S_Object::remove()
     {
-      map<size_t,g_ptr<S_Object>>& objects = scene->objects;
-      objects.remove(UUID);
+        
     }
 
     void S_Object::saveBinary(const std::string& path) const {

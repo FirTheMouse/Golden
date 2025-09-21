@@ -56,8 +56,6 @@ return tex;
 
 void Scene::add(const g_ptr<S_Object>& sobj) {
     sobj->scene = this;
-    sobj->UUID = getUid();
-    objects.put(sobj->UUID,sobj);
     if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
     {
         quad->ID = guiTransforms.length();

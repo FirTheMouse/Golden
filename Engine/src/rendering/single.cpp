@@ -40,7 +40,7 @@ void Single::remove()
     debug_trace_path = ("Single::remove::48");
     size_t last_idx = scene->active.length() - 1;
     try {
-    size_t uuid = (ID != last_idx) ? scene->singles.get(last_idx,debug_trace_path)->UUID : 0;
+    size_t id = (ID != last_idx) ? scene->singles.get(last_idx,debug_trace_path)->ID : 0;
     size_t idx = ID;
 
     model = nullptr;
@@ -57,12 +57,10 @@ void Single::remove()
 
     if(ID!=last_idx)
     {
-    if (scene->objects.hasKey(uuid)) {
-            auto obj = scene->objects.get(uuid);
+            auto obj = scene->singles.get(id);
             obj->ID = idx;
         } else {
-            print("ERROR: Swapped object UUID=", uuid, " not found in objects map!");
-    }
+            print("ERROR: Swapped object ID=", id, " not found in objects map!");
     }
     }
     catch(const std::exception& e)

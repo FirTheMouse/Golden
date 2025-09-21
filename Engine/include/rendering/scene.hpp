@@ -225,7 +225,6 @@ public:
 
     //Misc Arrays:
     map<std::string,g_ptr<Model>> instanceModels;
-    map<size_t,g_ptr<S_Object>> objects;
     std::vector<std::string> instanceTypes;
     std::vector<g_ptr<Light>> lights;
     glm::mat4 lightSpaceMatrix;
@@ -309,26 +308,7 @@ public:
     }
     }
 
-    template<typename T, typename = std::enable_if_t<std::is_base_of_v<Golden::Object, T>>>
-    g_ptr<T> getObject(size_t UUID)
-    {
-        if(objects.hasKey(UUID))
-        {
-            if(auto obj = g_dynamic_pointer_cast<T>(objects.get(UUID)))
-            {
-                return obj;
-            }
-            else
-            {
-                print("Scene::getObject::337 tried to get wrong type for UUID ",UUID);
-                return nullptr;
-            }
-        }
-        else {
-            std::cerr << "[WARN] Tried to get invalid UUID in Scene! \n";
-            return nullptr;
-        }
-    }
+
 
     virtual void removeObject(g_ptr<S_Object> obj) {}
 
@@ -489,14 +469,10 @@ public:
     class pool : public Object {
     public:
         pool() {
-            q = make<q_list<g_ptr<Object>>>();
-            free_ids = make<q_list<int>>();
         }
 
         pool(g_ptr<Scene> _scene,const std::string& name,list<Script<>> _make_funcs) 
         : scene(_scene), pool_name(name), make_funcs(_make_funcs) {
-            q = make<q_list<g_ptr<Object>>>();
-            free_ids = make<q_list<int>>();
             free_stack_top.store(0);
         }
         ~pool() {}
@@ -504,8 +480,8 @@ public:
         std::string pool_name = "bullets";
         g_ptr<Scene> scene;
         list<Script<>> make_funcs;
-        g_ptr<q_list<g_ptr<Object>>> q = make<q_list<g_ptr<Object>>>();
-        g_ptr<q_list<int>> free_ids = make<q_list<int>>();
+        list<g_ptr<Object>> members;
+        list<int> free_ids;
         std::atomic<size_t> free_stack_top{0};  // Points to next free slot
     
         int get_next() {
@@ -516,18 +492,18 @@ public:
                 new_top = current_top - 1;
             } while (!free_stack_top.compare_exchange_weak(current_top, new_top));
             
-            return free_ids->q_list::get(new_top);
+            return free_ids.get(new_top);
         }
         
         void return_id(int id) {
             size_t current_top = free_stack_top.load();
-            if (current_top < free_ids->length()) {
+            if (current_top < free_ids.size()) {
                 // There's space, just write and increment pointer
                 size_t slot = free_stack_top.fetch_add(1);
-                free_ids->q_list::get(slot) = id;
+                free_ids.get(slot) = id;
             } else {
                 // Need to grow the list
-                free_ids->push(id);
+                free_ids.push(id);
                 free_stack_top.fetch_add(1);
             }
         }
@@ -537,7 +513,7 @@ public:
             int next_id = get_next();
             if(next_id!=-1)
             {
-                auto obj = q->q_list::get(next_id);
+                auto obj = members.get(next_id,"pool::535");
                 obj->recycled.store(false);
                 return obj;
             }
@@ -549,35 +525,21 @@ public:
                     make_funcs[i].run(makeNew);
                 }
                 g_ptr<Object> new_item = makeNew.get<g_ptr<Object>>("toReturn");
-                store(new_item);
+                new_item->UUID = members.size();
+                members.push(new_item);
                 return new_item;
             }
         }
 
-        void store(g_ptr<Object> item)
-        {
-            item->set<size_t>(pool_name,q->length());
-            q->push(item);
-        }
-
         void recycle(g_ptr<Object> item) {
-            if(item->has(pool_name))
-            {
-                size_t id = item->get<size_t>(pool_name);
-
-                if(item->recycled.load()) {
-                    return;
-                }
-                item->recycled.store(true);
-
-                return_id(id);
-                if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
-                    scene->deactivate(s_obj);
-                }
+            if(item->recycled.load()) {
+                return;
             }
-            else
-            {
-                print("pool::recycle::610 this object was never added to the pool in the first place!");
+            item->recycled.store(true);
+
+            return_id(item->UUID);
+            if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
+                scene->deactivate(s_obj);
             }
         }
     };

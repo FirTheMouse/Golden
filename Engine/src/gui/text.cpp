@@ -172,7 +172,7 @@ namespace Golden
             q->scale(q->get<vec2>("size")*scale);
             q->set<size_t>("pID",pID);
             pID++;
-            chars->push(q->UUID);
+            chars->push(q->ID);
             if(!first) {first = q;}
             else {first->addChild(q,true);}
 
@@ -201,7 +201,7 @@ namespace Golden
         g_ptr<Font> font = chars->Object::get<g_ptr<Font>>("font");
         g_ptr<Scene> scene = chars->Object::get<g_ptr<Scene>>("scene");
     
-        auto at = scene->getObject<Quad>((*chars)[idx]);
+        auto at = scene->quads.get((*chars)[idx]);
         if (!at) return g;
         vec2 pos = at->getPosition();
     
@@ -218,7 +218,7 @@ namespace Golden
     
         float dx = q->get<float>("advance") * scale;
         float dy = 0.0f;
-        float left = scene->getObject<Quad>(chars->operator[](0))->getPosition().x();
+        float left = scene->quads.get((*chars)[0])->getPosition().x();
 
         if(c=='\n') {dy = 50.0f*scale; dx-=(pos.x()-left);}
     
@@ -230,7 +230,7 @@ namespace Golden
         bool onLine = true;
         for (std::size_t i = idx; i < chars->length(); ++i)
         {
-            g_ptr<Quad> quad = scene->getObject<Quad>((*chars)[i]);
+            g_ptr<Quad> quad = scene->quads.get((*chars)[i]);
             if(!quad) continue;
             // if(quad->get<char>("char")=='\n') {dy+=50.0f*scale; dx-=left;}
             if(quad->get<char>("char")=='\n') {onLine = false;}
@@ -267,14 +267,14 @@ namespace Golden
     
         g_ptr<Scene> scene = chars->Object::get<g_ptr<Scene>>("scene");
 
-        auto at = scene->getObject<Quad>((*chars)[idx]);
+        auto at = scene->quads.get((*chars)[idx]);
         if (!at) return g;
 
 
         float scale =  chars->Object::get<float>("scale");
         float dx = at->get<float>("advance") * scale;
         float dy = 0.0f;
-        float left = scene->getObject<Quad>(chars->operator[](0))->getPosition().x();
+        float left = scene->quads.get((*chars)[0])->getPosition().x();
 
         if(at->get<char>("char")=='\n') {dy = 50.0f*scale; dx-=(at->getPosition().x()-left);}
 
@@ -291,7 +291,7 @@ namespace Golden
         bool onLine = true;
         for (std::size_t i = idx; i < chars->length(); ++i)
         {
-            g_ptr<Quad> quad = scene->getObject<Quad>((*chars)[i]);
+            g_ptr<Quad> quad = scene->quads.get((*chars)[i]);
             if(!quad) continue;
             if(quad->get<char>("char")=='\n') {onLine = false;}
 
@@ -361,8 +361,8 @@ namespace Golden
 
     g_ptr<Quad> char_at(size_t idx,g_ptr<Quad> g)
     {
-        size_t uuid = g->get<txt>("chars")->list::get(idx);
-        return g->get<txt>("chars")->Object::get<g_ptr<Scene>>("scene")->getObject<Quad>(uuid);
+        size_t id = g->get<txt>("chars")->list::get(idx);
+        return g->get<txt>("chars")->Object::get<g_ptr<Scene>>("scene")->quads.get(id);
     }
 
     g_ptr<Quad> parent_of(g_ptr<Quad> g)
@@ -394,7 +394,7 @@ namespace Golden
         vec2 maxBounds(-FLT_MAX, -FLT_MAX);
         
         for(int i = 1; i < chars->length() - 1; i++) {
-            auto charQuad = scene->getObject<Quad>((*chars)[i]);
+            auto charQuad = scene->quads.get((*chars)[i]);
             vec2 charPos = charQuad->getPosition();
             vec2 charScale = charQuad->getScale();
             

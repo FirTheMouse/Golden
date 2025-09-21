@@ -170,8 +170,6 @@ void manage_cut() {
                     vec3 parallelOffset = g->facing().nY() * alongCutOffset;
                     vec3 spawnPos = c->getPosition() + perpOffset + parallelOffset;
                     auto slice = add_grabbable(c_name+"_cut", spawnPos);
-                    print("Created slice ", i, " at ", spawnPos.x(), ",", spawnPos.y(), ",", spawnPos.z(), 
-                          " ID=", slice->ID, " active=", slice->isActive());
                 }
                 scene->recycle(c,c_name);
             }
@@ -301,7 +299,7 @@ int main() {
 
             l_time+=0.02f;
             auto timer = scene->getSlot("timer")[0];
-            //text::setText(std::to_string((int)l_time), timer);
+            text::setText(std::to_string((int)l_time), timer);
         }
     });
 
