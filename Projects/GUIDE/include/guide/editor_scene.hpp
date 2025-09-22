@@ -155,7 +155,7 @@ public:
                 for(auto q : *quad->get<txt>("chars"))
                 {
                     selectable.erase(
-                        std::remove(selectable.begin(), selectable.end(), getObject<S_Object>(q)),
+                        std::remove(selectable.begin(), selectable.end(), (g_ptr<S_Object>)quads[q]),
                         selectable.end()
                         );
                 }

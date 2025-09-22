@@ -14,6 +14,7 @@ void Camera::update(float tpf)
     {
     if(type == 1) //Isocam movement
     {
+    up = worldUp.toGlm();
     vec3 camMove(0.0f,0.0f,0.0f);
     if(!Input::get().keyPressed(LALT)) {
         if(Input::get().keyPressed(KeyCode::W)) camMove.addZ(-1);
@@ -35,6 +36,7 @@ void Camera::update(float tpf)
     }
     else if(type == 2) //Orbitcam movement
     {
+    up = worldUp.toGlm();
     static float orbitYaw = 0.0f;
     static float orbitPitch = glm::radians(45.0f);  // slightly angled down
     static float orbitDistance = 20.0f;
@@ -52,6 +54,16 @@ void Camera::update(float tpf)
         target.y() + orbitDistance * sin(orbitPitch),
         target.z() + orbitDistance * cos(orbitPitch) * cos(orbitYaw)
     );
+
+    vec3 camMove(0.0f,0.0f,0.0f);
+    if(Input::get().keyPressed(LSHIFT)) {
+        if(Input::get().keyPressed(KeyCode::W)) camMove.addZ(-0.2f);
+        if(Input::get().keyPressed(KeyCode::S)) camMove.addZ(0.2f);
+        if(Input::get().keyPressed(KeyCode::A)) camMove.addX(-0.2f);
+        if(Input::get().keyPressed(KeyCode::D)) camMove.addX(0.2f);
+    }
+    target+=camMove;
+
     }
     else if(type == 3) //Flycam movement
     {

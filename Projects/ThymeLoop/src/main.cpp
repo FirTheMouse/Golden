@@ -8,6 +8,7 @@ using namespace helper;
 using namespace Golden;
 
 int loop = -1;
+int level = 0;
 bool in_loop = false;
 float l_time = 0.0f;
 g_ptr<Scene> scene;
@@ -82,10 +83,13 @@ void remove_from_slot(g_ptr<Single> obj) {
 void basic_add(g_ptr<Single> obj, vec3 start) {
     obj->setPosition(start);
     obj->setPhysicsState(P_State::ACTIVE);
+    if(obj->dtype=="floor") {
+        obj->setPhysicsState(P_State::PASSIVE);
+    }
     obj->setLinearVelocity(vec3(0,0,0));
     if(obj->has("func"))
         by_func.getOrPut(obj->get<std::string>("func"),list<g_ptr<Single>>{}).push(obj);
-    obj->add<g_ptr<_slot>>("in_slot",nullptr);
+    obj->set<g_ptr<_slot>>("in_slot",nullptr);
     if(obj->has("slots")) {
         int s_num = obj->get<int>("slots");
         list<g_ptr<_slot>> sub; 
@@ -94,7 +98,7 @@ void basic_add(g_ptr<Single> obj, vec3 start) {
         for(int i = 0;i<s_num;i++) {
             sub << make<_slot>(sizes[i],names[i],obj);
         }
-        obj->add<list<g_ptr<_slot>>>("slot_list",sub);
+        obj->set<list<g_ptr<_slot>>>("slot_list",sub);
     }
 }
 
@@ -102,9 +106,6 @@ g_ptr<Single> add_surface(const std::string& type,vec3 start = vec3(0,0,0)) {
     auto obj = scene->create<Single>(type);
     basic_add(obj,start);
     surfaces << obj;
-    if(!in_loop&&loop==-1) {
-        starting.push(_origin(type,start,false));
-    }
     return obj;
 }
 
@@ -113,9 +114,6 @@ g_ptr<Single> add_grabbable(const std::string& type,vec3 start = vec3(0,0,0)) {
     basic_add(obj,start);
     grabable << obj;
     grabable_pos << start;
-    if(!in_loop&&loop==-1) {
-        starting.push(_origin(type,start,true));
-    }
     return obj;
 }
 
@@ -225,7 +223,6 @@ void drop(int c_id) {
 
 
 void update_physics() {
-
     //print(scene->active.length());
     for(int i=0;i<scene->active.length();i++) {
         if(scene->active[i]) {
@@ -247,7 +244,7 @@ void update_physics() {
             if(g_id!=-1&&grabbed.find(obj)==-1) {
                 auto slot = in_slot(obj);
                 if(slot==nullptr) {
-                    slot = closest_slot(obj,1.3f);
+                    slot = closest_slot(obj,0.8f);
                     if(slot) {
                         obj->setPosition(slot->pos());
                         velocity.position = vec3(0,0,0);
@@ -401,13 +398,14 @@ void manage_interactions(int c_id) {
     if(obj->inc<int>("cooldown",0)>0) return;
 
     std::string func = obj->get<std::string>("func");
-    std::string g_name = obj->get<std::string>("name");
+    std::string g_name = obj->dtype;
+    auto surface = closest_surface(obj->getPosition());
 
     if(func=="cut") {
         if(by_func.hasKey("be_cut"))
         for(auto c : by_func.get("be_cut")) {
             if(!c->isActive()) continue;
-            std::string c_name = c->get<std::string>("name");
+            std::string c_name = c->dtype;
             if(get_velocitiy(c_id,3).y()<-0.3f) {
                 if(grabbed[c_id]->getWorldBounds().intersects(c->getWorldBounds())) {
                     vec3 cutterRight = grabbed[c_id]->right();
@@ -431,7 +429,17 @@ void manage_interactions(int c_id) {
         if(grabbed[c_id]->facing().y()>0.9f) {
             for(auto s : slots(grabbed[c_id])) {
                 if(s->obj) {
-                    drop(grabable.find(s->obj));
+                    s->obj->move(vec3(0,-1.0f,0));
+                    remove_from_slot(s->obj);
+                }
+            }
+        } 
+        else if(surface) {
+            if(surface->get<std::string>("func")=="water_source") {
+                for(auto s : slots(obj)) {
+                    if(s->size==-1&&!s->obj) {
+                        add_grabbable("water",obj->getPosition().addY(0.5f));
+                    } 
                 }
             }
         }
@@ -490,6 +498,28 @@ void kill(int c_id) {
     if(c_id==loop) reloop();
 }
 
+list<_origin> get_level(int l) {
+    list<_origin> result;
+    switch(l) {
+        case 0:
+
+        break;
+        default:
+result << _origin("floor",vec3(0,-1,0),false);
+result << _origin("column",vec3(0,0,-5),false);
+result << _origin("table",vec3(0,-0.5f,-2.5f),false);
+result << _origin("spout",vec3(10,0,0),false);
+result << _origin("knife",vec3(8,0,-2.5f),true);
+result << _origin("tomato",vec3(-8,0,0),true);
+result << _origin("tomato",vec3(-6,0,0),true);
+result << _origin("tomato",vec3(-4,0,0),true);
+result << _origin("tomato",vec3(-2,0,0),true);
+result << _origin("pot",vec3(6,0,0),true);
+        break;
+    }
+    return result;
+}
+
 int main() {
 
     std::string MROOT = "../Projects/ThymeLoop/assets/models/";
@@ -500,7 +530,8 @@ int main() {
     scene->setupShadows();
     scene->camera.speedMod = 0.01f;
     scene->camera.toFirstPerson();
-    glfwSetInputMode((GLFWwindow*)window.getWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    window.lock_mouse();
+    text::TextEditor text(scene);
     Data d = make_config(scene,K);
     load_gui(scene, "ThymeLoop", "thymegui.fab");
     start::define_objects(scene,"ThymeLoop");
@@ -508,27 +539,32 @@ int main() {
     auto l1 = make<Light>(Light(glm::vec3(0,10,0),glm::vec4(300,300,300,1)));
     scene->lights.push_back(l1);
 
-    add_object("floor",vec3(0,-1,0))->setPhysicsState(P_State::PASSIVE);
-    add_surface("column",vec3(0,0,-5));
-
-    add_grabbable("knife",vec3(8,0,-2.5f));
-    add_surface("table",vec3(0,-0.5f,-2.5f));
-    // add_surface("cauldron",vec3(0,-0.5f,3.0f));
-    add_grabbable("tomato",vec3(-8,0,0));
-    add_grabbable("tomato",vec3(-6,0,0));
-    add_grabbable("tomato",vec3(-4,0,0));
-    add_grabbable("tomato",vec3(-2,0,0));
-    // add_grabbable("bucket",vec3(4,0,0));
-    // add_surface("spout",vec3(20,0,0));
-    add_grabbable("pot",vec3(6,0,0));
-    add_grabbable("water",vec3(4,0,0));
+    starting = get_level(-1);
     
     reloop(true);
 
     // g_ptr<Single> box = make<Single>(makeTestBox(0.1f));
     // scene->add(box);
-
+    S_Tool s_tool;
+    int cam_mode = 1;
     start::run(window,d,[&]{
+        if(pressed(N)&&!text.editing) text.scan(scene->getSlot("timer")[0]);
+        text.tick(0.016f);
+
+        if(pressed(NUM_1)) {
+            window.lock_mouse();
+            scene->camera.speedMod = 0.01f;
+            scene->camera.toFirstPerson();
+            cam_mode = 1;
+        } 
+        if(pressed(NUM_2)) {
+            window.unlock_mouse();
+            scene->camera.speedMod = 0.01f;
+            scene->camera.toIso();
+            cam_mode = 2;
+            if(in_loop) in_loop = false;
+        }
+
         if(pressed(SPACE)) {
             if(in_loop) {
                 player->setLinearVelocity(vec3(0,is_mouse?10:4,0));
@@ -548,12 +584,13 @@ int main() {
             }
         }
 
-        auto b_pos = player->getPosition();
-        player->setLinearVelocity(dir_fps(is_mouse?1.5f:3.5f,player).setY(player->getVelocity().position.y()));
-        vec3 f = scene->camera.front;
-        player->faceTowards(vec3(f.x(),0,f.z()),vec3(0,1,0));
-        vec3 camPos = player->getPosition().addY(0.7f)+player->facing().mult(0.8f);
-        scene->camera.setPosition(player->markerPos("camera_pos"));   
+        if(cam_mode==1) {
+            player->setLinearVelocity(dir_fps(is_mouse?1.5f:3.5f,player).setY(player->getVelocity().position.y()));
+            vec3 f = scene->camera.front;
+            player->faceTowards(vec3(f.x(),0,f.z()),vec3(0,1,0));
+            vec3 camPos = player->getPosition().addY(0.7f)+player->facing().mult(0.8f);
+            scene->camera.setPosition(player->markerPos("camera_pos"));   
+        }
 
         if(in_loop) {
             //Looping for the clones and updating the loop for the player
@@ -605,7 +642,7 @@ int main() {
             auto timer = scene->getSlot("timer")[0];
             text::setText(std::to_string((int)l_time), timer);
         }
-
+        //s_tool.tick();
     });
 
     // vec3 input = input_2d_arrows(1.0f);
@@ -615,6 +652,6 @@ int main() {
     //     box->setPosition(player->getPosition()+player->facing());
     // }
 
-    glfwSetInputMode((GLFWwindow*)window.getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    window.unlock_mouse();
     return 0;
 }

@@ -56,6 +56,24 @@ g_ptr<Quad> char_at(size_t idx,g_ptr<Quad> g);
 g_ptr<Quad> parent_of(g_ptr<Quad> g);
 g_ptr<Quad> end_of(g_ptr<Quad> g);
 vec2 center_of(g_ptr<Quad> g);
+
+struct TextEditor {
+    TextEditor(g_ptr<Scene> _scene) : scene(_scene) {}
+    bool editing = false;
+    g_ptr<Quad> crsr = nullptr;
+    size_t crsPos = 0;
+    float pause = 0.0f;
+    float pause2 = 0.0f;
+    float pause3 = 0.0f;
+    float blink = 0.0f;
+    bool blinkOn = true;
+    int lastChar = 0;
+    vec2 fromTo = vec2(1.0f,1.0f);
+    std::string clipboard = "";
+    g_ptr<Scene> scene;
+    void tick(float tpf);
+    void scan(g_ptr<Quad> g,bool need_click = false);
+};
 }
 
 class Text : public Object {

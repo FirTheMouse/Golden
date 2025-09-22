@@ -27,7 +27,12 @@ public:
     void swapBuffers();
     void pollEvents();
     void clear(float r, float g, float b, float a);
-    // ...other window functions
+    void lock_mouse() {
+        glfwSetInputMode((GLFWwindow*)window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+    void unlock_mouse() {
+        glfwSetInputMode((GLFWwindow*)window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
 
     // Optionally: expose access to the native GLFWwindow* if you need it internally
     void* getWindow(); // or GLFWwindow* getNativeWindow();

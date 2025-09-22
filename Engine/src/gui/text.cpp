@@ -246,7 +246,7 @@ namespace Golden
             if(!isParent) parent->addChild(quad,true);
             
         }
-        chars->insert(q->UUID,idx);
+        chars->insert(q->ID,idx);
         q->scale(q->get<vec2>("size")*scale);
         parent->addChild(q,true);
         std::string str = chars->Object::get<std::string>("string");
@@ -423,7 +423,128 @@ namespace Golden
     
     // vec3 startPos = scene->getObject((*chars)[1])->getPosition(); // First real char
     // return vec2(startPos.x() + totalAdvance/2.0f, startPos.y());
-    
 
+    void TextEditor::tick(float tpf)
+    {
+        bool shiftHeld = Input::get().keyPressed(LSHIFT) || Input::get().keyPressed(RSHIFT);
+        pause -= tpf;
+        pause2 -= tpf;
+        pause3 -= tpf;
+        if(blink>0.0f) {
+            blink-=tpf; 
+            if(crsr) 
+            {
+            if(blinkOn&&!crsr->isActive()) {crsr->lockToParent=false; scene->reactivate(crsr); crsr->lockToParent=true;}
+            else if(!blinkOn&&crsr->isActive()) {crsr->lockToParent=false; scene->deactivate(crsr); crsr->lockToParent=true;}
+            }
+        }
+        else {blink = 0.4f; blinkOn = !blinkOn;}
+        if(Input::get().keyPressed(KeyCode::LEFT)&&pause<=0.0f)
+        {
+            if(crsr&&crsPos>2)
+            {
+                pause = 0.1f;
+                text::removeChar(crsPos,crsr);
+                crsPos--;
+                crsr=insertChar(crsPos,'|',crsr);
+            }
+        }
+
+        if(Input::get().keyPressed(KeyCode::RIGHT)&&pause2<=0.0f)
+        {
+            if(crsr&&crsPos<crsr->get<txt>("chars")->length()-2)
+            {
+                pause2 = 0.1f;
+                removeChar(crsPos,crsr);
+                crsPos++;
+                crsr=insertChar(crsPos,'|',crsr);
+            }
+        }
+
+        if(Input::get().keyJustPressed(KeyCode::ESCAPE))
+        {
+            if(editing)
+            {
+                editing = false;
+                removeChar(crsPos,crsr);
+                crsr = nullptr;
+            }
+        }
+
+        if(crsr)
+        {
+            std::string string = crsr->get<txt>("chars")->Object::get<std::string>("string");
+            if(Input::get().keyPressed(KeyCode::BACKSPACE)&&pause3<=0.0f)
+            {
+                pause3 = 0.1f;
+                if(crsPos>1)
+                text::removeChar(--crsPos,crsr);
+            }
+
+            if(Input::get().keyPressed(KeyCode::CMD))
+            {
+                if(Input::get().keyJustPressed(KeyCode::C))
+                {
+                    int x = fromTo.x();
+                    int y = fromTo.y();
+                    int from = std::min(x,y);
+                    int to =  std::max(x,y);
+                    clipboard = string.substr(from,to-from);
+                }
+
+                if(Input::get().keyJustPressed(KeyCode::V))
+                {
+                    insertText(crsPos,clipboard,crsr);
+                }
+            }
+            else
+            {
+            list<int> pressed = Input::get().justPressed();
+            for(int i=0;i<pressed.length();i++)
+            {
+                int t = pressed[i];
+                char c;
+                if (t == KeyCode::BACKSPACE) {
+                    continue;
+                }
+                else if(keycodeToChar(t,shiftHeld,c))
+                {
+                    text::insertChar(crsPos,c,crsr);
+                    crsPos++;
+                    lastChar = t;
+                }
+            }
+            }
+
+        }
     }
+    void TextEditor::scan(g_ptr<Quad> g,bool need_click) {
+        bool shiftHeld = Input::get().keyPressed(LSHIFT) || Input::get().keyPressed(RSHIFT);
+        if(!need_click||(Input::get().keyPressed(KeyCode::MOUSE_LEFT)&&pause<=0.0f))
+        {
+            pause=0.1f;
+            if(g->has("char"))
+            {
+            size_t at = g->get<size_t>("pID");
+            size_t length = g->get<txt>("chars")->length();
+            if(at>=length-1) at = length-2;
+            if(at<=1) at = 2;
+                editing = true;
+                if(!crsr) {
+                    if(at==length-2) at = length-1;
+                    crsr=insertChar(at,'|',g);
+                }
+                else {
+                    removeChar(crsPos,crsr);
+                    crsr=insertChar(at,'|',g);
+                    if(shiftHeld) fromTo.setX(at);
+                    else fromTo.setY(at+1);
+                }
+                crsPos = at;
+            }
+        } 
+    }
+    }
+
+    
 }
