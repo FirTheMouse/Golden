@@ -75,6 +75,14 @@ namespace Golden
             (one->right()*-mIn.x()));
         }
 
+        vec3 dir_fps(float s,g_ptr<Single> one)
+        {
+        vec2 mIn = input_move_2d_keys(s);
+        return(
+            (one->facing()*-mIn.y())+
+            (one->right()*-mIn.x()));
+        }
+
         vec3 input_2d_arrows(float sensitivity)
         {
             float x = 0.0f;
@@ -202,37 +210,48 @@ namespace Golden
                 std::string type = entry.key;
                 std::string path = entry.value;
                 scene->set<g_ptr<Model>>("_"+type+"_model",make<Model>(path));
-                auto data = make<q_data>();
-                int has_definition = 2;
-                for(int i=2;i<lines.length();i++)
-                {
-                    list<std::string> values = split_str(lines[i],',');
-                    if(values[0]==type) {
-                        for(int t = 0;t<values.length();t++)
-                        {
-                            std::string t_type = types[t];
-                            if(values[t]=="") continue;
-                            if(t_type=="string") data->add<std::string>(headers[t],values[t]);
-                            else if (t_type=="int") data->add<int>(headers[t],std::stoi(values[t]));
-                            else if (t_type=="float") data->add<float>(headers[t],std::stof(values[t]));
-                        }
-                    }
-                    else {
-                        has_definition++;
-                    }
-                }
-                if(has_definition>lines.length()-1) {
-                    print("Missing defintion for ",type," in ",project_name," - data.csv");
-                }
-                scene->set<g_ptr<q_data>>("_"+type+"_data",data);
-                Script<> make_part("make_"+type,[scene,level,type](ScriptContext& ctx){
+
+                Script<> make_part("make_"+type,[scene,level,type,lines,headers,types](ScriptContext& ctx){
                     auto model = scene->get<g_ptr<Model>>("_"+type+"_model");
-                    auto data = scene->get<g_ptr<q_data>>("_"+type+"_data");
+                    // auto data = scene->get<g_ptr<q_data>>("_"+type+"_data");
                     auto modelCopy = make<Model>();
                     modelCopy->copy(*model);
                     auto part = make<Single>(modelCopy);
-                    part->data = data;
                     scene->add(part);
+                    
+                    for(int i=2;i<lines.length();i++)
+                    {
+                        list<std::string> values = split_str(lines[i],',');
+                        if(values[0]==type) {
+                            for(int t = 0;t<values.length();t++)
+                            {
+                                std::string t_type = types[t];
+                                if(values[t]=="") continue;
+                                if(t_type=="string") part->add<std::string>(headers[t],values[t]);
+                                else if (t_type=="int") part->add<int>(headers[t],std::stoi(values[t]));
+                                else if (t_type=="float") part->add<float>(headers[t],std::stof(values[t]));
+                                else if(t_type=="bool") part->add<bool>(headers[t],values[t]=="true"?1:0);
+                                else if (t_type=="intlist") {
+                                    list<int> moves;
+                                    list<std::string> sub = split_str(values[t],'|');
+                                    for(int e = 0;e<sub.length();e++) {
+                                       moves << std::stoi(sub[e]);
+                                    }
+                                    part->add<list<int>>(headers[t],moves);
+                                }
+                                else if (t_type=="vec2list") {
+                                    list<ivec2> moves;
+                                    list<std::string> sub = split_str(values[t],'|');
+                                    for(int e = 0;e<sub.length();e++) {
+                                        list<std::string> sub_sub = split_str(sub[e],':');
+                                        ivec2 v(std::stof(sub_sub[0]),std::stof(sub_sub[1]));
+                                        moves << v;
+                                    }
+                                    part->add<list<ivec2>>(headers[t],moves);
+                                }
+                            }
+                        }
+                    }
                     if(level)
                     {
                         part->setPosition(level->snapToGrid(scene->getMousePos()));

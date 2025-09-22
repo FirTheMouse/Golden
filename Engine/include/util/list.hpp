@@ -30,6 +30,15 @@ public:
         ptr = (capacity_ > 0) ? new T[capacity_] : nullptr;
     }
 
+    list(size_t cap,T def) {
+        size_ = cap;
+        capacity_ = cap;
+        ptr = (capacity_ > 0) ? new T[capacity_] : nullptr;
+        for(int i = 0;i<cap;i++) {
+            ptr[i] = def;
+        }
+    }
+
     list(std::initializer_list<T> values) {
     size_ = 0;
     capacity_ = values.size();

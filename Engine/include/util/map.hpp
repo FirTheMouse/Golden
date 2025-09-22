@@ -40,7 +40,7 @@ public:
             if(e.key == key) return e.value;
        }
        //return nullptr;
-       throw std::runtime_error("Warning: no key found");
+       throw std::runtime_error("map::43 key not found ");
     }
 
     list<V> getAll(const K& key){

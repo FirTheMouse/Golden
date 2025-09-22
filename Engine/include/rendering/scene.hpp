@@ -598,7 +598,7 @@ public:
         }
         else
         {
-            print("scene::create::641 attempted to recycle an undefined type!");
+            print("scene::recycle::601 attempted to recycle an undefined type: ",type,"!");
         }
     }
     

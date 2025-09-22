@@ -273,7 +273,7 @@ Model::Model(const std::string& path) {
                         m[i / 4][i % 4] = node.matrix[i];
                     position = glm::vec3(m[3]); // Translation is in last column
                 }
-                markers.put(node.name,position);
+                markers.put(node.name.substr(0,node.name.find_last_of('.')),position);
             }
         }
 

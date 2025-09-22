@@ -85,6 +85,16 @@ public:
         );
     }
 
+    BoundingBox& expand(float scalar) {
+        glm::vec3 center = getCenter();
+        glm::vec3 halfSize = getSize() * 0.5f;
+        glm::vec3 newHalfSize = halfSize * scalar;
+        
+        min = center - newHalfSize;
+        max = center + newHalfSize;
+        return *this;
+    }
+
     bool intersects(const BoundingBox& other) const {
         return (min.x <= other.max.x && max.x >= other.min.x) &&
                (min.y <= other.max.y && max.y >= other.min.y) &&
