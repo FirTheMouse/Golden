@@ -160,7 +160,7 @@ namespace name {
         finished([&,meta](Data& s){
             for(int i=0;i<meta.length();i++) {
                 if(meta[i][1].at(0)=='!') continue;
-                else toReturn = toReturn+meta[i][1]+s.get<str>(meta[i][1])+(i<meta.length()-1?"\n":"");
+                else toReturn = toReturn+(meta[i][1]==" "?"":meta[i][1])+s.get<str>(meta[i][1])+(i<meta.length()-1?"\n":"");
             }
             if(times>1) toReturn = toReturn+"\n----------------\n";
         });

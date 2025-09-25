@@ -1,123 +1,184 @@
 #include<rendering/scene.hpp>
 #include<core/helper.hpp>
-#include<core/grid2d.hpp>
-#include<util/meshBuilder.hpp>
 #include<util/color.hpp>
-#include<util/files.hpp>
+#include<util/string_generator.hpp>
 
 using namespace Golden;
 
-void start_flotsam(g_ptr<Scene> scene, g_ptr<Grid2D> level = nullptr) {
-    map<std::string,std::string> type_modelPath;
+g_ptr<Scene> scene;
+g_ptr<Font> font;
 
-    auto is_model = [](const std::string& filename) -> std::string{ 
-        auto split = split_str(filename,'.');
-        if(split.length()>0)
-        {
-            if(split[split.length()-1]=="png") {
-                std::string toReturn = "";
-                for(int i=0;i<split.length()-1;i++)
-                {
-                    toReturn.append(split[i]);
-                }
-                return toReturn;
-            }
-        }
-        return "[NULL]";
-    };
+g_ptr<Quad> makeLine() {
+    auto g = make<Quad>();
+    scene->add(g);
+    g->scale(vec2(5,5));
+    g->setColor(Color::WHITE);
+    return g;
+}
 
-    auto process_files = [&is_model,&type_modelPath](const std::string& path) -> void{ 
-        auto files = list_files(path);
-        for(auto f : files)
-        {
-        list<std::string> split = split_str(f,'/');
-        std::string filename = split[split.length()-1];
-        std::string name = is_model(filename);
-        if(name!="[NULL]") {
-            type_modelPath.put(name,f);
-        }
-        }
-    };
+void updateLine(g_ptr<Quad> item,vec2 from) {
+    vec2 dir = from-item->getPosition();
+    item->scale(vec2(std::abs(dir.length()),3));
+    float angle = atan2(dir.y(), dir.x());
+    item->rotate(angle);
+}
 
-    std::function<void(const std::string&)> process_directory_recursive = [&](const std::string& path) -> void {
-        process_files(path);
-        auto subdirs = list_subdirectories(path, false);
-        for(const auto& subdir : subdirs) {
-            process_directory_recursive(subdir);
-        }
-    };
-    process_directory_recursive("../Projects/StudentSystem/assets/images/");
+class person : public Object {
+public:
+    std::string name = "noname";
 
-    std::string data_string = "NONE";
-    try {
-    data_string = readFile("../Projects/StudentSystem/assets/images/Flotsam - data.csv");
+    g_ptr<person> spouse;
+    list<g_ptr<person>> children;
+
+
+    list<g_ptr<Quad>> lines;
+    g_ptr<Quad> txt;
+
+    vec2 center() {
+        return text::center_of(txt);
     }
-    catch(std::exception e)
-    {
-        print("No - data.csv provided for StudentSystem this is required for object definitions to work");
-    }
-    std::string cleaned_data = data_string;
-    size_t pos = 0;
-    while((pos = cleaned_data.find("\r\n", pos)) != std::string::npos) {
-        cleaned_data.replace(pos, 2, "\n");
-        pos += 1;
-    }
-    auto lines = split_str(cleaned_data, '\n');
-    list<std::string> headers;
-    list<std::string> types;
-    for(int i=0;i<2;i++)
-    {
-        for(auto s : split_str(lines[i],',')) {
-            if(i==0) {
-                headers << s;
-            }  
-            else if(i==1) {
-                types << s;
-            }
-        }
+
+    float width() {
+        int len = text::string_of(txt).length();
+        float wid = 25;
+        return len*wid;
     }
 
 
-    for(auto entry : type_modelPath.entrySet())
-    {
-        std::string type = entry.key;
-        std::string path = entry.value;
-        scene->set<std::string>("_"+type+"_image",path);
-        auto data = make<q_data>();
-        int has_definition = 2;
-        for(int i=2;i<lines.length();i++)
-        {
-            list<std::string> values = split_str(lines[i],',');
-            if(values[0]==type) {
-                for(int t = 0;t<values.length();t++)
-                {
-                    std::string t_type = types[t];
-                    if(values[t]=="") continue;
-                    if(t_type=="string") data->add<std::string>(headers[t],values[t]);
-                    else if (t_type=="int") data->add<int>(headers[t],std::stoi(values[t]));
-                    else if (t_type=="float") data->add<float>(headers[t],std::stof(values[t]));
-                }
-            }
-            else {
-                has_definition++;
-            }
+    vec2 right() {
+        return center().addX(width()/2);
+    }
+
+    vec2 left() {
+        return center().addX(-width()/2);
+    }
+
+    void setName(const std::string& n) {
+        name = n;
+        if(txt) {
+            text::setText(name,txt);
+        } else
+            txt = text::makeText(name,font,scene,vec2(1250,40),1);
+    }
+
+    void makeName() {
+        setName(name::randsgen({name::STANDARD},1));
+    }
+
+    g_ptr<person> addChild() {
+        if(!spouse) {
+            print("UNMARRIED CAN'T HAVE CHILDREN - add single parents later");
+            return nullptr;
         }
-        if(has_definition>lines.length()-1) {
-            print("Missing defintion for ",type," in Flotsam - data.csv");
+        if(!spouse->txt) {
+            spouse->makeName();
         }
-        scene->set<g_ptr<q_data>>("_"+type+"_data",data);
-        Script<> make_part("make_"+type,[scene,level,type](ScriptContext& ctx){
-            auto path = scene->get<std::string>("_"+type+"_image");
-            auto data = scene->get<g_ptr<q_data>>("_"+type+"_data");
-            auto part = scene->makeImageQuad(path,1.0f);
-            part->data = data;
-            if(level)
-            {
-               //Put some stuff here for passes
-            }
-            ctx.set<g_ptr<Object>>("toReturn",part);
-    });
-    scene->define(type,make_part);
+        auto child = make<person>();
+        child->makeName();
+        children << child;
+        return child;
+        // for(int i = 0;i<children.length();i++) {
+        //     auto l = makeLine();
+        //     l->setPosition(getPos().addY(-25));
+        //     lines << l;
+        // }
+    }
+};
+
+static int max_depth = 4;
+float calculateSubtreeWidth(g_ptr<person> node) {
+    if(node->children.empty()) {
+        float width = node->width();
+        if(node->spouse) width += node->spouse->width() + 50;
+        return width;
+    }
+    
+    float childrenWidth = 0;
+    for(auto child : node->children) {
+        childrenWidth += calculateSubtreeWidth(child);
+    }
+    childrenWidth += (node->children.length() - 1) * 100;
+    
+    float nodeWidth = node->width();
+    if(node->spouse) nodeWidth += node->spouse->width() + 50;
+    
+    return std::max(nodeWidth, childrenWidth);
+}
+
+void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
+    root->txt->setCenter(rootPos);
+    if(root->spouse) {
+        root->spouse->txt->setCenter(rootPos + vec2(root->width() + 50, 0));
+    }
+    
+    if(root->children.empty()) return;
+    float totalChildrenWidth = 0;
+    for(auto child : root->children) {
+        totalChildrenWidth += calculateSubtreeWidth(child);
+    }
+    totalChildrenWidth += (root->children.length() - 1) * 100; // gaps
+    
+    vec2 parentCenter = rootPos;
+    if(root->spouse) {
+        float leftEdge = rootPos.x() - root->width()/2;
+        float rightEdge = rootPos.x() + root->width() + 50 + root->spouse->width()/2;
+        parentCenter.setX((leftEdge + rightEdge) / 2);
+    }
+    
+    float startX = parentCenter.x() - (totalChildrenWidth / 2);
+    float currentX = startX;
+    for(auto c : root->children) {
+        float childSubtreeWidth = calculateSubtreeWidth(c);
+        vec2 childPos = vec2(currentX + childSubtreeWidth/2, rootPos.y() + 120);
+        
+        c->txt->setCenter(childPos);
+        if(c->spouse) {
+            c->spouse->txt->setCenter(childPos + vec2(c->width() + 50, 0));
+        }
+        
+        auto l = makeLine();
+        if(root->spouse) {
+            l->setPosition(vec2((root->right().x() + root->spouse->left().x()) / 2,rootPos.y()));
+        } else
+            l->setPosition(rootPos+vec2(0,25));
+        updateLine(l, childPos + vec2(0, -25));
+
+        if(c->spouse) {
+            auto l2 = makeLine();
+            l2->setPosition(c->right());
+            updateLine(l2,c->spouse->left());
+        }
+    
+        arrange(c, childPos);
+        
+        currentX += childSubtreeWidth + 100;
+    }
+}
+
+void populate(g_ptr<person> root,int depth = 0) {
+    if(depth>max_depth) return;
+    if(randi(0,1)==1||depth==0) {
+        root->spouse = make<person>();
+        root->spouse->makeName();
+        for(int i = 0;i<randi(0,3);i++) {
+        auto c = root->addChild();
+        populate(c,depth++);
+        }
+    }
+}
+
+void create_info_card(g_ptr<Quad> root) {
+    list<std::string> label;
+    list<std::string> value;
+    for(auto e : root->data.notes.entrySet()) {
+        try {
+            std::string nstr = *std::any_cast<std::string>(&e.value);
+            label << e.key;
+            value << nstr;
+        } catch (std::exception e) {}
+    }
+    for(int i =0;i<label.length();i++) {
+       print(label[i],": ",value[i]);
     }
 }
 
@@ -127,66 +188,31 @@ int main()  {
     std::string MROOT = "../Projects/StudentSystem/assets/models/";
     std::string IROOT = "../Projects/StudentSystem/assets/images/";
 
-    Window window = Window(1280, 768, "Flotsam 0.1");
-    auto scene = make<Scene>(window,2);
+    Window window = Window(1280, 768, "FamilyTree 0.1");
+    scene = make<Scene>(window,2);
     Data d = make_config(scene,K);
+    scene->tickEnvironment(0);
+    font = make<Font>("../Engine/assets/fonts/source_code.ttf",50);
 
-    float cellSize = 100.0f;
-    float mapSize = 1000.0f;
-    auto grid = make<Grid2D>(cellSize,mapSize);
-    grid->y_level = 0;
-
-    auto background = make<Quad>();
-    scene->add(background);
-    background->setColor(Color::BLUE);
-    background->scale(vec2(4000,4000));
-    background->stop();
-    background->flagOff("valid");
-
-    // auto square = make<Quad>();
-    // scene->add(square);
-    // square->setColor(Color::RED);
-    // square->scale(vec2(300,300));
-    // square->setCenter(vec2(300,300));
-
-    vec2 center(500,500);
-    vec2 lastpos(500,500);
-
-    start_flotsam(scene,grid);
-    for(int i=0;i<300;i++)
-    {
-       auto a = scene->create<Quad>("plank");
-       a->scale(vec2(cellSize,cellSize));
-       vec2 newpos = grid->snapToGrid(lastpos+vec2(cellSize*randi(-1,1),cellSize*randi(-1,1)));
-       int g = 0;
-       while(newpos.x()>=2560&&newpos.y()>=1536&&
-            newpos.x()<0&&newpos.y()<0
-       &&g<300) {
-        newpos = grid->snapToGrid(lastpos+vec2(cellSize*randi(-1,1),cellSize*randi(-1,1)));
-        g++;
-       }
-       g = 0;
-    //    while(!grid->getCell(newpos)->empty()&&g<30) {
-    //     newpos = grid->snapToGrid(lastpos+vec2(cellSize*randi(-1,1),cellSize*randi(-1,1)));
-    //     g++;
-    //    }
-    //    if(g>=30) print("AH");
-       grid->getCell(newpos)->push(a);
-       a->setCenter(newpos);
-       lastpos = newpos;
-       //a->setCenter(grid->snapToGrid(vec2(randf(-mapSize,mapSize),randf(-mapSize,mapSize))));
-    }
-
+    auto root = make<person>();
+    root->makeName();
+    populate(root);
+    arrange(root);
+    create_info_card(text::parent_of(root->txt));
     g_ptr<Quad> sel = nullptr;
     start::run(window,d,[&]{
         if(pressed(MOUSE_LEFT)) {
-            scene->mousePos2d().print();
             if(sel) sel = nullptr;
             else sel = scene->nearestElement();
         }
-
         if(sel)
-            sel->setCenter(grid->snapToGrid(scene->mousePos2d()));
+            sel->setCenter(scene->mousePos2d());
+
+        vec2 move2d = input_move_2d_keys(8.0f)*-1;
+        for(int i=0;i<scene->quads.length();i++) {
+            auto q = scene->quads[i];
+                q->move(move2d);
+        }
        
     });
 

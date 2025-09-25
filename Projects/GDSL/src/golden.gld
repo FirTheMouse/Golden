@@ -15,7 +15,7 @@ int b;
 int c;
 double d;
 string name;
-print(_slots());
+layout();
 num one;
 num two;
 num three;

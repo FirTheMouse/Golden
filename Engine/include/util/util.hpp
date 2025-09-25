@@ -33,10 +33,10 @@ void printnl(Args&&... args) {
 
 
 class Data{
-private:
-    map<std::string,std::any> notes;
 public:
     Data() {}
+
+    map<std::string,std::any> notes;
 
     template<typename T = std::string>
     void add(const std::string& label,T info)

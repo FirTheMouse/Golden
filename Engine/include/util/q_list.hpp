@@ -92,6 +92,12 @@ public:
     //Dormant code for now, intend to add swapping in the future for
     bool isSwapping() {return is_swapping.load();}
 
+    inline T* begin() {return impl.begin();}
+    inline T* end() {return impl.end();}
+    inline T& operator[](size_t index) {
+        return impl[index];
+    }
+
 
     void remove(size_t index) {
         while (is_removing.load()||is_adding.load()) {
