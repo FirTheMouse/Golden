@@ -63,6 +63,7 @@ public:
     vec3 getPosition();
     glm::quat getRotation();
     vec3 getRotationEuler();
+    vec3 getScale();
 
     virtual float distance(g_ptr<Single> other) {return getPosition().distance(other->getPosition());}
     virtual vec3 direction(g_ptr<Single> other) {return getPosition().direction(other->getPosition());}
@@ -79,7 +80,9 @@ public:
     virtual vec3 right();
 
     Single& scale(const vec3& v,bool update=true);
+    Single& setScale(const vec3& v,bool update=true);
     Single& scale (float s,bool update=true) {scale(vec3(s,s,s),update); return *this;}
+    Single& setScale (float s,bool update=true) {setScale(vec3(s,s,s),update); return *this;}
 
     virtual Single& setLinearVelocity(const vec3& v);
     virtual Single& impulseL(const vec3& v);

@@ -117,6 +117,7 @@ namespace Golden
             std::chrono::steady_clock::time_point last = std::chrono::high_resolution_clock::now();
             int frames = 0;
             float pause = 0.0f;
+            bool log_fps = false;
 
             void tick() {
                 auto end = std::chrono::high_resolution_clock::now();
@@ -124,7 +125,8 @@ namespace Golden
                 tpf = delta.count(); last = end; frame++; frames++;
                 frametime+=tpf; frame++;
                 if(frametime>=1) {
-                    std::cout << frames << " FPS" << std::endl;
+                    if(log_fps)
+                        std::cout << frames << " FPS" << std::endl;
                     frametime=0;
                     frames=0;
                 }
@@ -231,6 +233,11 @@ namespace Golden
                                 else if (t_type=="int") part->add<int>(headers[t],std::stoi(values[t]));
                                 else if (t_type=="float") part->add<float>(headers[t],std::stof(values[t]));
                                 else if(t_type=="bool") part->add<bool>(headers[t],values[t]=="true"?1:0);
+                                else if (t_type=="vec4") {
+                                    list<std::string> sub_sub = split_str(values[t],':');
+                                    vec4 v(std::stof(sub_sub[0]),std::stof(sub_sub[1]),std::stof(sub_sub[2]),std::stof(sub_sub[3]));
+                                    part->add<vec4>(headers[t],v);
+                                }
                                 else if (t_type=="intlist") {
                                     list<int> moves;
                                     list<std::string> sub = split_str(values[t],'|');

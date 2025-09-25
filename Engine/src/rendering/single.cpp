@@ -123,23 +123,35 @@ vec3 Single::getPosition() {
     #if SINGLE_DEBUG
     debug_trace_path = "Single::getPosition::86";
     #endif
-    return vec3(glm::vec3(getTransform()[3]));
+    position = vec3(glm::vec3(getTransform()[3]));
+    return position;
 }
 
 glm::quat Single::getRotation() {
     #if SINGLE_DEBUG
        debug_trace_path = "Single::getRotation::104";
     #endif
-    return glm::quat_cast(getTransform());
+    rotation = glm::quat_cast(getTransform());;
+    return rotation;
 }
 
 vec3 Single::getRotationEuler() {
     #if SINGLE_DEBUG
        debug_trace_path = ("Single::getRotationEuler::111");
     #endif
-    return glm::eulerAngles(glm::quat_cast(getTransform()));
+    return glm::eulerAngles(getRotation());
 }
 
+vec3 Single::getScale() {
+    glm::mat4 mat = getTransform();
+    glm::vec3 scale{
+        glm::length(glm::vec3(mat[0])),
+        glm::length(glm::vec3(mat[1])),
+        glm::length(glm::vec3(mat[2]))
+    };
+    scaleVec = vec3(scale);
+    return scaleVec;
+}
 
 Single& Single::setPhysicsState(P_State p_state) {
     if (checkGet(4)) {
@@ -199,6 +211,16 @@ Single& Single::rotate(float angle, const vec3& axis, bool update) {
 }
 
 Single& Single::scale(const vec3& v, bool update)
+{
+    scaleVec = scaleVec*v;
+    if(update)
+    {
+        updateTransform();
+    }
+    return *this;
+}
+
+Single& Single::setScale(const vec3& v, bool update)
 {
     scaleVec = v;
     if(update)
