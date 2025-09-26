@@ -34,9 +34,6 @@ public:
     list<g_ptr<Quad>> lines;
     g_ptr<Quad> txt;
 
-    vec2 center() {
-        return text::center_of(txt);
-    }
 
     float width() {
         int len = text::string_of(txt).length();
@@ -44,13 +41,18 @@ public:
         return len*wid;
     }
 
+    vec2 center() {return text::center_of(txt);}
+    vec2 right() {return center().addX(width()/2);}
+    vec2 left() {return center().addX(-width()/2);}
 
-    vec2 right() {
-        return center().addX(width()/2);
+    //Add a note to the info card
+    void note(const std::string& label, const std::string& content) {
+        txt->set<std::string>(label,content);
     }
 
-    vec2 left() {
-        return center().addX(-width()/2);
+    //Get a note from the info card
+    std::string retrive(const std::string& label) {
+        return txt->get<std::string>(label);
     }
 
     void setName(const std::string& n) {
@@ -59,10 +61,36 @@ public:
             text::setText(name,txt);
         } else
             txt = text::makeText(name,font,scene,vec2(1250,40),1);
+        txt->set<std::string>("name",name);
+        txt->set<g_ptr<person>>("person",this);
     }
 
-    void makeName() {
-        setName(name::randsgen({name::STANDARD},1));
+    void makeName(g_ptr<person> parent = nullptr) {
+        if(!parent) { //If we're creating a root
+            setName(name::randsgen({name::AVAL_CENTRAL_FIRST},1));
+            txt->set<std::string>("surname",name::randsgen({name::AVAL_CENTRAL_LAST},1));
+        } else {
+            if(parent->spouse) { //If there is a spouse
+                if(parent->spouse == this) { //If this is the spouse
+                    setName(name::randsgen({name::AVAL_CENTRAL_FIRST},1));
+                    note("surname",name::randsgen({name::AVAL_CENTRAL_LAST},1));
+                    if(randi(0,3)==1) {
+                        parent->note("Maiden name",parent->retrive("surname"));
+                        parent->note("surname",retrive("surname"));
+                    } else {
+                        note("Maiden name",retrive("surname"));
+                        note("surname",parent->retrive("surname"));
+                    }
+                } else { //If there's a spouse
+                    auto o_parent = parent->spouse;
+                    setName(name::randsgen({name::AVAL_CENTRAL_FIRST},1));
+                    note("surname",parent->retrive("surname"));
+                }
+            } else { //If there's no spouse
+                setName(name::randsgen({name::AVAL_CENTRAL_FIRST},1));
+                note("surname",parent->retrive("surname"));
+            }
+        }
     }
 
     g_ptr<person> addChild() {
@@ -74,84 +102,86 @@ public:
             spouse->makeName();
         }
         auto child = make<person>();
-        child->makeName();
+        child->makeName(this);
         children << child;
         return child;
-        // for(int i = 0;i<children.length();i++) {
-        //     auto l = makeLine();
-        //     l->setPosition(getPos().addY(-25));
-        //     lines << l;
-        // }
     }
 };
 
 static int max_depth = 4;
-float calculateSubtreeWidth(g_ptr<person> node) {
-    if(node->children.empty()) {
-        float width = node->width();
-        if(node->spouse) width += node->spouse->width() + 50;
+static int spouse_gap = 50;
+static int child_gap = 100;
+
+float calculateChildrenWidth(g_ptr<person> root); 
+
+float calculateSubtreeWidth(g_ptr<person> root) {
+    //If a leaf, just return the width
+    if(root->children.empty()) {
+        float width = root->width();
+        if(root->spouse) width += root->spouse->width() + spouse_gap;
         return width;
     }
+    float totalWidth = calculateChildrenWidth(root);
+    //Find the width of this node
+    float nodeWidth = root->width();
+    if(root->spouse) nodeWidth += root->spouse->width() + spouse_gap;
     
-    float childrenWidth = 0;
-    for(auto child : node->children) {
-        childrenWidth += calculateSubtreeWidth(child);
-    }
-    childrenWidth += (node->children.length() - 1) * 100;
-    
-    float nodeWidth = node->width();
-    if(node->spouse) nodeWidth += node->spouse->width() + 50;
-    
-    return std::max(nodeWidth, childrenWidth);
+    //Then return whichever is biggest
+    return std::max(nodeWidth, totalWidth);
+}
+
+float calculateChildrenWidth(g_ptr<person> root) {
+    //Find the width of all children
+    float totalWidth = 0;
+    for(auto c : root->children) {
+        totalWidth += calculateSubtreeWidth(c);
+    } //Add the gaps
+    totalWidth += (root->children.length() - 1) * child_gap;
+    return totalWidth;
 }
 
 void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
     root->txt->setCenter(rootPos);
+    if(root->spouse) { //Gap between spouse and root
+        root->spouse->txt->setCenter(rootPos + vec2(root->width() + spouse_gap, 0));
+    }
+    
+    //Drawing the line between root and spouse
     if(root->spouse) {
-        root->spouse->txt->setCenter(rootPos + vec2(root->width() + 50, 0));
+        auto l2 = makeLine();
+        l2->setPosition(root->right());
+        updateLine(l2,root->spouse->left());
     }
-    
-    if(root->children.empty()) return;
-    float totalChildrenWidth = 0;
-    for(auto child : root->children) {
-        totalChildrenWidth += calculateSubtreeWidth(child);
-    }
-    totalChildrenWidth += (root->children.length() - 1) * 100; // gaps
-    
+  
     vec2 parentCenter = rootPos;
-    if(root->spouse) {
+    if(root->spouse) { //Setting the 'center' to be between the spouse
         float leftEdge = rootPos.x() - root->width()/2;
-        float rightEdge = rootPos.x() + root->width() + 50 + root->spouse->width()/2;
+        float rightEdge = rootPos.x() + root->width() + spouse_gap + root->spouse->width()/2;
         parentCenter.setX((leftEdge + rightEdge) / 2);
     }
     
-    float startX = parentCenter.x() - (totalChildrenWidth / 2);
+    float startX = parentCenter.x() - (calculateChildrenWidth(root) / 2);
     float currentX = startX;
+
     for(auto c : root->children) {
         float childSubtreeWidth = calculateSubtreeWidth(c);
         vec2 childPos = vec2(currentX + childSubtreeWidth/2, rootPos.y() + 120);
         
         c->txt->setCenter(childPos);
-        if(c->spouse) {
-            c->spouse->txt->setCenter(childPos + vec2(c->width() + 50, 0));
+        if(c->spouse) { //Set child and spouse position
+            c->spouse->txt->setCenter(childPos + vec2(c->width() + spouse_gap, 0));
         }
         
-        auto l = makeLine();
+        auto l = makeLine(); //Drawing the line to the child
         if(root->spouse) {
-            l->setPosition(vec2((root->right().x() + root->spouse->left().x()) / 2,rootPos.y()));
+            l->setPosition(vec2((root->right().x() + root->spouse->left().x()) / 2,rootPos.y()+25));
         } else
             l->setPosition(rootPos+vec2(0,25));
         updateLine(l, childPos + vec2(0, -25));
-
-        if(c->spouse) {
-            auto l2 = makeLine();
-            l2->setPosition(c->right());
-            updateLine(l2,c->spouse->left());
-        }
     
         arrange(c, childPos);
         
-        currentX += childSubtreeWidth + 100;
+        currentX += childSubtreeWidth + child_gap;
     }
 }
 
@@ -159,27 +189,56 @@ void populate(g_ptr<person> root,int depth = 0) {
     if(depth>max_depth) return;
     if(randi(0,1)==1||depth==0) {
         root->spouse = make<person>();
-        root->spouse->makeName();
-        for(int i = 0;i<randi(0,3);i++) {
+        root->spouse->makeName(root);
+        for(int i = 0;i<randi(0,4);i++) {
         auto c = root->addChild();
         populate(c,depth++);
         }
     }
 }
 
-void create_info_card(g_ptr<Quad> root) {
+list<g_ptr<Quad>> create_info_card(g_ptr<Quad> root) {
+    list<g_ptr<Quad>> infos;
+    if(!root->has("name")) return infos;
     list<std::string> label;
     list<std::string> value;
     for(auto e : root->data.notes.entrySet()) {
         try {
-            std::string nstr = *std::any_cast<std::string>(&e.value);
-            label << e.key;
-            value << nstr;
+            if (auto* nstr = std::any_cast<std::string>(&e.value)) {
+                if(e.key=="name"||e.key=="surname") continue;
+                label << e.key;
+                value << *nstr;
+            }
         } catch (std::exception e) {}
     }
+
+    vec2 at(1900,40);
+    auto g = make<Quad>();
+    scene->add(g);
+    g->scale(vec2(600,(label.length()+2)*40));
+    g->setColor(Color::RED);
+    g->setPosition(at+vec2(-10,-30));
+    g->flagOff("valid");
+    infos << g;
+
+    auto ll = text::makeText(root->get<std::string>("name")+" "+root->get<std::string>("surname"),font,scene,at,1);
+    ll->flagOff("valid");
+    for(auto c : ll->children) c->flagOff("valid");
+    infos << ll;
+
+    auto lll = text::makeText("----------------",font,scene,at.addY(40),1);
+    lll->flagOff("valid");
+    for(auto c : lll->children) c->flagOff("valid");
+    infos << lll;
+
     for(int i =0;i<label.length();i++) {
-       print(label[i],": ",value[i]);
+       //print(label[i],": ",value[i]);
+       auto r = text::makeText(label[i]+": "+value[i],font,scene,at.addY((i+1)*40),1);
+       r->flagOff("valid");
+       for(auto c : r->children) c->flagOff("valid");
+       infos << r;
     }
+    return infos;
 }
 
 int main()  {
@@ -198,19 +257,35 @@ int main()  {
     root->makeName();
     populate(root);
     arrange(root);
-    create_info_card(text::parent_of(root->txt));
     g_ptr<Quad> sel = nullptr;
+    list<g_ptr<Quad>> infos;
     start::run(window,d,[&]{
         if(pressed(MOUSE_LEFT)) {
-            if(sel) sel = nullptr;
-            else sel = scene->nearestElement();
+            if(sel) {
+                sel = nullptr;
+                for(auto i : infos) {
+                    scene->deactivate(i);
+                }
+            }
+            sel = scene->nearestElement();
+            if(sel) {
+                if(sel->has("char")) sel = text::parent_of(sel);
+                infos = create_info_card(sel);
+            }
         }
-        if(sel)
-            sel->setCenter(scene->mousePos2d());
+
+        if(pressed(G)) {
+            if(sel->has("person")) {
+                auto p = sel->get<g_ptr<person>>("person");
+                populate(p);
+                arrange(p,sel->getCenter());
+            }
+        }
 
         vec2 move2d = input_move_2d_keys(8.0f)*-1;
         for(int i=0;i<scene->quads.length();i++) {
             auto q = scene->quads[i];
+            if(q->check("valid"))
                 q->move(move2d);
         }
        

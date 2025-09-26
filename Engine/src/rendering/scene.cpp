@@ -67,6 +67,8 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         quadAnimStates.push(AnimState());
         quadVelocities.push(Velocity());
         quadPhysicsStates.push(P_State::DETERMINISTIC);
+        quadCollisonLayers.push(CollisionLayer());
+        quadPhysicsProp.push(P_Prop());
         slots.push(list<std::string>{"all"});
     }
     // else if(auto obj = g_dynamic_pointer_cast<Instanced>(sobj))
@@ -103,6 +105,8 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         animStates.push(AnimState());
         velocities.push(Velocity());
         physicsStates.push(P_State::DETERMINISTIC);
+        collisonLayers.push(CollisionLayer());
+        physicsProp.push(P_Prop());
     }
 }
 

@@ -33,11 +33,11 @@ Thread(std::string _name = "undefined") : name(_name) {
 }
 
 private:
-std::atomic<bool> runningSlice;
-std::thread impl;
-std::atomic<bool> shouldStopThread;
-float sliceTime = 0;
-std::atomic<float> sliceSpeed{0.3f};
+    std::atomic<bool> runningSlice;
+    std::thread impl;
+    std::atomic<bool> shouldStopThread;
+    float sliceTime = 0;
+    std::atomic<float> sliceSpeed{0.3f};
 
 std::function<void(ScriptContext&)> onRun = nullptr;
 
@@ -113,7 +113,11 @@ void end() {
 void setSpeed(float speed)
 {
     if(speed<=0.0f) {runningTurn = !runningTurn;}
-    else {sliceSpeed = speed;}
+    else {sliceSpeed.store(speed);}
+}
+
+float getSpeed() {
+    return sliceSpeed.load();
 }
 
 void queueTask(std::function<void()> func) {

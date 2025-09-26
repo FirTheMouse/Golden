@@ -177,6 +177,13 @@ namespace name {
 
     const std::string STANDARD = "|, ,Ja|Be|Ma|Cer|Le,ck|de|ly|th|ch|un|el";
     const std::string AVAL_WEST_TAMOR = "|, ," "Bu|Ahm|He|Ol|Mo|In|Bir|Ba|Tu," "|||||||||||||||||||ha|ck|a|ch," "el|ba|ak|ael|he|med";
+    const std::string AVAL_CENTRAL_FIRST = "|, ," 
+    "My|Al|Se|Ma|Eg|Cha|Sha|Tha," 
+    "|||||ri|ex|il,"
+    "|||na|der|ra|us|da|na";
+    const std::string AVAL_CENTRAL_LAST = "|, ," 
+    "Copper|Silver|Iron|Wood|High|Low|Swift|Old|New|Red|White|Black|Green|Blue|Yellow," 
+    "paw|tail|fang|talon|wing|feather|river|hill|heart|claw|hall";
 
     std::string randname(const std::string& line = STANDARD) {
         return randsgen({line});

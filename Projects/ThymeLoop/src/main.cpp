@@ -4,6 +4,7 @@
 #include<core/thread.hpp>
 #include<util/string_generator.hpp>
 #include<util/logger.hpp>
+#include<core/physics.hpp>
 
 using namespace helper;
 using namespace Golden;
@@ -13,6 +14,7 @@ int level = 0;
 bool in_loop = false;
 float l_time = 0.0f;
 g_ptr<Scene> scene;
+g_ptr<Physics> physics;
 g_ptr<Single> player;
 bool is_mouse = false;
 
@@ -607,7 +609,7 @@ void reloop(bool start = false) {
     std::string chose = poses[randi(0,poses.length()-1)];
     is_mouse = chose=="whiskers";
     player = scene->create<Single>("player_one_"+chose);
-    player->setPhysicsState(P_State::NONE);
+    player->setPhysicsState(P_State::ACTIVE);
     grabbed << nullptr;
     dead << false;
     clonePoses << list<vec3>{};
@@ -672,6 +674,8 @@ int main() {
     scene->camera.speedMod = 0.01f;
     scene->camera.toFirstPerson();
     window.lock_mouse();
+    physics = make<Physics>(scene);
+    physics->thread->setSpeed(0.016f);
     text::TextEditor text(scene);
     Data d = make_config(scene,K);
     load_gui(scene, "ThymeLoop", "thymegui.fab");
@@ -682,6 +686,7 @@ int main() {
 
     starting = get_level(0);
     
+
     // auto o =add_grabbable("tomato");
     // o->inc<int>("t",5);
     // auto b = add_grabbable("tomato");
@@ -756,7 +761,8 @@ int main() {
 
         if(in_loop) {
             
-            update_physics();
+            //update_physics();
+            physics->updatePhysics();
 
             int time = ((l_time*100)/2);
             for(int i = 0;i<clonePoses.length();i++) {

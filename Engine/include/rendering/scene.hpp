@@ -200,7 +200,7 @@ public:
 class Scene : virtual public Object {
 public:
 
-    //All new arrays MUST be added to remove functions!
+    //When reintroducing remove, fix all the newly added or changed arrays
     //Single Arrays:
     q_list<bool> active;
     q_list<bool> culled;
@@ -210,6 +210,8 @@ public:
     q_list<AnimState> animStates;
     q_list<Velocity> velocities;
     q_list<P_State> physicsStates;
+    q_list<CollisionLayer> collisonLayers;
+    q_list<P_Prop> physicsProp;
     q_list<g_ptr<Model>> physicsModels;
 
     //Quad Arrays:
@@ -221,6 +223,8 @@ public:
     q_list<P_State> quadPhysicsStates;
     q_list<AnimState> quadAnimStates;
     q_list<Velocity> quadVelocities;
+    q_list<CollisionLayer> quadCollisonLayers;
+    q_list<P_Prop> quadPhysicsProp;
     q_list<list<std::string>> slots;
 
     //Misc Arrays:

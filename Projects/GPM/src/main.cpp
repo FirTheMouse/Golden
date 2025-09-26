@@ -155,7 +155,7 @@ int main()
     // std::string name = "ThymeLoop";
     // startProject(name);
     // addProjectToCMake(name);
-    std::string p1 = "StudentSystem";
+    std::string p1 = "ThymeLoop";
     std::string p2 = "GUIDE";
     std::string p3 = "GDSL";
     std::string p4 = "Testing";
