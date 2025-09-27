@@ -64,6 +64,7 @@ public:
     glm::quat getRotation();
     vec3 getRotationEuler();
     vec3 getScale();
+    CollisionLayer& getLayer();
 
     virtual float distance(g_ptr<Single> other) {return getPosition().distance(other->getPosition());}
     virtual vec3 direction(g_ptr<Single> other) {return getPosition().direction(other->getPosition());}

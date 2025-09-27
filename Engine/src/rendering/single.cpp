@@ -119,6 +119,15 @@ Velocity& Single::getVelocity() {
     }
 }
 
+CollisionLayer& Single::getLayer() {
+    if(checkGet(11)) {
+        return GET(scene->collisonLayers,ID);
+    } else {
+        static CollisionLayer dummy;
+        return dummy;
+    }
+}
+
 vec3 Single::getPosition() {
     #if SINGLE_DEBUG
     debug_trace_path = "Single::getPosition::86";

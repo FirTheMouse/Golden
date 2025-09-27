@@ -168,7 +168,6 @@ public:
     g_ptr<aabb_node> cleanupMarkedNodes(g_ptr<aabb_node> node) {
         if (!node) return nullptr;
         
-        // Recursively clean up children first
         if (node->left) {
             node->left = cleanupMarkedNodes(node->left);
         }
@@ -176,35 +175,29 @@ public:
             node->right = cleanupMarkedNodes(node->right);
         }
         
-        // If this node is marked for deletion
         if (node->mark) {
-            // This node should be removed - return its only child (if any)
             if (node->left && !node->right) {
-                return node->left;  // Replace this node with left child
+                return node->left;
             } else if (node->right && !node->left) {
-                return node->right; // Replace this node with right child
+                return node->right;
             } else {
-                return nullptr;     // Node has no children, remove it entirely
+                return nullptr; 
             }
         }
         
-        // Node is not marked - check if it needs structural cleanup
         if (!node->entity && !node->left && !node->right) {
-            // Internal node with no children - should be removed
             return nullptr;
         }
         
         if (!node->entity && node->left && !node->right) {
-            // Internal node with only left child - collapse
             return node->left;
         }
         
         if (!node->entity && !node->left && node->right) {
-            // Internal node with only right child - collapse  
             return node->right;
         }
         
-        return node; // Node is valid, keep it
+        return node;
     }
 
     void insertIntoSubtree(g_ptr<aabb_node> targetNode, g_ptr<Single> entity) {
@@ -230,11 +223,6 @@ public:
         } else {
             if (shouldGoLeft(targetNode, entityBounds)) {
                 insertIntoSubtree(targetNode->left, entity);
-                // if(!targetNode->right) {
-                //     targetNode->right = make<aabb_node>();
-                //     targetNode->right->entity = entity;
-                //     targetNode->right->aabb = entityBounds;
-                // }
             } else {
                 if(targetNode->right) {
                     insertIntoSubtree(targetNode->right, entity);
@@ -255,70 +243,6 @@ public:
         }
     }
 
-    void cleanupEvacuationPath(list<g_ptr<aabb_node>>& evacuationPath) {
-        // Work backwards up the path, updating bounding boxes
-        while(!evacuationPath.empty()) {
-            g_ptr<aabb_node> node = evacuationPath.pop();
-            
-            // Recalculate bounds based on children
-            if(node->entity) {
-                // Leaf node - use entity bounds
-                node->aabb = node->entity->getWorldBounds();
-            } else {
-                // Internal node - combine children bounds
-                bool hasLeft = node->left && (node->left->entity || (node->left->left || node->left->right));
-                bool hasRight = node->right && (node->right->entity || (node->right->left || node->right->right));
-                
-                if(hasLeft && hasRight) {
-                    node->aabb = node->left->aabb;
-                    node->aabb.expand(node->right->aabb);
-                } else if(hasLeft) {
-                    node->aabb = node->left->aabb;
-                } else if(hasRight) {
-                    node->aabb = node->right->aabb;
-                }
-                // If neither child has content, this node becomes effectively empty
-            }
-        }
-    }
-
-    void updateTreeNode(g_ptr<aabb_node> node,list<g_ptr<aabb_node>> path) {
-        if(!node) return;
-        if(node->entity) {
-
-            BoundingBox entityBounds = node->entity->getWorldBounds();
-
-            if(node->aabb.contains(entityBounds.getCenter())) {
-                return; // Entity hasn't moved significantly, stay put
-            }
-
-            list<g_ptr<aabb_node>> evacuationPath = path;
-            evacuationPath.push(node);
-
-            while(!path.empty()) {
-            g_ptr<aabb_node> parent = path.pop();
-            if(parent->aabb.contains(entityBounds.getCenter())) {
-                // Found a parent that can contain the entity
-                g_ptr<Single> entity = node->entity;
-                node->entity = nullptr;
-                
-                if(shouldGoLeft(parent, entityBounds)) {
-                    insertIntoSubtree(parent->left, entity);
-                } else {
-                    insertIntoSubtree(parent->right, entity);
-                }
-
-                //cleanupEvacuationPath(evacuationPath);
-                break;
-            }
-        }
-        } else {
-            path.push(node);
-            if(node->left) updateTreeNode(node->left, path);
-            if(node->right) updateTreeNode(node->right, path);
-        }
-    }
-
     void collectMoved(g_ptr<aabb_node> node,list<g_ptr<Single>>& moved) {
         if(!node) return;
         if(node->entity) {
@@ -334,54 +258,11 @@ public:
         }
     }
 
-    void updateEntity(g_ptr<Single> entity,list<g_ptr<aabb_node>> path) {
-        if(!entity) return;
-        if(path.empty()) {
-            path.push(treeRoot);
-        }
-        else if(path.last()->entity) {
-            g_ptr<aabb_node> node = path.last();
-            if(node->entity==entity) print("DUPLICATE ENTITY: WAS NOT A SIGNIFIGANT MOVE");
-            BoundingBox entityBounds = entity->getWorldBounds();
-            if(shouldGoLeft(node, entityBounds)) {
-                insertIntoSubtree(node->left, entity);
-            } else {
-                insertIntoSubtree(node->right, entity);
-            }
-        }
-        else {
-           g_ptr<aabb_node> node = path.last();
-           if(node->left) {
-                if(!node->right) {
-                    path.push(node->left);
-                    updateEntity(entity,path);
-                }
-                else {
-                    if(node->left->aabb.contains(entity->getWorldBounds().getCenter())) {
-                        path.push(node->left);
-                        updateEntity(entity,path);
-                    } else if (node->right->aabb.contains(entity->getWorldBounds().getCenter())) {
-                        path.push(node->right);
-                        updateEntity(entity,path);
-                    } else {
-                        print("RELLOCATE TO TREE ROOT");
-                    }
-                    return;
-                }
-           } else if (node->right) {
-                path.push(node->right);
-                updateEntity(entity,path);
-           }
-        }
-    }
-
- 
     void relocateEntity(g_ptr<Single> entity) {
         removeEntityFromTree(treeRoot, entity);
         insertIntoSubtree(treeRoot, entity);
     }
-
-    
+ 
     void updateTreeInPlace() {
         list<g_ptr<Single>> movedEntities;
         collectMoved(treeRoot, movedEntities);
@@ -488,7 +369,7 @@ public:
             updateTreeInPlace();
 
             list<std::pair<g_ptr<Single>, g_ptr<Single>>> pairs = generateCollisionPairs();
-            int cs = 0;
+            //int cs = 0;
             for(auto p : pairs) {
                 int i = p.first->ID;
                 int s = p.second->ID;
@@ -516,13 +397,13 @@ public:
                 Velocity& velocity = scene->velocities.get(i,"physics::142");
                 vec3 currentVel = velocity.position;
                 float velocityAlongNormal = currentVel.dot(normal);
-                cs++;
+                //cs++;
                 if(velocityAlongNormal < 0) {
                     velocity.position = currentVel - (normal * velocityAlongNormal);
                     velocity.position = velocity.position*0.78; //Drag
                 }
             }
-            print("----",cs);
+            //print("----",cs);
         }
 
         //3d physics pass

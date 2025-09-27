@@ -110,6 +110,8 @@ void basic_add(g_ptr<Single> obj, vec3 start) {
 g_ptr<Single> add_surface(const std::string& type,vec3 start = vec3(0,0,0)) {
     auto obj = scene->create<Single>(type);
     obj->setPhysicsState(P_State::PASSIVE);
+    obj->getLayer().setLayer(2);
+    obj->getLayer().addCollision({1,3});
     basic_add(obj,start);
     surfaces << obj;
     return obj;
@@ -118,6 +120,8 @@ g_ptr<Single> add_surface(const std::string& type,vec3 start = vec3(0,0,0)) {
 g_ptr<Single> add_grabbable(const std::string& type,vec3 start = vec3(0,0,0)) {
     auto obj = scene->create<Single>(type);
     obj->setPhysicsState(P_State::ACTIVE);
+    obj->getLayer().setLayer(1);
+    obj->getLayer().addCollision({1,2,3});
     basic_add(obj,start);
     grabable << obj;
     grabable_pos << start;
@@ -282,122 +286,6 @@ void drop(int c_id) {
     obj->faceTowards(f.mult(-1),vec3(0,1,0));
     obj->setLinearVelocity(f.mult(s).addY(f.y()*(s*1.5f)));
 }
-
-
-// void update_physics() {
-//     //print(scene->active.length());
-//     for(int i=0;i<scene->active.length();i++) {
-//         if(scene->active[i]) {
-//             if(scene->physicsStates[i]==P_State::PASSIVE) continue;
-//             g_ptr<Single> obj = scene->singles[i];
-//             glm::mat4& transform = scene->transforms.get(i,"physics::141");
-//             Velocity& velocity = scene->velocities.get(i,"physics::142");
-//             float drag = 0.99f;
-
-//             velocity.position.addY(-4.8 * 0.016f); //Gravity
-//             if(scene->singles[i]->inc<int>("cooldown",0)>0) {
-//                 scene->singles[i]->inc<int>("cooldown",-1);
-//                 scene->physicsStates[i] = P_State::NONE;
-//             } else {
-//                 scene->physicsStates[i] = P_State::ACTIVE;
-//             }
-
-//             int g_id = grabable.find(obj);
-//             if(g_id!=-1&&grabbed.find(obj)==-1) {
-//                 auto slot = in_slot(obj);
-//                 if(slot==nullptr) {
-//                     slot = closest_slot(obj,0.8f);
-//                     if(slot) {
-//                         obj->setPosition(slot->pos());
-//                         velocity.position = vec3(0,0,0);
-//                         slot->obj = obj;
-//                         obj->set<g_ptr<_slot>>("in_slot",slot);
-//                         continue;
-//                     }
-//                 } else {
-//                     obj->setPosition(slot->pos());
-//                     velocity.position = vec3(0,0,0);
-//                     continue;
-//                 }
-//             }
-
-//             int c_id = clones.find(scene->singles[i]);
-//             int su_id = surfaces.find(obj);
-//             if(su_id==-1)
-//             for(int s=0;s<scene->active.length();s++) {
-//                 if(s==i) continue;
-//                 if(grabable.find(scene->singles[s])!=-1) continue;;
-//                 if(scene->physicsStates[s]==P_State::NONE) continue;
-//                 //if(clones.find(scene->singles[s])!=-1) continue;
-//                 if(c_id!=-1) {
-//                     if(grabable.find(scene->singles[s])!=-1) continue;
-//                 }
-//                 if(scene->active[s]) {
-//                     if(scene->singles[i]->getWorldBounds().intersects(scene->singles[s]->getWorldBounds())) {
-
-//                         vec3 thisCenter = scene->singles[i]->getPosition();
-//                         vec3 otherCenter = scene->singles[s]->getPosition();
-                        
-//                         auto thisBounds = scene->singles[i]->getWorldBounds();
-//                         auto otherBounds = scene->singles[s]->getWorldBounds();
-                        
-//                         vec3 overlap = vec3(
-//                             std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
-//                             std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
-//                             std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
-//                         );
-                        
-//                         vec3 normal;
-//                         if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
-//                             normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
-//                         } else if(overlap.y() < overlap.z()) {
-//                             normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
-//                         } else {
-//                             normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
-//                         }
-                        
-//                         vec3 currentVel = velocity.position;
-//                         float velocityAlongNormal = currentVel.dot(normal);
-                        
-//                         if(velocityAlongNormal < 0) {
-//                             velocity.position = currentVel - (normal * velocityAlongNormal);
-//                             drag = 0.78f;
-//                         }
-
-//                         //velocity.position = vec3(0,0,0);
-//                     }
-//                 }
-//             }
-
-//             velocity.position = velocity.position * drag; //Drag
-
-//             if(glm::length(velocity.position.toGlm()) < 0.001f) {
-//                 velocity.position = vec3(0,0,0);
-//             }
-//             float velocityScale = 1.0f;
-//             glm::vec3 pos = glm::vec3(transform[3]);
-//             pos += vec3(velocity.position * 0.016f * velocityScale).toGlm();
-//             transform[3] = glm::vec4(pos, 1.0f);
-//             glm::vec3 rotVel = vec3(velocity.rotation * 0.016f * velocityScale).toGlm();
-//             if (glm::length(rotVel) > 0.0001f) {
-//                 glm::mat4 rotationDelta = glm::mat4(1.0f);
-//                 rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-//                 rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-//                 rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-//                 transform = transform * rotationDelta; // Apply rotation in object space
-//             }
-//             glm::vec3 scaleChange = vec3(velocity.scale * 0.016f * velocityScale).toGlm();
-//             if (glm::length(scaleChange) > 0.0001f) {
-//                 glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-//                 transform = transform * scaleDelta; // Apply after rotation
-//             }
-
-
-           
-
-            
-//         }
-//     }
 
 //     if(by_func.hasKey("cut"))
 //     for(auto c : by_func.get("cut")) {
@@ -602,6 +490,7 @@ void reloop(bool start = false) {
         dead[i] = false;
     }
     if(!start) {
+        player->getLayer().addCollision(1);
         player->setPhysicsState(P_State::ACTIVE);
         player->setLinearVelocity(vec3(0,0,0));
     }
@@ -610,6 +499,8 @@ void reloop(bool start = false) {
     is_mouse = chose=="whiskers";
     player = scene->create<Single>("player_one_"+chose);
     player->setPhysicsState(P_State::ACTIVE);
+    player->getLayer().setLayer(3);
+    player->getLayer().addCollision({2,3});
     grabbed << nullptr;
     dead << false;
     clonePoses << list<vec3>{};
@@ -820,11 +711,11 @@ int main() {
 
         if(in_loop) {
             
-            physics->printTree(physics->treeRoot);
+           // physics->printTree(physics->treeRoot);
             double p_time = log::time_function(1,[](int i){
                 physics->updatePhysics();
             });
-            print("Phys update: ",p_time/1000000," ms");
+            //print("Phys update: ",p_time/1000000," ms");
 
             int time = ((l_time*100)/2);
             for(int i = 0;i<clonePoses.length();i++) {
