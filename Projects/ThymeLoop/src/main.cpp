@@ -284,133 +284,133 @@ void drop(int c_id) {
 }
 
 
-void update_physics() {
-    //print(scene->active.length());
-    for(int i=0;i<scene->active.length();i++) {
-        if(scene->active[i]) {
-            if(scene->physicsStates[i]==P_State::PASSIVE) continue;
-            g_ptr<Single> obj = scene->singles[i];
-            glm::mat4& transform = scene->transforms.get(i,"physics::141");
-            Velocity& velocity = scene->velocities.get(i,"physics::142");
-            float drag = 0.99f;
+// void update_physics() {
+//     //print(scene->active.length());
+//     for(int i=0;i<scene->active.length();i++) {
+//         if(scene->active[i]) {
+//             if(scene->physicsStates[i]==P_State::PASSIVE) continue;
+//             g_ptr<Single> obj = scene->singles[i];
+//             glm::mat4& transform = scene->transforms.get(i,"physics::141");
+//             Velocity& velocity = scene->velocities.get(i,"physics::142");
+//             float drag = 0.99f;
 
-            velocity.position.addY(-4.8 * 0.016f); //Gravity
-            if(scene->singles[i]->inc<int>("cooldown",0)>0) {
-                scene->singles[i]->inc<int>("cooldown",-1);
-                scene->physicsStates[i] = P_State::NONE;
-            } else {
-                scene->physicsStates[i] = P_State::ACTIVE;
-            }
+//             velocity.position.addY(-4.8 * 0.016f); //Gravity
+//             if(scene->singles[i]->inc<int>("cooldown",0)>0) {
+//                 scene->singles[i]->inc<int>("cooldown",-1);
+//                 scene->physicsStates[i] = P_State::NONE;
+//             } else {
+//                 scene->physicsStates[i] = P_State::ACTIVE;
+//             }
 
-            int g_id = grabable.find(obj);
-            if(g_id!=-1&&grabbed.find(obj)==-1) {
-                auto slot = in_slot(obj);
-                if(slot==nullptr) {
-                    slot = closest_slot(obj,0.8f);
-                    if(slot) {
-                        obj->setPosition(slot->pos());
-                        velocity.position = vec3(0,0,0);
-                        slot->obj = obj;
-                        obj->set<g_ptr<_slot>>("in_slot",slot);
-                        continue;
-                    }
-                } else {
-                    obj->setPosition(slot->pos());
-                    velocity.position = vec3(0,0,0);
-                    continue;
-                }
-            }
+//             int g_id = grabable.find(obj);
+//             if(g_id!=-1&&grabbed.find(obj)==-1) {
+//                 auto slot = in_slot(obj);
+//                 if(slot==nullptr) {
+//                     slot = closest_slot(obj,0.8f);
+//                     if(slot) {
+//                         obj->setPosition(slot->pos());
+//                         velocity.position = vec3(0,0,0);
+//                         slot->obj = obj;
+//                         obj->set<g_ptr<_slot>>("in_slot",slot);
+//                         continue;
+//                     }
+//                 } else {
+//                     obj->setPosition(slot->pos());
+//                     velocity.position = vec3(0,0,0);
+//                     continue;
+//                 }
+//             }
 
-            int c_id = clones.find(scene->singles[i]);
-            int su_id = surfaces.find(obj);
-            if(su_id==-1)
-            for(int s=0;s<scene->active.length();s++) {
-                if(s==i) continue;
-                if(grabable.find(scene->singles[s])!=-1) continue;;
-                if(scene->physicsStates[s]==P_State::NONE) continue;
-                //if(clones.find(scene->singles[s])!=-1) continue;
-                if(c_id!=-1) {
-                    if(grabable.find(scene->singles[s])!=-1) continue;
-                }
-                if(scene->active[s]) {
-                    if(scene->singles[i]->getWorldBounds().intersects(scene->singles[s]->getWorldBounds())) {
+//             int c_id = clones.find(scene->singles[i]);
+//             int su_id = surfaces.find(obj);
+//             if(su_id==-1)
+//             for(int s=0;s<scene->active.length();s++) {
+//                 if(s==i) continue;
+//                 if(grabable.find(scene->singles[s])!=-1) continue;;
+//                 if(scene->physicsStates[s]==P_State::NONE) continue;
+//                 //if(clones.find(scene->singles[s])!=-1) continue;
+//                 if(c_id!=-1) {
+//                     if(grabable.find(scene->singles[s])!=-1) continue;
+//                 }
+//                 if(scene->active[s]) {
+//                     if(scene->singles[i]->getWorldBounds().intersects(scene->singles[s]->getWorldBounds())) {
 
-                        vec3 thisCenter = scene->singles[i]->getPosition();
-                        vec3 otherCenter = scene->singles[s]->getPosition();
+//                         vec3 thisCenter = scene->singles[i]->getPosition();
+//                         vec3 otherCenter = scene->singles[s]->getPosition();
                         
-                        auto thisBounds = scene->singles[i]->getWorldBounds();
-                        auto otherBounds = scene->singles[s]->getWorldBounds();
+//                         auto thisBounds = scene->singles[i]->getWorldBounds();
+//                         auto otherBounds = scene->singles[s]->getWorldBounds();
                         
-                        vec3 overlap = vec3(
-                            std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
-                            std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
-                            std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
-                        );
+//                         vec3 overlap = vec3(
+//                             std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
+//                             std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
+//                             std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
+//                         );
                         
-                        vec3 normal;
-                        if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
-                            normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
-                        } else if(overlap.y() < overlap.z()) {
-                            normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
-                        } else {
-                            normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
-                        }
+//                         vec3 normal;
+//                         if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
+//                             normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
+//                         } else if(overlap.y() < overlap.z()) {
+//                             normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
+//                         } else {
+//                             normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
+//                         }
                         
-                        vec3 currentVel = velocity.position;
-                        float velocityAlongNormal = currentVel.dot(normal);
+//                         vec3 currentVel = velocity.position;
+//                         float velocityAlongNormal = currentVel.dot(normal);
                         
-                        if(velocityAlongNormal < 0) {
-                            velocity.position = currentVel - (normal * velocityAlongNormal);
-                            drag = 0.78f;
-                        }
+//                         if(velocityAlongNormal < 0) {
+//                             velocity.position = currentVel - (normal * velocityAlongNormal);
+//                             drag = 0.78f;
+//                         }
 
-                        //velocity.position = vec3(0,0,0);
-                    }
-                }
-            }
+//                         //velocity.position = vec3(0,0,0);
+//                     }
+//                 }
+//             }
 
-            velocity.position = velocity.position * drag; //Drag
+//             velocity.position = velocity.position * drag; //Drag
 
-            if(glm::length(velocity.position.toGlm()) < 0.001f) {
-                velocity.position = vec3(0,0,0);
-            }
-            float velocityScale = 1.0f;
-            glm::vec3 pos = glm::vec3(transform[3]);
-            pos += vec3(velocity.position * 0.016f * velocityScale).toGlm();
-            transform[3] = glm::vec4(pos, 1.0f);
-            glm::vec3 rotVel = vec3(velocity.rotation * 0.016f * velocityScale).toGlm();
-            if (glm::length(rotVel) > 0.0001f) {
-                glm::mat4 rotationDelta = glm::mat4(1.0f);
-                rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                transform = transform * rotationDelta; // Apply rotation in object space
-            }
-            glm::vec3 scaleChange = vec3(velocity.scale * 0.016f * velocityScale).toGlm();
-            if (glm::length(scaleChange) > 0.0001f) {
-                glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                transform = transform * scaleDelta; // Apply after rotation
-            }
+//             if(glm::length(velocity.position.toGlm()) < 0.001f) {
+//                 velocity.position = vec3(0,0,0);
+//             }
+//             float velocityScale = 1.0f;
+//             glm::vec3 pos = glm::vec3(transform[3]);
+//             pos += vec3(velocity.position * 0.016f * velocityScale).toGlm();
+//             transform[3] = glm::vec4(pos, 1.0f);
+//             glm::vec3 rotVel = vec3(velocity.rotation * 0.016f * velocityScale).toGlm();
+//             if (glm::length(rotVel) > 0.0001f) {
+//                 glm::mat4 rotationDelta = glm::mat4(1.0f);
+//                 rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+//                 rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+//                 rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+//                 transform = transform * rotationDelta; // Apply rotation in object space
+//             }
+//             glm::vec3 scaleChange = vec3(velocity.scale * 0.016f * velocityScale).toGlm();
+//             if (glm::length(scaleChange) > 0.0001f) {
+//                 glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+//                 transform = transform * scaleDelta; // Apply after rotation
+//             }
 
 
            
 
             
-        }
-    }
+//         }
+//     }
 
-    if(by_func.hasKey("cut"))
-    for(auto c : by_func.get("cut")) {
-        if(c->getPhysicsState()==P_State::NONE) continue;
-        for(int g=0;g<clones.length();g++) {
-            if(g==grabbed.find(c)) continue;
-            if(dead[g]) continue;
-            if(clones[g]->getWorldBounds().intersects(c->getWorldBounds())) {
-                kill(g);
-            }
-        }
-    }
-}
+//     if(by_func.hasKey("cut"))
+//     for(auto c : by_func.get("cut")) {
+//         if(c->getPhysicsState()==P_State::NONE) continue;
+//         for(int g=0;g<clones.length();g++) {
+//             if(g==grabbed.find(c)) continue;
+//             if(dead[g]) continue;
+//             if(clones[g]->getWorldBounds().intersects(c->getWorldBounds())) {
+//                 kill(g);
+//             }
+//         }
+//     }
+// }
 
 g_ptr<Single> closest_grababble(vec3 to,float min = 2.0f) {
     float min_dist = min;
@@ -641,6 +641,9 @@ result << _origin("tomato",vec3(-8,0,0),true);
 result << _origin("tomato",vec3(-6,0,0),true);
 result << _origin("tomato",vec3(-4,0,0),true);
         break;
+        case 1:
+
+        break;
         default:
 result << _origin("column",vec3(0,0,-5),false);
 result << _origin("heater",vec3(0,0,-2.5f),false);
@@ -684,7 +687,7 @@ int main() {
     auto l1 = make<Light>(Light(glm::vec3(0,10,0),glm::vec4(300,300,300,1)));
     scene->lights.push_back(l1);
 
-    starting = get_level(0);
+    starting = get_level(-1);
     
 
     // auto o =add_grabbable("tomato");
@@ -696,6 +699,62 @@ int main() {
     // c->recycle();
     // auto h = add_grabbable("tomato");
     // print(h->inc<int>("t",0));
+
+    // for(int i = 1;i<5;i++) {
+    //     add_grabbable("tomato")->setPosition(vec3(i,i,i));
+    //     //vec3(randf(-10,10),randf(-10,10),randf(-10,10)
+    // }
+
+    // auto a = add_grabbable("tomato");
+    // auto b = add_grabbable("tomato");
+
+    // double b_time = log::time_function(1,[](int i){
+    //     physics->buildTree();
+    // });
+    // print("Intial build: ",b_time/1000000," ms");
+
+    // double a_time;
+    // double a_time = log::time_function(1,[](int i){
+    //     physics->updatePhysics();
+    // });
+    // print("Physics update: ",a_time/1000000," ms");
+
+
+    // BoundingBox queryBounds = a->getWorldBounds();
+    // list<g_ptr<Single>> results;
+
+    // a_time = log::time_function(1,[&queryBounds,&results](int i){
+    //     physics->queryTree(physics->treeRoot, queryBounds, results);
+    // });
+    // print("Query: ",a_time/1000000," ms");
+    // print("Found ", results.size(), " potential collisions for tomato A");
+
+
+    // a->setPosition(vec3(2, 2.5f, 2)); 
+    // physics->printTree(physics->treeRoot);
+    // double c_time = log::time_function(1,[](int i){
+    //     physics->buildTree();
+    // });
+    // print("Tree update: ",c_time/1000000," ms");
+    // physics->printTree(physics->treeRoot);
+
+    // results.clear();
+    // a_time = log::time_function(1,[&queryBounds,&results](int i){
+    //     physics->queryTree(physics->treeRoot, queryBounds, results);
+    // });
+    // print("Query: ",a_time/1000000," ms");
+    // print("Found ", results.size(), " potential collisions for tomato A");
+
+
+    // a_time = log::time_function(1,[&queryBounds,&results](int i){
+    //     physics->generateCollisionPairs();
+    // });
+    // print("Tree: ",a_time/1000000," ms");
+
+    // a_time = log::time_function(1,[&queryBounds,&results](int i){
+    //    physics->generateCollisionPairsNaive();
+    // });
+    // print("Naive: ",a_time/1000000," ms");
 
     reloop(true);
 
@@ -761,8 +820,11 @@ int main() {
 
         if(in_loop) {
             
-            //update_physics();
-            physics->updatePhysics();
+            physics->printTree(physics->treeRoot);
+            double p_time = log::time_function(1,[](int i){
+                physics->updatePhysics();
+            });
+            print("Phys update: ",p_time/1000000," ms");
 
             int time = ((l_time*100)/2);
             for(int i = 0;i<clonePoses.length();i++) {

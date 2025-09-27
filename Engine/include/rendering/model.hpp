@@ -49,6 +49,14 @@ public:
         );
     }
 
+    char getLongestAxis() const {
+        glm::vec3 size = getSize(); 
+        
+        if (size.x >= size.y && size.x >= size.z) return 'x';
+        if (size.y >= size.z) return 'y';
+        return 'z';
+    }
+
     float volume() const {
     glm::vec3 size = max - min;
     return size.x * size.y * size.z;
@@ -92,6 +100,12 @@ public:
         
         min = center - newHalfSize;
         max = center + newHalfSize;
+        return *this;
+    }
+
+    BoundingBox& expand(const BoundingBox& other) {
+        min = glm::min(min, other.min);
+        max = glm::max(max, other.max);
         return *this;
     }
 
