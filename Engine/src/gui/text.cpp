@@ -6,6 +6,8 @@
 
 
 //The performance for this text is absolutely horrendus, because we're using Data all over the place, this desperetly needs to be fixed in the future
+
+//I will one day overhaul text, just like I have Physics
 namespace Golden
 {
     void Font::loadFromTTF(const std::string& path, int pxHeight) {

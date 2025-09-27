@@ -432,10 +432,7 @@ namespace Golden
     }
 
     Quad& Quad::move(const vec2& pos,bool update) {
-        position+=pos;
-        if(update) {
-            updateTransform();
-        }
+        setPosition(position+pos);
         return *this;
     }
 
