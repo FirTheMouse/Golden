@@ -165,9 +165,9 @@ public:
                 }
                 else 
                 {
-            Collider c(scene->physicsModels.get(i,"physics::185"),
-            scene->singles[i]);
-            collisonBuffer.push_back(c);
+            // Collider c(scene->physicsModels.get(i,"physics::185"),
+            // scene->singles[i]);
+            // collisonBuffer.push_back(c);
                 }
             }
         }

@@ -211,8 +211,8 @@ public:
     q_list<Velocity> velocities;
     q_list<P_State> physicsStates;
     q_list<CollisionLayer> collisonLayers;
+    q_list<CollisionShape> collisionShapes;
     q_list<P_Prop> physicsProp;
-    q_list<g_ptr<Model>> physicsModels;
 
     //Quad Arrays:
     //std::vector<size_t> QUUID;

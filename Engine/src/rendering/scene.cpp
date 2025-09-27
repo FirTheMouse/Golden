@@ -99,13 +99,14 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         singles.push(obj);
         auto p_model = make<Model>(makePhysicsBox(obj->model->localBounds));
         p_model->UUIDPTR = obj->UUID;
-        physicsModels.push(p_model);
+        //physicsModels.push(p_model);
         transforms.push(glm::mat4(1.0f));
         endTransforms.push(glm::mat4(1.0f));
         animStates.push(AnimState());
         velocities.push(Velocity());
         physicsStates.push(P_State::DETERMINISTIC);
         collisonLayers.push(CollisionLayer());
+        collisionShapes.push(CollisionShape());
         physicsProp.push(P_Prop());
     }
 }
@@ -404,11 +405,11 @@ void Scene::setupShadows()
             return model;
         });
         
-        physicsModels.loadBinaryCustom(in, [](std::istream& stream) {
-            auto model = make<Model>();
-            model->loadBinary(stream);
-            return model;
-        });
+        // physicsModels.loadBinaryCustom(in, [](std::istream& stream) {
+        //     auto model = make<Model>();
+        //     model->loadBinary(stream);
+        //     return model;
+        // });
     
         // POD types load simply
         transforms.loadBinary(in);

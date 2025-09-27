@@ -122,6 +122,11 @@ public:
     }
 };
 
+class CollisionShape {
+public:
+
+};
+
 struct Vertex {
     glm::vec3 position;
     glm::vec3 normal;
@@ -395,34 +400,16 @@ public:
         }
     }
 
-    glm::mat4& getTransform();
-
-    void transform(const glm::mat4& transform);
-
-    vec3 getPosition();
-
-    void setPosition(const vec3& pos);
-
-    Model& move(const vec3& movment);
-
-     Model& faceTo(const vec3& targetPos);
-
-    Model& moveTo(const vec3& pos,float speed);
-    //X Y Z
-    Model& move(float x = 0.0f, float y = 0.0f, float z = 0.0f);
-
-    void setScale(float f);
-
     glm::vec3 localMin = glm::vec3(FLT_MAX);
     glm::vec3 localMax = glm::vec3(-FLT_MAX);
 
     void preComputeAABB()
     {
-    for (const auto& mesh : meshes) {
-        for (const auto& v : mesh.vertices) {
-            localBounds.expandToInclude(v.position);
+        for (const auto& mesh : meshes) {
+            for (const auto& v : mesh.vertices) {
+                localBounds.expandToInclude(v.position);
+            }
         }
-    }
     }
 
     

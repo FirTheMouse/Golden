@@ -53,7 +53,8 @@ void Single::remove()
     scene->animStates.remove(ID);
     scene->velocities.remove(ID);
     scene->physicsStates.remove(ID);
-    scene->physicsModels.remove(ID);
+    scene->collisonLayers.remove(ID);
+    scene->collisionShapes.remove(ID);
 
     if(ID!=last_idx)
     {
