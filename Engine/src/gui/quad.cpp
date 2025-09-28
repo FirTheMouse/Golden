@@ -135,6 +135,10 @@ namespace Golden
         glBindVertexArray(0);
     }
 
+    void Quad::hide() {scene->culled.get(ID)=true;}
+    void Quad::show() {scene->culled.get(ID)=false;}
+    bool Quad::culled() {return scene->culled.get(ID);}
+
     glm::mat4& Quad::getTransform() {
         if(checkGet(0)) {
             return GET(scene->guiTransforms,ID);

@@ -217,6 +217,7 @@ public:
     //Quad Arrays:
     //std::vector<size_t> QUUID;
     q_list<bool> quadActive;
+    q_list<bool> quadCulled;
     q_list<g_ptr<Quad>> quads;
     q_list<glm::mat4> guiTransforms;
     q_list<glm::mat4> guiEndTransforms;

@@ -47,15 +47,20 @@ struct life {
     life() {}
 
     bool dead = false;
-    int died = 0;
+    int died = -1;
 
     std::string name;
     std::string surname;
     std::string maiden_name;
 
+    std::string general_info;
+
     int age = 0;
-    int gender = 0; //Add this later
-    int species = 0; //Add this later
+    int gender = -1; //Add this later
+    int species = -1; //Add this later
+
+    int intel = -1;
+    int knowledge = -1;
 
     int origin = -1;//Size of where they grew up: 1=Wilderness,2=Village,3=Town,4=City
         std::string origin_name;
@@ -90,6 +95,16 @@ public:
 
     life l;
 
+    void cleanup() {
+        scene->recycle(txt);
+        if(spouse) {
+            spouse->cleanup();
+        }
+        for(auto c : children) {
+            c->cleanup();
+        }
+    }
+
     float width() {
         int len = text::string_of(txt).length();
         float wid = 25;
@@ -112,16 +127,74 @@ public:
 
     void setName(const std::string& n) {
         name = n;
+    }
+
+    void step_life(g_ptr<person> parent = nullptr) {
+        l.simulate_life_step(this,parent);
+    }
+
+    void realize() {
         if(txt) {
             text::setText(name,txt);
         } else
             txt = text::makeText(name,font,scene,vec2(1250,40),1);
         txt->set<std::string>("name",name);
         txt->set<g_ptr<person>>("person",this);
+
+        if(spouse) {
+            spouse->realize();
+        }
+        for(auto c : children) {
+            c->realize();
+        }
     }
 
-    void step_life(g_ptr<person> parent = nullptr) {
-        l.simulate_life_step(this,parent);
+    vec2 t_vec = vec2(0,0);
+
+    void track(const vec2& delta) {
+        if(!txt->isActive()) {
+            t_vec+=delta;
+        }
+
+        if(spouse) {
+            spouse->track(delta);
+        }
+        for(auto c : children) {
+            c->track(delta);
+        }
+    }
+
+    void hide() {
+        if(txt->isActive()) {
+            scene->deactivate(txt);
+            t_vec = vec2(0,0);
+        }
+        for(auto l :lines) {
+            scene->deactivate(l);
+        }
+        if(spouse) {
+            spouse->hide();
+        }
+        for(auto c : children) {
+            c->hide();
+        }
+    }
+
+    void show() {
+        if(!txt->isActive()) {
+            scene->reactivate(txt);
+            txt->move(t_vec);
+        }
+        for(auto l : lines) {
+            scene->reactivate(l);
+            l->move(t_vec);
+        }
+        if(spouse) {
+            spouse->show();
+        }
+        for(auto c : children) {
+            c->show();
+        }
     }
 };
 
@@ -192,13 +265,7 @@ void life_info(const life& l) {
     l.name+" "+l.surname+
     "\n------------------------------";
     line_ret_text << "";
-    line_ret_text << "";
-    if(l.maiden_name!="") {
-        history.append(
-            "\nMaiden name: "+l.maiden_name
-        );
-        line_ret_text << "\nMAIDEN NAME INFO";
-    }
+    line_ret_text << l.general_info;
     history.append(
         "\nOrigin: "+note_to_string("Origin",l.origin)+
         "\nWealth: "+note_to_string("Wealth",l.wealth)+
@@ -252,9 +319,40 @@ list<list<ivec2>> origin_wealth_dist = {
     },
 };
 
+std::string get_place_name(int type,const std::string exclude = "") {
+    std::string result = "";
+    do {
+        if(type==1) {
+            list<std::string> wldr_n = {"a clearing in the woods","a cave in a hill","a hut in the woods","a burrow in the hills"};
+            result = wldr_n.rand();
+        } else if(type<4) {
+            std::string town_n =  "|, ,Little |Greater ||||||";
+            if(randi(0,1)==1) {
+                town_n.append(
+                    "|South |Lower |Upper |East |North| West ,"
+                    "Car|Ba|Ha|No|De,"
+                    "ton|rister|decel|lis");
+            } else {
+                town_n.append(
+                    ","
+                    "Red|Green|Blue|White|Black|North|South|East|West|Big|Small|Old|New|Long|Tall|High|Low|Short|Thorn|Stone|Wood|Dirt,"
+                    "river|hill|glade|stream|rest|tree|wall|field|burrow");
+            }
+            result = name::randsgen({town_n});
+        } else if(type==4) {
+            //Can add indivdual districts and areas, like Applehill, or East Hearthstead for Neuin
+            list<std::string> cty_n = {"Neuin","Redclaw","Greenlake"};
+            result = cty_n.rand();
+        }
+    }
+    while(result==exclude);
+    return result;
+}
+
 void life::simulate_life_step(g_ptr<person> node,g_ptr<person> parent) {
 g_ptr<person> spouse = node->spouse;
 g_ptr<person> o_parent = nullptr;
+list<g_ptr<person>> had_children;
 if(parent) o_parent = parent->spouse;
 if(!dead) {
     age++; //Step age, stops if dead but maybe shouldn't?
@@ -262,6 +360,8 @@ if(!dead) {
 
         name = name::randsgen({name::AVAL_CENTRAL_FIRST},1);
         node->setName(name);
+
+        intel = weighted_dist({{3,1},{8,2},{20,3},{45,4},{75,5},{92,6},{98,7},{100,8}});
 
         if(!parent) {
 
@@ -272,43 +372,23 @@ if(!dead) {
             wealth = weighted_dist(origin_wealth_dist[origin-1]);
             magic = weighted_dist({{93,0},{97,1},{99,2},{100,3}});
 
-            if(origin==1) {
-                list<std::string> wldr_n = {"a clearing in the woods","a cave in a hill","a hut in the woods","a burrow in the hills"};
-                origin_name = wldr_n.rand();
-            } else if(origin<4) {
-                std::string town_n =  "|, ,Little |Greater ||||||";
-                if(randi(0,1)==1) {
-                    town_n.append(
-                        "|South |Lower |Upper |East |North| West ,"
-                        "Car|Ba|Ha|No|De,"
-                        "ton|rister|decel|lis");
-                } else {
-                    town_n.append(
-                        ","
-                        "Red|Green|Blue|White|Black|North|South|East|West|Big|Small|Old|New|Long|Tall|High|Low|Short|Thorn|Stone|Wood|Dirt,"
-                        "river|hill|glade|stream|rest|tree|wall|field|burrow");
-                }
-                origin_name = name::randsgen({town_n});
-            } else if(origin==4) {
-                //Can add indivdual districts and areas, like Applehill, or East Hearthstead for Neuin
-                list<std::string> cty_n = {"Neuin","Redclaw","Greenlake"};
-                origin_name = cty_n.rand();
-            }
+            origin_name = get_place_name(origin);
         } else {
 
-            surname = parent->retrive("surname");
+            surname = parent->l.surname;
 
             origin = parent->l.lives;
             lives = parent->l.lives;
             wealth = parent->l.wealth;
             magic = parent->l.magic;
             if(parent->l.magic>0) { //This is complex and will have to be expanded later, it includes species, and manifestation
+                int parent_magic = parent->l.magic;
+                int o_parent_magic = 0;
                 if(o_parent&&o_parent->l.magic>0) {
-                    int parent_magic = parent->l.magic;
-                    int o_parent_magic = o_parent->l.magic;
-                    magic = std::max(parent_magic,o_parent_magic);
-                    if(magic>1&&magic<3) magic+=randi(-1,1); //Unrealistic fluctuation
+                    o_parent_magic = o_parent->l.magic;
                 }
+                magic = std::max(parent_magic,o_parent_magic);
+                if(magic>1&&magic<3) magic+=randi(-1,1); //Unrealistic fluctuatio
             }
             origin_name = parent->l.lives_name;
         }
@@ -331,82 +411,84 @@ if(!dead) {
         mortality_rate = std::max(0.02f, std::min(1.0f, mortality_rate));
         dead = randf(0,100) <= mortality_rate;
 
-        if(education==-1) {
-            int base_detection_chance = lives * 20; // 20%, 40%, 60%, 80% base
-            if(age+magic>=13&&age<15) { //To track with manifestation ages, it only becomes detectable at some points
-                base_detection_chance += 30 + (magic * 10); // +40%, +50%, +60% if talented
-                base_detection_chance = std::min(95, base_detection_chance);
-                if(parent&&parent->l.magic > 0) { //Ensure the parent also recived a magical education for this too once we add that value!!!!
-                    base_detection_chance = 100;
-                }
-            } else {
-                base_detection_chance = 0;
-            }
-            bool detected_magic = randi(1,100)<=base_detection_chance;
+        // if(education==-1) {
+        //     int base_detection_chance = lives * 20; // 20%, 40%, 60%, 80% base
+        //     if(age+magic>=13&&age<15) { //To track with manifestation ages, it only becomes detectable at some points
+        //         base_detection_chance += 30 + (magic * 10); // +40%, +50%, +60% if talented
+        //         base_detection_chance = std::min(95, base_detection_chance);
+        //         if(parent&&parent->l.magic > 0) { //Ensure the parent also recived a magical education for this too once we add that value!!!!
+        //             base_detection_chance = 100;
+        //         }
+        //     } else {
+        //         base_detection_chance = 0;
+        //     }
+        //     bool detected_magic = randi(1,100)<=base_detection_chance;
 
 
-            int education_quality = 0;
-            education_quality += lives * 20; // 20, 40, 60, 80 (higher base)
-            if(wealth >= 4) { // Middle class and above
-                education_quality += (wealth - 3) * 5; // +5, +10, +15, +20, +25
-            } else { // Below middle class
-                education_quality -= (4 - wealth) * 3; // -9, -6, -3 (less harsh penalty)
-            }
+        //     int education_quality = 0;
+        //     education_quality += lives * 20; // 20, 40, 60, 80 (higher base)
+        //     if(wealth >= 4) { // Middle class and above
+        //         education_quality += (wealth - 3) * 5; // +5, +10, +15, +20, +25
+        //     } else { // Below middle class
+        //         education_quality -= (4 - wealth) * 3; // -9, -6, -3 (less harsh penalty)
+        //     }
 
-            if(parent && parent->l.education > 0) {
-                education_quality += parent->l.education * 10; // +10 to +40 boost
-            }
+        //     if(parent && parent->l.education > 0) {
+        //         education_quality += parent->l.education * 10; // +10 to +40 boost
+        //     }
 
-            education_quality = std::max(10, std::min(95, education_quality));
+        //     education_quality = std::max(10, std::min(95, education_quality));
             
-            int base_access_chance = 40 + (education_quality * 0.8); // 48% to 116% range
-            base_access_chance = std::min(95, base_access_chance);
-            bool received_education = randi(1,100) <= base_access_chance;
+        //     int base_access_chance = 40 + (education_quality * 0.8); // 48% to 116% range
+        //     base_access_chance = std::min(95, base_access_chance);
+        //     bool received_education = randi(1,100) <= base_access_chance;
 
-            education = 0;
-            if(detected_magic) {
-                education = 4;
-            } else if(received_education) {
-                education = weighted_dist({
-                    {education_quality/4, 1},      // Basic literacy
-                    {education_quality/2, 2},      // Standard education  
-                    {education_quality*3/4, 3},    // Advanced education
-                    {education_quality, 4}        // Elite education (academy-level)
-                });
-            }
-            if(education>0) {
-                enrolled = age;
-                education_info = "\nAt the age of "+std::to_string(age)+" "+name;
-                if(education==1) education_info.append(" learned to read");
-                else if(education < 4) education_info.append(" was enrolled in a "+note_to_string("Education",education)+" level school");
-                else if(education == 4) {
-                    std::string academy_name = "The GRA";
-                    if(detected_magic)
-                        education_info.append(" was discovered and enrolled at "+academy_name);
-                    else
-                        education_info.append(" was accepted into "+academy_name);
-                }
-            }
-        } else if(magic!=0&&education!=4) {
-            int education_level = education;
-            int base_detection_chance = education_level * 20;
-            base_detection_chance+=magic*20;
-            bool was_detected = randi(1,100) <= base_detection_chance;
-            if(was_detected) {
-                education_level = 4;
-                reenrolled = age;
-                std::string academy_name = "The GRA";
-                education_info = "\nAt the age of "+std::to_string(age)+" "+name+
-                "was discovered by "+academy_name+" and enrolled";
-            }
-        } 
-        if(education>=1&&ended==-1) {
-            //Progress in school and potential to drop out or graduate earlier
-            if(randi(1,100)<=5 || age>=20) { //Random dropout chance
-                education_info.append("\nAt the age of "+std::to_string(age)+" "+name+" finished their education ");
-                ended = age;
-            }
-        }
+        //     education = 0;
+        //     if(detected_magic) {
+        //         education = 4;
+        //     } else if(received_education) {
+        //         education = weighted_dist({
+        //             {education_quality/4, 1},      // Basic literacy
+        //             {education_quality/2, 2},      // Standard education  
+        //             {education_quality*3/4, 3},    // Advanced education
+        //             {education_quality, 4}        // Elite education (academy-level)
+        //         });
+        //     }
+        //     if(education>0) {
+        //         enrolled = age;
+        //         education_info = "\nAt the age of "+std::to_string(age)+" "+name;
+        //         if(education==1) education_info.append(" learned to read");
+        //         else if(education < 4) education_info.append(" was enrolled in a "+note_to_string("Education",education)+" level school");
+        //         else if(education == 4) {
+        //             std::string academy_name = "The GRA";
+        //             if(detected_magic)
+        //                 education_info.append(" was discovered and enrolled at "+academy_name);
+        //             else
+        //                 education_info.append(" was accepted into "+academy_name);
+        //         }
+        //     }
+        //     education_info.append("\nQuality: "+tstr(education_quality));
+        //     education_info.append("\nChance: "+tstr(base_access_chance));
+        // } else if(magic!=0&&education!=4) {
+        //     int education_level = education;
+        //     int base_detection_chance = education_level * 20;
+        //     base_detection_chance+=magic*20;
+        //     bool was_detected = randi(1,100) <= base_detection_chance;
+        //     if(was_detected) {
+        //         education_level = 4;
+        //         reenrolled = age;
+        //         std::string academy_name = "The GRA";
+        //         education_info = "\nAt the age of "+std::to_string(age)+" "+name+
+        //         "was discovered by "+academy_name+" and enrolled";
+        //     }
+        // } 
+        // if(education>=1&&ended==-1) {
+        //     //Progress in school and potential to drop out or graduate earlier
+        //     if(randi(1,100)<=5 || age>=20) { //Random dropout chance
+        //         education_info.append("\nAt the age of "+std::to_string(age)+" "+name+" finished their education ");
+        //         ended = age;
+        //     }
+        // }
     } 
     else if (age<=50) { //Adult years
         float mortality_rate = (2.0f - lives * 0.3f) * (9.0f - wealth) / 30.0f;
@@ -415,7 +497,8 @@ if(!dead) {
 
         if(education>lives) {
             lives=lives+1;
-            node->note("Lives",note_to_string("Origin",lives));
+            lives_name = get_place_name(lives);
+            lives_info = "\nSeeking better opportunities, "+name+" moved to the "+note_to_string("Origin",lives)+" of "+lives_name;
         } 
 
         if(!spouse&&!node->isSpouse) {
@@ -425,8 +508,22 @@ if(!dead) {
                 for(int i = 0;i<(age+randi(-5,5));i++) {
                     node->spouse->step_life(); //Add specific spouse requirments
                 }
-                node->spouse->l.maiden_name = node->spouse->l.surname;
-                node->spouse->l.surname = surname;
+                spouse = node->spouse;
+                if(!spouse->l.dead) {
+                    general_info = "\nAt the age of "+tstr(age)+" "+name+" married "+node->spouse->l.name;
+                    spouse->l.general_info = "\nAt the age of "+tstr(spouse->l.age)+" "+spouse->l.name+" married "+name;
+                    if(randi(0,6)==1) {
+                        maiden_name = surname;
+                        general_info.append("\nand changed their surname from "+surname+" to "+spouse->l.surname);
+                        surname = spouse->l.surname;
+                    } else {
+                        spouse->l.general_info.append("\nand changed their surname from "+spouse->l.surname+" to "+surname);
+                        spouse->l.maiden_name = spouse->l.surname;
+                        spouse->l.surname = surname;
+                    }
+                } else {
+                    node->spouse = nullptr;
+                }
             }
         } else if(spouse) {
             float age_factor = 0.0f;
@@ -446,6 +543,7 @@ if(!dead) {
             if(randi(1,100)<=birth_chance) { //Take into account species later
                 auto child = make<person>();
                 node->children << child;
+                had_children << child;
             }
         }
     } 
@@ -456,10 +554,62 @@ if(!dead) {
         mortality_rate = std::max(0.5f, std::min(50.0f, mortality_rate));
         dead = randf(0,100) <= mortality_rate;
     }
+
+    if(education < 1) {
+        int base_chance = 0;
+        int taught_by = 0; // 0=School/Self, 1=Parent, 2=O_parent, 3=Both, 4=Tutor
+        bool is_formal_education = (lives > 2 && age > 9 && wealth > 1);
+
+        if(age >= 5) {
+            if(parent && parent->l.education > 0 && parent->l.intel>5) {
+                base_chance += parent->l.education * 5;
+                taught_by = 1;
+            }
+            if(o_parent && o_parent->l.education > 0 && o_parent->l.intel>5) {
+                base_chance += o_parent->l.education * 5;
+                taught_by = (taught_by == 1) ? 3 : 2;
+            }
+        }
+        
+        if(is_formal_education) {
+            // Formal education path
+            base_chance = 80 + (lives - 2) * 5;
+            if(wealth > 3) base_chance = 100;
+            if(wealth > 5) taught_by = 4;
+        } else {
+            // Self-taught/family path  
+            base_chance = (lives - 1) * 2;
+            base_chance += (intel - 6) * 5;
+            base_chance += (age-6) * 5;
+        }
+         
+        // Apply education if successful
+        if(randi(1,100) <= base_chance) {
+            education = 1;
+            education_info = "\nAt the age of "+std::to_string(age)+" "+name+" was taught to read ";
+            if(taught_by==0) {
+                if(!is_formal_education) {
+                    if(intel>=7) education_info.append("by analyzing anything they could find");
+                    else if(lives==1) education_info.append("by a traveling mage");
+                    else if(lives==2) education_info.append("by a former teacher");
+                    else if(lives==3) education_info.append("by the librarian");
+                    else if(lives==4) education_info.append("by a community program");
+                }
+                else
+                    education_info.append("at a grammer school");
+            }
+            else if(taught_by==1) education_info.append("by "+parent->l.name);
+            else if(taught_by==2) education_info.append("by "+o_parent->l.name);
+            else if(taught_by==3) education_info.append("by both parents");
+            else if (taught_by==4) education_info.append("by a tutor");
+        }
+    }
+    else if(education==1) {
+
+    }
 }
-else if(!node->txt->has("dead")) {
+else if(died==-1) {
     died = age;
-    node->note("Died",std::to_string(age));
 }
     if(node->spouse) {
         node->spouse->step_life();
@@ -469,11 +619,17 @@ else if(!node->txt->has("dead")) {
         for(auto c : node->children) {
             c->step_life(node);
         }
+        if(!had_children.empty()) {
+            general_info.append("\nAt the age of "+tstr(age)+" "+name+" had ");
+            for(auto c : had_children) {
+                general_info.append(c->l.name+(c==had_children.last()?"":", "));
+            }
+        }
     }
 }
 
 
-static int max_depth = 200; //years to simulate
+int max_depth = 130; //years to simulate
 static int spouse_gap = 50;
 static int child_gap = 100;
 
@@ -516,6 +672,7 @@ void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
         auto l2 = makeLine();
         l2->setPosition(root->right());
         updateLine(l2,root->spouse->left());
+        root->lines << l2;
     }
   
     vec2 parentCenter = rootPos;
@@ -543,6 +700,7 @@ void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
         } else
             l->setPosition(rootPos+vec2(0,25));
         updateLine(l, childPos + vec2(0, -25));
+        root->lines << l;
     
         arrange(c, childPos);
         
@@ -571,7 +729,8 @@ int main()  {
     std::string MROOT = "../Projects/StudentSystem/assets/models/";
     std::string IROOT = "../Projects/StudentSystem/assets/images/";
 
-    Window window = Window(1280, 768, "FamilyTree 0.1");
+    vec2 win(2560,1536);
+    Window window = Window(win.x()/2, win.y()/2, "FamilyTree 0.1");
     scene = make<Scene>(window,2);
     Data d = make_config(scene,K);
     scene->tickEnvironment(0);
@@ -589,12 +748,28 @@ int main()  {
 
     auto root = make<person>();
     populate(root);
+    while(root->children.length()<3) {
+        root = make<person>();
+        populate(root);
+    }
+    max_depth = 1200;
+    populate(root);
+    root->realize();
     arrange(root);
     info_card->set<g_ptr<person>>("person",root);
     g_ptr<Quad> sel = nullptr;
     int clicked_at = -1;
     list<g_ptr<Quad>> infos;
+    S_Tool s_tool;
+    //s_tool.log_fps = true;
     start::run(window,d,[&]{
+        if(pressed(ESCAPE)) {
+            sel = nullptr;
+            clicked_at = -1;
+            text::setText("",info_card);
+            info_card->setPosition(vec2(50,40));
+        }
+
         if(pressed(MOUSE_LEFT)) {
             if(sel) {
                 sel = nullptr;
@@ -640,6 +815,28 @@ int main()  {
             }
         }
 
+        if(sel&&sel->has("person")&&sel!=info_card) {
+            g_ptr<person> p = sel->get<g_ptr<person>>("person");
+            if(pressed(NUM_0)) {
+                p->show();
+            } 
+            int num = -1;
+            if(pressed(NUM_1)) num = 0;
+            if(pressed(NUM_2)) num = 1;
+            if(pressed(NUM_3)) num = 2;
+            if(pressed(NUM_4)) num = 3;
+            if(pressed(NUM_5)) num = 4;
+            if(pressed(NUM_6)) num = 5;
+            if(!p->children.empty()&&num!=-1) {
+                if(num<p->children.length()) {
+                    if(p->children[num]->txt->isActive())
+                        p->children[num]->hide();
+                    else
+                        p->children[num]->show();
+                }
+            }
+        }
+
         if(held(MOUSE_LEFT)) {
             if(sel&&sel->has("draggable")) {
                 sel->setCenter(scene->mousePos2d().setX(20));
@@ -655,14 +852,20 @@ int main()  {
         }
 
         vec2 move2d = input_move_2d_keys(8.0f)*-1;
-        for(int i=0;i<scene->quads.length();i++) {
-            auto q = scene->quads[i];
-            if(!q->parent) {
-                if(!q->check("fix_to_screen"))
-                    q->move(move2d);
+        if(move2d.length()!=0) {
+            root->track(move2d);
+            for(int i=0;i<scene->quads.length();i++) {
+                auto q = scene->quads[i];
+                if(!q->parent&&q->isActive()) {
+                    if(!q->check("fix_to_screen")) {
+                        vec2 p = q->getPosition();
+                        if(p.x()>win.x()) 
+                        q->move(move2d);
+                    }
+                }
             }
         }
-       
+       s_tool.tick();
     });
 
     return 0;

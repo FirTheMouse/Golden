@@ -91,6 +91,10 @@ public:
         textureSlot = slot;
     }
 
+    void hide();
+    void show();
+    bool culled();
+
     glm::mat4& getTransform();
     glm::mat4& getEndTransform();
     AnimState& getAnimState();

@@ -60,6 +60,7 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
     {
         quad->ID = guiTransforms.length();
         quadActive.push(true);
+        quadCulled.push(false);
         quads.push(quad);
         //QUUID.push_back(quad->UUID);
         guiTransforms.push(glm::mat4(1.0f));
@@ -213,8 +214,9 @@ void Scene::updateScene(float tpf)
     guiShader.setVec2("uResolution", window.resolution);
     for (size_t i = 0; i < quads.length(); ++i) {
         if(i>=quads.length()) continue;
+        if(!quadActive[i]) continue;
+        if(quadCulled[i]) continue;
         if (!quads[i]) continue;
-        if(!quadActive.get(i,"scene::updateScene::98")) continue;
 
        quads[i]->run("onUpdate");
 
