@@ -165,12 +165,12 @@ public:
     }
 
     void hide() {
-        if(txt->isActive()) {
-            scene->deactivate(txt);
+        if(!txt->culled()) {
+            txt->hide();
             t_vec = vec2(0,0);
         }
         for(auto l :lines) {
-            scene->deactivate(l);
+            l->hide();
         }
         if(spouse) {
             spouse->hide();
@@ -181,12 +181,12 @@ public:
     }
 
     void show() {
-        if(!txt->isActive()) {
-            scene->reactivate(txt);
+        if(txt->culled()) {
+            txt->show();
             txt->move(t_vec);
         }
         for(auto l : lines) {
-            scene->reactivate(l);
+            l->show();
             l->move(t_vec);
         }
         if(spouse) {
@@ -829,7 +829,7 @@ int main()  {
             if(pressed(NUM_6)) num = 5;
             if(!p->children.empty()&&num!=-1) {
                 if(num<p->children.length()) {
-                    if(p->children[num]->txt->isActive())
+                    if(!p->children[num]->txt->culled())
                         p->children[num]->hide();
                     else
                         p->children[num]->show();
@@ -856,10 +856,10 @@ int main()  {
             root->track(move2d);
             for(int i=0;i<scene->quads.length();i++) {
                 auto q = scene->quads[i];
-                if(!q->parent&&q->isActive()) {
+                if(!q->parent&&!q->culled()) {
                     if(!q->check("fix_to_screen")) {
-                        vec2 p = q->getPosition();
-                        if(p.x()>win.x()) 
+                        // vec2 p = q->getPosition();
+                        // if(p.x()>win.x()) 
                         q->move(move2d);
                     }
                 }

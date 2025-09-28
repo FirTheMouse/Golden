@@ -135,9 +135,51 @@ namespace Golden
         glBindVertexArray(0);
     }
 
-    void Quad::hide() {scene->culled.get(ID)=true;}
-    void Quad::show() {scene->culled.get(ID)=false;}
-    bool Quad::culled() {return scene->culled.get(ID);}
+    void Quad::hide() {
+        if(lockToParent)
+        {
+         callingChild=true;
+         parent->hide();
+         callingChild=false;
+         return;
+        }
+        else if(!children.empty())
+        {
+         scene->quadCulled.get(ID)=true;
+         for(auto c : children)
+         {
+             if(c->lockToParent)
+             {
+                scene->quadCulled.get(c->ID)=true;
+             }
+         }
+         } else {
+            scene->quadCulled.get(ID)=true;
+         }
+    }
+    void Quad::show() {
+        if(lockToParent)
+        {
+         callingChild=true;
+         parent->show();
+         callingChild=false;
+         return;
+        }
+        else if(!children.empty())
+        {
+         scene->quadCulled.get(ID)=false;
+         for(auto c : children)
+         {
+             if(c->lockToParent)
+             {
+                scene->quadCulled.get(c->ID)=false;
+             }
+         }
+         } else {
+            scene->quadCulled.get(ID)=false;
+         }
+    }
+    bool Quad::culled() {return scene->quadCulled.get(ID);}
 
     glm::mat4& Quad::getTransform() {
         if(checkGet(0)) {
