@@ -346,7 +346,6 @@ namespace Golden
     {
         std::string string = text::string_of(g);
         int sLoc = 1;
-        int pLoc = 1;
         for(int i=0;i<string.length();i++) {
             if(string.at(i)==delimiter) sLoc=i;
         }

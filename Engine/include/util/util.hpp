@@ -1,5 +1,4 @@
 #pragma once
-#include <iostream>
 #include <unordered_map>
 #include <any>
 #include <stdlib.h>
@@ -18,17 +17,8 @@
 #include <util/list.hpp>
 #include <util/map.hpp>
 // #include <util/q_map.hpp>
-#include <random>
+#include<util/basic.hpp>
 
-template<typename... Args>
-void print(Args&&... args) {
-  (std::cout << ... << args) << std::endl;
-}
-
-template<typename... Args>
-void printnl(Args&&... args) {
-  (std::cout << ... << args);
-}
 
 
 
@@ -434,20 +424,6 @@ class mat4 {
         void print() {std::cout << to_string() << std::endl;}
 };
 
-inline float randf(float min, float max)
-{
-    // One engine per thread; seeded once from real entropy.
-    static thread_local std::mt19937 rng{ std::random_device{}() };
-    std::uniform_real_distribution<float> dist(min, max);
-    return dist(rng);                  // [min, max) – max exclusive by default
-}
-
-inline int randi(int min, int max)
-{
-    static thread_local std::mt19937 rng{ std::random_device{}() };
-    std::uniform_int_distribution<int> dist(min, max); // inclusive both ends
-    return dist(rng);
-}
 
 inline std::string readFile(const std::string& filename) {
     std::ifstream file(filename);

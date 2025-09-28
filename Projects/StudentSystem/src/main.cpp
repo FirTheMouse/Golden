@@ -7,7 +7,9 @@ using namespace Golden;
 
 g_ptr<Scene> scene;
 g_ptr<Font> font;
+
 g_ptr<Quad> info_card;
+g_ptr<Quad> thumb;
 
 std::string tstr(int i) {
     return std::to_string(i);
@@ -18,6 +20,7 @@ g_ptr<Quad> makeLine() {
     scene->add(g);
     g->scale(vec2(5,5));
     g->setColor(Color::WHITE);
+    g->flagOff("valid");
     return g;
 }
 
@@ -55,10 +58,17 @@ struct life {
     int species = 0; //Add this later
 
     int origin = -1;//Size of where they grew up: 1=Wilderness,2=Village,3=Town,4=City
+        std::string origin_name;
+        std::string origin_info;
     int lives = -1;
+        std::string lives_name;
+        std::string lives_info;
     int wealth = -1; //Wealth: 1=Impovrished,2=Poor,3=Lower-middle,4=Middle,5=Upper-middle,6=Wealthy,7=Incredibly Wealthy,8=Ultra rich
+        std::string wealth_info;
     int magic = -1;
+        std::string magic_info;
     int education = -1;
+        std::string education_info;
         int enrolled = -1;
         int ended = -1;
         int reenrolled = -1;
@@ -163,41 +173,63 @@ std::string note_to_string(const std::string& category, int value) {
     return std::to_string(value);
 }
 
-void life_info(const life& l) { 
-    std::string history = 
-    l.name+" "+l.surname+"\n"
-    "------------------------------";
+size_t NthNL(const std::string& str, int n) {
+    size_t pos = 0;
+    for(int i = 0; i < n; ++i) {
+        pos = str.find('\n', pos);
+        if(pos == std::string::npos) return std::string::npos;
+        if(i < n - 1) pos++; 
+    }
+    // if(pos>0) pos--;
+    return pos;
+}
 
+void life_info(const life& l) { 
+
+    list<std::string> line_ret_text;
+
+    std::string history = 
+    l.name+" "+l.surname+
+    "\n------------------------------";
+    line_ret_text << "";
+    line_ret_text << "";
     if(l.maiden_name!="") {
         history.append(
             "\nMaiden name: "+l.maiden_name
         );
+        line_ret_text << "\nMAIDEN NAME INFO";
     }
     history.append(
         "\nOrigin: "+note_to_string("Origin",l.origin)+
         "\nWealth: "+note_to_string("Wealth",l.wealth)+
         "\nMagic: "+note_to_string("Magical",l.magic)
     );
+    line_ret_text << l.origin_info;
+    line_ret_text << l.wealth_info;
+    line_ret_text << l.magic_info;
 
     if(l.education>0) {
         history.append(
-            "\nEducation: "+note_to_string("Education",l.education)+
-            "\nEnrolled: "+tstr(l.enrolled)+" to "+tstr(l.ended)
+            "\nEducation: "+note_to_string("Education",l.education)
         );
-        if(l.reenrolled>0) {
-            history.append(
-                "\nRe-enrolled: "+tstr(l.reenrolled)
-            );
-        }
+        line_ret_text << l.education_info;
     }
 
     history.append(
         "\nLives: "+note_to_string("Origin",l.origin)+
         "\nDied: "+tstr(l.died)
     );
+    line_ret_text << l.lives_info;
+    line_ret_text << "";
 
     text::setText(history,info_card);
-    info_card->setPosition(vec2(1900,40));
+
+    for(int i = 0;i<line_ret_text.length();i++) {
+        if(line_ret_text[i]!="")
+            text::char_at(NthNL(history,i)+1,info_card)->set<std::string>("info",line_ret_text[i]);
+    }
+
+    info_card->setPosition(vec2(50,40));
 }
 
 
@@ -239,6 +271,29 @@ if(!dead) {
             lives = origin;
             wealth = weighted_dist(origin_wealth_dist[origin-1]);
             magic = weighted_dist({{93,0},{97,1},{99,2},{100,3}});
+
+            if(origin==1) {
+                list<std::string> wldr_n = {"a clearing in the woods","a cave in a hill","a hut in the woods","a burrow in the hills"};
+                origin_name = wldr_n.rand();
+            } else if(origin<4) {
+                std::string town_n =  "|, ,Little |Greater ||||||";
+                if(randi(0,1)==1) {
+                    town_n.append(
+                        "|South |Lower |Upper |East |North| West ,"
+                        "Car|Ba|Ha|No|De,"
+                        "ton|rister|decel|lis");
+                } else {
+                    town_n.append(
+                        ","
+                        "Red|Green|Blue|White|Black|North|South|East|West|Big|Small|Old|New|Long|Tall|High|Low|Short|Thorn|Stone|Wood|Dirt,"
+                        "river|hill|glade|stream|rest|tree|wall|field|burrow");
+                }
+                origin_name = name::randsgen({town_n});
+            } else if(origin==4) {
+                //Can add indivdual districts and areas, like Applehill, or East Hearthstead for Neuin
+                list<std::string> cty_n = {"Neuin","Redclaw","Greenlake"};
+                origin_name = cty_n.rand();
+            }
         } else {
 
             surname = parent->retrive("surname");
@@ -255,13 +310,10 @@ if(!dead) {
                     if(magic>1&&magic<3) magic+=randi(-1,1); //Unrealistic fluctuation
                 }
             }
+            origin_name = parent->l.lives_name;
         }
-
-        node->note("Origin", note_to_string("Origin", lives));
-        node->note("Lives", note_to_string("Origin", lives));
-        node->note("Wealth", note_to_string("Wealth", wealth));
-        node->note("Magical", note_to_string("Magical", magic));
-        node->note("surname",surname);
+        origin_info = "\n"+name+" was born in "+origin_name;
+        lives_name = origin_name;
     }
     if(age<=5) { //Baby and toddler years
         float mortality_rate = (10.0f - lives * 2.0f) * (9.0f - wealth) / 4.0f;
@@ -322,11 +374,18 @@ if(!dead) {
                     {education_quality, 4}        // Elite education (academy-level)
                 });
             }
-
-            node->note("Education", note_to_string("Education", education));
             if(education>0) {
                 enrolled = age;
-                node->note("Enrolled", std::to_string(age));
+                education_info = "\nAt the age of "+std::to_string(age)+" "+name;
+                if(education==1) education_info.append(" learned to read");
+                else if(education < 4) education_info.append(" was enrolled in a "+note_to_string("Education",education)+" level school");
+                else if(education == 4) {
+                    std::string academy_name = "The GRA";
+                    if(detected_magic)
+                        education_info.append(" was discovered and enrolled at "+academy_name);
+                    else
+                        education_info.append(" was accepted into "+academy_name);
+                }
             }
         } else if(magic!=0&&education!=4) {
             int education_level = education;
@@ -336,14 +395,15 @@ if(!dead) {
             if(was_detected) {
                 education_level = 4;
                 reenrolled = age;
-                node->note("Re-enrolled", std::to_string(age));
+                std::string academy_name = "The GRA";
+                education_info = "\nAt the age of "+std::to_string(age)+" "+name+
+                "was discovered by "+academy_name+" and enrolled";
             }
-            node->note("Education", note_to_string("Education", education_level));
         } 
         if(education>=1&&ended==-1) {
             //Progress in school and potential to drop out or graduate earlier
             if(randi(1,100)<=5 || age>=20) { //Random dropout chance
-                node->note("Enrolled",node->retrive("Enrolled")+" to "+std::to_string(age));
+                education_info.append("\nAt the age of "+std::to_string(age)+" "+name+" finished their education ");
                 ended = age;
             }
         }
@@ -505,51 +565,6 @@ void populate(g_ptr<person> root,int depth = 0) {
     // }
 }
 
-
-list<g_ptr<Quad>> create_info_card(g_ptr<Quad> root) {
-    list<g_ptr<Quad>> infos;
-    if(!root->has("name")) return infos;
-    list<std::string> label;
-    list<std::string> value;
-    for(auto e : root->data.notes.entrySet()) {
-        try {
-            if (auto* nstr = std::any_cast<std::string>(&e.value)) {
-                if(e.key=="name"||e.key=="surname") continue;
-                label << e.key;
-                value << *nstr;
-            }
-        } catch (std::exception e) {}
-    }
-
-    vec2 at(1900,40);
-    auto g = make<Quad>();
-    scene->add(g);
-    g->scale(vec2(600,(label.length()+2)*40));
-    g->setColor(Color::RED);
-    g->setPosition(at+vec2(-10,-30));
-    g->flagOff("valid");
-    infos << g;
-
-    auto ll = text::makeText(root->get<std::string>("name")+" "+root->get<std::string>("surname"),font,scene,at,1);
-    ll->flagOff("valid");
-    for(auto c : ll->children) c->flagOff("valid");
-    infos << ll;
-
-    auto lll = text::makeText("----------------",font,scene,at.addY(40),1);
-    lll->flagOff("valid");
-    for(auto c : lll->children) c->flagOff("valid");
-    infos << lll;
-
-    for(int i =0;i<label.length();i++) {
-       //print(label[i],": ",value[i]);
-       auto r = text::makeText(label[i]+": "+value[i],font,scene,at+vec2(0,(i+1)*40),1);
-       r->flagOff("valid");
-       for(auto c : r->children) c->flagOff("valid");
-       infos << r;
-    }
-    return infos;
-}
-
 int main()  {
     using namespace helper;
 
@@ -561,45 +576,73 @@ int main()  {
     Data d = make_config(scene,K);
     scene->tickEnvironment(0);
     font = make<Font>("../Engine/assets/fonts/source_code.ttf",50);
-    info_card = text::makeText("",font,scene,vec2(1900,40),1);
-    info_card->flagOff("valid");
+    info_card = text::makeText("",font,scene,vec2(50,40),1);
+    info_card->flagOn("fix_to_screen");
 
-    // auto g = make<Quad>();
-    // scene->add(g);
-    // g->setColor(Color::RED);
-    // g->scale(vec2(100,100));
-    // g->flagOff("valid");
-
-    // auto c = make<Quad>();
-    // scene->add(c);
-    // c->setColor(Color::BLUE);
-    // c->setPosition(vec2(0,400));
-    // c->scale(vec2(100,100));
-
-    // g->addChild(c,false);
-
-
+    //To scroll the info card
+    thumb = make<Quad>();
+    scene->add(thumb);
+    thumb->setColor(Color::WHITE);
+    thumb->scale(vec2(40,40));
+    thumb->flagOn("fix_to_screen");
+    thumb->flagOn("draggable");
 
     auto root = make<person>();
     populate(root);
     arrange(root);
+    info_card->set<g_ptr<person>>("person",root);
     g_ptr<Quad> sel = nullptr;
+    int clicked_at = -1;
     list<g_ptr<Quad>> infos;
     start::run(window,d,[&]{
         if(pressed(MOUSE_LEFT)) {
             if(sel) {
-                if(sel==info_card) {
-                    text::setText("",info_card);
-                    info_card->setPosition(vec2(1900,40));
-                }
                 sel = nullptr;
+                clicked_at = -1;
             }
-            sel = scene->nearestElement();
+            sel = scene->nearestWithin(20.0f);
             if(sel) {
-                if(sel->has("char")) sel = text::parent_of(sel);
-                if(sel->has("person"))
-                    life_info(sel->get<g_ptr<person>>("person")->l);
-                else print("NO PERSON FOR SELECTED");
+                if(sel->has("char")) {
+                    clicked_at = sel->get<size_t>("pID");
+                    sel = text::parent_of(sel);
+                    if(sel==info_card) {
+                        g_ptr<person> p = sel->get<g_ptr<person>>("person");
+                        std::string nstr = text::string_of(sel);
+                        int l_line = nstr.find('\n',clicked_at);
+                        std::string entry = "";
+                        if(l_line!=std::string::npos) {
+                            if(nstr.at(l_line-1)=='>') {
+                                g_ptr<Quad> sent = text::char_at(l_line,sel);
+                                if(sent->has("_added")) {
+                                    text::removeText(l_line-1,sent->get<int>("_added")+1,sel);
+                                }
+                            } else {
+                                g_ptr<Quad> sent = text::char_at(nstr.rfind('\n',clicked_at)+1,sel);
+                                if(!sent->has("info")) sent = text::char_at(nstr.rfind('\n',clicked_at)+1,sel);
+                                if(sent->has("info")) { 
+                                    entry = " >"+sent->get<std::string>("info");
+                                    if(text::char_at(l_line,sel)->get<char>("char")==' ') { text::removeChar(l_line,sel); }
+                                    else { text::insertChar(l_line+1,' ',sel); }
+                                    text::insertText(l_line+1,entry,sel);
+                                }                          
+                            }
+                            if(entry!="") {
+                                text::char_at(nstr.find('\n',clicked_at)+2,sel)->set<int>("_added",entry.length());
+                            }
+                        }
+                    }
+                }
+                if(sel->has("person")&&sel!=info_card) {
+                    g_ptr<person> p = sel->get<g_ptr<person>>("person");
+                    life_info(p->l);
+                    info_card->set<g_ptr<person>>("person",p);
+                }
+            }
+        }
+
+        if(held(MOUSE_LEFT)) {
+            if(sel&&sel->has("draggable")) {
+                sel->setCenter(scene->mousePos2d().setX(20));
             }
         }
 
@@ -614,8 +657,10 @@ int main()  {
         vec2 move2d = input_move_2d_keys(8.0f)*-1;
         for(int i=0;i<scene->quads.length();i++) {
             auto q = scene->quads[i];
-            if(q->check("valid")&&!q->parent)
-                q->move(move2d);
+            if(!q->parent) {
+                if(!q->check("fix_to_screen"))
+                    q->move(move2d);
+            }
         }
        
     });

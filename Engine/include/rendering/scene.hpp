@@ -466,6 +466,32 @@ public:
     return closest;
     }
 
+    g_ptr<Quad> nearestWithin(float min = 5.0f)
+    {
+    vec2 pos = mousePos2d();
+    float closestDist = min;
+    g_ptr<Quad> closest = nullptr;
+    for(int i=0;i<quadActive.length();i++)
+    {
+        if(i>=quads.length()) break;
+        auto qobj = quads.get(i,"gguim::nearestElement::514");
+        if (!qobj->check("valid")) continue;
+        if(!quadActive[i]) continue;
+
+        if (qobj->pointInQuad(pos)) {
+            return qobj;
+        }
+        else {
+            float dist = qobj->getPosition().distance(pos);
+            if(dist<=closestDist) {
+                closestDist = dist;
+                closest = qobj;
+            }
+        }
+    }
+    return closest;
+    }
+
     //Move an object between scenes, currently only works for singles
     void repo(const g_ptr<S_Object>& obj);
 
