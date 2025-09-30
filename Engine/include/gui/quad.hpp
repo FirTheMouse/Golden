@@ -47,6 +47,7 @@ public:
     unsigned int textureGL = 0;   // real GL texture id
     uint8_t      textureSlot = 0; // which texture unit to bind on draw
     g_ptr<Quad> parent;
+    vec2 t_vec = {0,0};
     list<g_ptr<Quad>> children;
     bool callingChild = false;
     Q_Snapshot ogt;
@@ -95,6 +96,7 @@ public:
     void show();
     bool culled();
 
+
     glm::mat4& getTransform();
     glm::mat4& getEndTransform();
     AnimState& getAnimState();
@@ -116,6 +118,15 @@ public:
     Quad& scale(const vec2& scale);
     Quad& move(const vec2& pos,bool update = true);
     Quad& move(const vec2& pos,float animationDuration,bool update = true);
+
+    void track(const vec2& delta = vec2(0,0)) {
+        if(culled()||!isActive()) {
+            t_vec+=delta;
+        } else if(t_vec!=vec2(0,0)) {
+            move(t_vec);
+            t_vec = vec2(0,0);
+        }
+    }
 
     void setColor(glm::vec4 _color) {color = _color;}
     list<std::string>& getSlots();

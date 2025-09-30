@@ -475,7 +475,7 @@ public:
     for(int i=0;i<quadActive.length();i++)
     {
         if(i>=quads.length()) break;
-        auto qobj = quads.get(i,"gguim::nearestElement::514");
+        auto qobj = quads[i];
         if (!qobj->check("valid")) continue;
         if(!quadActive[i]) continue;
 
@@ -483,7 +483,7 @@ public:
             return qobj;
         }
         else {
-            float dist = qobj->getPosition().distance(pos);
+            float dist = qobj->getCenter().distance(pos);
             if(dist<=closestDist) {
                 closestDist = dist;
                 closest = qobj;

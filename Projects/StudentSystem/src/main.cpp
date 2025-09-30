@@ -8,6 +8,8 @@ using namespace Golden;
 g_ptr<Scene> scene;
 g_ptr<Font> font;
 
+int year = 0;
+
 g_ptr<Quad> info_card;
 g_ptr<Quad> thumb;
 
@@ -20,13 +22,12 @@ g_ptr<Quad> makeLine() {
     scene->add(g);
     g->scale(vec2(5,5));
     g->setColor(Color::WHITE);
-    g->flagOff("valid");
     return g;
 }
 
 void updateLine(g_ptr<Quad> item,vec2 from) {
     vec2 dir = from-item->getPosition();
-    item->scale(vec2(std::abs(dir.length()),3));
+    item->scale(vec2(std::abs(dir.length()),6));
     float angle = atan2(dir.y(), dir.x());
     item->rotate(angle);
 }
@@ -41,13 +42,21 @@ int weighted_dist(list<ivec2> dist) {
     return dist[0].y();
 }
 
+enum t_type {
+    PLACE, JOB, ERA
+};
+
+enum modifier {
+    WEALTH, EDUCATION
+};
+
+
 class person;
+
+class thing;
 
 struct life {
     life() {}
-
-    bool dead = false;
-    int died = -1;
 
     std::string name;
     std::string surname;
@@ -56,6 +65,9 @@ struct life {
     std::string general_info;
 
     int age = 0;
+        int born = -1;
+        bool dead = false;
+        int died = -1;
     int gender = -1; //Add this later
     int species = -1; //Add this later
 
@@ -79,6 +91,23 @@ struct life {
         int reenrolled = -1;
 
     void simulate_life_step(g_ptr<person> node,g_ptr<person> parent = nullptr);
+};
+
+class thing : public Object {
+public:
+    std::string name;
+    t_type type;
+    map<modifier,std::function<void(life&,int&)>> modifiers;
+
+    void add_modifier(modifier mod,std::function<void(life&,int&)> func) {
+        modifiers.put(mod,func);
+    }
+
+    void run_modifier(modifier mod,life& l,int& chance) {
+        if(modifiers.hasKey(mod)) {
+            modifiers.get(mod)(l,chance);
+        }
+    }
 };
 
 class person : public Object {
@@ -149,13 +178,11 @@ public:
         }
     }
 
-    vec2 t_vec = vec2(0,0);
-
     void track(const vec2& delta) {
-        if(!txt->isActive()) {
-            t_vec+=delta;
+        txt->track(delta);
+        for(auto l :lines) {
+            l->track(delta);
         }
-
         if(spouse) {
             spouse->track(delta);
         }
@@ -167,10 +194,11 @@ public:
     void hide() {
         if(!txt->culled()) {
             txt->hide();
-            t_vec = vec2(0,0);
+            txt->flagOn("intent");
         }
         for(auto l :lines) {
             l->hide();
+            l->flagOn("intent");
         }
         if(spouse) {
             spouse->hide();
@@ -183,11 +211,13 @@ public:
     void show() {
         if(txt->culled()) {
             txt->show();
-            txt->move(t_vec);
+            txt->flagOff("intent");
+            txt->track();
         }
         for(auto l : lines) {
             l->show();
-            l->move(t_vec);
+            l->flagOff("intent");
+            l->track();
         }
         if(spouse) {
             spouse->show();
@@ -283,8 +313,8 @@ void life_info(const life& l) {
     }
 
     history.append(
-        "\nLives: "+note_to_string("Origin",l.origin)+
-        "\nDied: "+tstr(l.died)
+        "\nLives: "+note_to_string("Origin",l.lives)+
+        "\nLived: "+tstr(l.born)+"-"+(l.died==-1?tstr(year):tstr(l.died))+" CE ("+tstr(l.age)+")"
     );
     line_ret_text << l.lives_info;
     line_ret_text << "";
@@ -349,6 +379,16 @@ std::string get_place_name(int type,const std::string exclude = "") {
     return result;
 }
 
+void simulate_backwards(int years,g_ptr<person> p) {
+    int b_year = year;
+    year -= years;
+    for(int i = 0;i<years;i++) {
+        year++;
+        p->step_life();
+    }
+    year = b_year;
+}
+
 void life::simulate_life_step(g_ptr<person> node,g_ptr<person> parent) {
 g_ptr<person> spouse = node->spouse;
 g_ptr<person> o_parent = nullptr;
@@ -392,6 +432,7 @@ if(!dead) {
             }
             origin_name = parent->l.lives_name;
         }
+        born = year;
         origin_info = "\n"+name+" was born in "+origin_name;
         lives_name = origin_name;
     }
@@ -412,19 +453,7 @@ if(!dead) {
         dead = randf(0,100) <= mortality_rate;
 
         // if(education==-1) {
-        //     int base_detection_chance = lives * 20; // 20%, 40%, 60%, 80% base
-        //     if(age+magic>=13&&age<15) { //To track with manifestation ages, it only becomes detectable at some points
-        //         base_detection_chance += 30 + (magic * 10); // +40%, +50%, +60% if talented
-        //         base_detection_chance = std::min(95, base_detection_chance);
-        //         if(parent&&parent->l.magic > 0) { //Ensure the parent also recived a magical education for this too once we add that value!!!!
-        //             base_detection_chance = 100;
-        //         }
-        //     } else {
-        //         base_detection_chance = 0;
-        //     }
-        //     bool detected_magic = randi(1,100)<=base_detection_chance;
-
-
+        //    
         //     int education_quality = 0;
         //     education_quality += lives * 20; // 20, 40, 60, 80 (higher base)
         //     if(wealth >= 4) { // Middle class and above
@@ -494,66 +523,44 @@ if(!dead) {
         float mortality_rate = (2.0f - lives * 0.3f) * (9.0f - wealth) / 30.0f;
         mortality_rate = std::max(0.01f, std::min(0.5f, mortality_rate));
         dead = randf(0,100) <= mortality_rate;
-
-        if(education>lives) {
-            lives=lives+1;
-            lives_name = get_place_name(lives);
-            lives_info = "\nSeeking better opportunities, "+name+" moved to the "+note_to_string("Origin",lives)+" of "+lives_name;
-        } 
-
-        if(!spouse&&!node->isSpouse) {
-            if(randi(1,100)<=30) { //Make a marriage chance formula
-                node->spouse = make<person>();
-                node->spouse->isSpouse = true;
-                for(int i = 0;i<(age+randi(-5,5));i++) {
-                    node->spouse->step_life(); //Add specific spouse requirments
-                }
-                spouse = node->spouse;
-                if(!spouse->l.dead) {
-                    general_info = "\nAt the age of "+tstr(age)+" "+name+" married "+node->spouse->l.name;
-                    spouse->l.general_info = "\nAt the age of "+tstr(spouse->l.age)+" "+spouse->l.name+" married "+name;
-                    if(randi(0,6)==1) {
-                        maiden_name = surname;
-                        general_info.append("\nand changed their surname from "+surname+" to "+spouse->l.surname);
-                        surname = spouse->l.surname;
-                    } else {
-                        spouse->l.general_info.append("\nand changed their surname from "+spouse->l.surname+" to "+surname);
-                        spouse->l.maiden_name = spouse->l.surname;
-                        spouse->l.surname = surname;
-                    }
-                } else {
-                    node->spouse = nullptr;
-                }
-            }
-        } else if(spouse) {
-            float age_factor = 0.0f;
-            if(age >= 22 && age <= 28) {
-                age_factor = 1.0f; // Peak years
-            } else if(age >= 29 && age <= 35) {
-                age_factor = 0.8f; // Still good
-            } else if(age >= 36 && age <= 42) {
-                age_factor = 0.4f; // Declining
-            } else if(age >= 43 && age <= 50) {
-                age_factor = 0.1f; // Very low
-            }
-            float wealth_factor = 0.3f + (wealth * 0.1f); // 0.4 to 1.1
-            float children_factor = 1.0f / (1.0f + node->children.length() * 0.4f);
-            float birth_chance = 15.0f * age_factor * wealth_factor * children_factor;
-            birth_chance = std::max(0.0f, std::min(25.0f, birth_chance));
-            if(randi(1,100)<=birth_chance) { //Take into account species later
-                auto child = make<person>();
-                node->children << child;
-                had_children << child;
-            }
-        }
     } 
     else if (age<=130) { //Elderly years
-        float age_factor = std::pow((age - 50) / 80.0f, 2.5f); // Accelerating after 50
-        float base_rate = 2.0f + age_factor * 15.0f; // 2% base rising to ~17%
+        float age_factor = std::pow((age - 50) / 80.0f, 4.0f); // Steeper curve
+        float base_rate = 2.0f + age_factor * 150.0f; // Much higher ceiling
         float mortality_rate = base_rate * (8.0f - lives) * (9.0f - wealth) / 32.0f;
-        mortality_rate = std::max(0.5f, std::min(50.0f, mortality_rate));
+
+        // Handle extreme old age
+        if(age >= 120) {
+            mortality_rate = std::max(mortality_rate, 99.0f);
+        }
+        if(age >= 130) {
+            mortality_rate = 100.0f;
+        }
+
+        mortality_rate = std::max(0.5f, std::min(100.0f, mortality_rate));
         dead = randf(0,100) <= mortality_rate;
     }
+
+    if(magic>0) {
+        int base_detection_chance = lives * 20; // 20%, 40%, 60%, 80% base
+        if(age+magic>=13&&age<15) { //To track with manifestation ages, it only becomes detectable at some points
+            base_detection_chance += 30 + (magic * 10); // +40%, +50%, +60% if talented
+            base_detection_chance = std::min(95, base_detection_chance);
+            if(parent&&parent->l.magic > 0) { //Ensure the parent also recived a magical education for this too once we add that value!!!!
+                base_detection_chance = 100;
+            }
+        } else {
+            base_detection_chance = 0;
+        }
+        bool detected_magic = randi(1,100)<=base_detection_chance;
+
+        if(detected_magic) {
+            std::string academy_name = "The GRA";
+            education_info.append("\nAt the age of "+tstr(age)+" "+name+" was discovered and enrolled at "+academy_name);
+            education = 4;
+        }
+    }
+  
 
     if(education < 1) {
         int base_chance = 0;
@@ -580,7 +587,9 @@ if(!dead) {
             // Self-taught/family path  
             base_chance = (lives - 1) * 2;
             base_chance += (intel - 6) * 5;
-            base_chance += (age-6) * 5;
+            base_chance += (age-6) * 2;
+            if(age>16)
+                base_chance -= (age-16) * 5;
         }
          
         // Apply education if successful
@@ -607,9 +616,72 @@ if(!dead) {
     else if(education==1) {
 
     }
+
+    if(education>lives) {
+        lives=lives+1;
+        lives_name = get_place_name(lives);
+        lives_info = "\nSeeking better opportunities, "+name+" moved to the "+note_to_string("Origin",lives)+" of "+lives_name;
+    } 
+
+    //Marraige and children
+    if(!spouse&&!node->isSpouse) {
+        int meet_chance = 30;
+        int met_at = 0; //0=
+
+        if(wealth>6&&age<28&&age>6) { //Arranged marriage
+
+        }
+        if(age<16||age>50) meet_chance=0;
+
+        if(randi(1,100)<=meet_chance) { //Make a marriage chance formula
+            int age_dif = age+randi(-5,5);
+            node->spouse = make<person>();
+            node->spouse->isSpouse = true;
+            simulate_backwards(age_dif,node->spouse);
+            spouse = node->spouse;
+            if(!spouse->l.dead) {
+                general_info = "\nAt the age of "+tstr(age)+" "+name+" married "+node->spouse->l.name;
+                spouse->l.general_info = "\nAt the age of "+tstr(spouse->l.age)+" "+spouse->l.name+" married "+name;
+                if(randi(0,6)==1) {
+                    maiden_name = surname;
+                    general_info.append("\nand changed their surname from "+surname+" to "+spouse->l.surname);
+                    surname = spouse->l.surname;
+                } else {
+                    spouse->l.general_info.append("\nand changed their surname from "+spouse->l.surname+" to "+surname);
+                    spouse->l.maiden_name = spouse->l.surname;
+                    spouse->l.surname = surname;
+                }
+            } else {
+                node->spouse = nullptr;
+            }
+        }
+    } else if(spouse) {
+        float age_factor = 0.0f;
+        if(age >= 22 && age <= 28) {
+            age_factor = 1.0f; // Peak years
+        } else if(age >= 29 && age <= 35) {
+            age_factor = 0.8f; // Still good
+        } else if(age >= 36 && age <= 42) {
+            age_factor = 0.4f; // Declining
+        } else if(age >= 43 && age <= 50) {
+            age_factor = 0.1f; // Very low
+        }
+        float wealth_factor = 0.3f + (wealth * 0.1f); // 0.4 to 1.1
+        float children_factor = 1.0f / (1.0f + node->children.length() * 0.4f);
+        float birth_chance = 15.0f * age_factor * wealth_factor * children_factor;
+        birth_chance = std::max(0.0f, std::min(25.0f, birth_chance));
+        if(randi(1,100)<=birth_chance) { //Take into account species later
+            for(int i=0;i<weighted_dist({{60,1},{80,2},{90,3},{100,4}});i++) {
+                auto child = make<person>();
+                node->children << child;
+                had_children << child;
+            }
+        }
+    }
 }
 else if(died==-1) {
-    died = age;
+    died = year;
+    origin_info.append("\n"+name+" died at the age of "+tstr(age)+" in "+lives_name);
 }
     if(node->spouse) {
         node->spouse->step_life();
@@ -627,7 +699,6 @@ else if(died==-1) {
         }
     }
 }
-
 
 int max_depth = 130; //years to simulate
 static int spouse_gap = 50;
@@ -700,6 +771,8 @@ void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
         } else
             l->setPosition(rootPos+vec2(0,25));
         updateLine(l, childPos + vec2(0, -25));
+            l->set<g_ptr<person>>("origin",root);
+            l->set<g_ptr<person>>("dest",c);
         root->lines << l;
     
         arrange(c, childPos);
@@ -711,6 +784,7 @@ void arrange(g_ptr<person> root, vec2 rootPos = vec2(640, 100)) {
 void populate(g_ptr<person> root,int depth = 0) {
     if(depth>max_depth) return;
     root->step_life();
+    year++;
     populate(root,++depth);
 
     // if(randi(0,1)==1||depth==0) {
@@ -723,13 +797,48 @@ void populate(g_ptr<person> root,int depth = 0) {
     // }
 }
 
+vec2 win(2560,1536);
+void shift_all(const vec2& move2d) {
+    if(move2d.length()!=0) {
+        for(int i=0;i<scene->quads.length();i++) {
+            auto q = scene->quads[i];
+            if(!q->parent) {
+                q->track(move2d);
+                if(!q->check("intent")&&!q->check("fix_to_screen")) {
+
+                    if(!q->culled())
+                        q->move(move2d);
+
+                    vec2 p = q->getCenter()+q->t_vec;
+                    if(q->has("dest")&&q->has("origin")) {
+                        vec2 dest = text::center_of(q->get<g_ptr<person>>("dest")->txt);
+                        vec2 origin =  text::center_of(q->get<g_ptr<person>>("origin")->txt);
+                        vec2 og = (q->getCenter()+q->t_vec);
+                        if(dest.distance(win/2)<origin.distance(win/2)) p = dest+q->t_vec;
+                        else p = origin+q->t_vec;
+                        if(og.distance(win/2)<p.distance(win/2)) p = og;
+                    }
+
+                    bool in_bounds = true;
+                    if(p.x()>win.x()||p.x()<0||p.y()>win.y()||p.y()<0) {
+                        in_bounds = false;
+                    } 
+                    if(in_bounds) {
+                        if(q->culled()) q->show();
+                    } 
+                    else 
+                        if (!q->culled()) q->hide();
+                }
+            }
+        }
+    }
+}
+
 int main()  {
     using namespace helper;
 
     std::string MROOT = "../Projects/StudentSystem/assets/models/";
     std::string IROOT = "../Projects/StudentSystem/assets/images/";
-
-    vec2 win(2560,1536);
     Window window = Window(win.x()/2, win.y()/2, "FamilyTree 0.1");
     scene = make<Scene>(window,2);
     Data d = make_config(scene,K);
@@ -746,13 +855,31 @@ int main()  {
     thumb->flagOn("fix_to_screen");
     thumb->flagOn("draggable");
 
+    int b_year = 0;
+
+    auto j = make<person>();
+    for(int i=0;i<10;i++)
+        j->step_life();
+    auto t = make<thing>();
+    t->add_modifier(EDUCATION,[](life& l,int& chance){
+        chance+=l.age;
+    });
+    int c = 10;
+    t->run_modifier(EDUCATION,j->l,c);
+    print(c);
+
+
+
     auto root = make<person>();
+    year = b_year;
+    max_depth = 80;
     populate(root);
     while(root->children.length()<3) {
+        year = b_year;
         root = make<person>();
         populate(root);
     }
-    max_depth = 1200;
+    max_depth = 200;
     populate(root);
     root->realize();
     arrange(root);
@@ -762,6 +889,8 @@ int main()  {
     list<g_ptr<Quad>> infos;
     S_Tool s_tool;
     //s_tool.log_fps = true;
+    vec2 pan_to(0,0);
+    print("Generated: ",scene->quads.length()," quads");
     start::run(window,d,[&]{
         if(pressed(ESCAPE)) {
             sel = nullptr;
@@ -805,6 +934,7 @@ int main()  {
                                 text::char_at(nstr.find('\n',clicked_at)+2,sel)->set<int>("_added",entry.length());
                             }
                         }
+                        info_card->show();
                     }
                 }
                 if(sel->has("person")&&sel!=info_card) {
@@ -812,8 +942,26 @@ int main()  {
                     life_info(p->l);
                     info_card->set<g_ptr<person>>("person",p);
                 }
+
+                if(sel->has("dest")&&sel->has("origin")) {
+                    vec2 dest = text::center_of(sel->get<g_ptr<person>>("dest")->txt);
+                    vec2 origin =  text::center_of(sel->get<g_ptr<person>>("origin")->txt);
+                    vec2 pos = scene->mousePos2d();
+                    vec2 sCenter = win/2;
+                    if(dest.distance(pos)<origin.distance(pos)) {
+                        pan_to = origin;
+                    } else {
+                        pan_to = dest;
+                    }
+                }
             }
+            // vec2 pos = scene->mousePos2d();
+            // vec2 sCenter = win/2;
+            // shift_all(sCenter-pos);
+            // root->track(vec2(0,0));
         }
+
+
 
         if(sel&&sel->has("person")&&sel!=info_card) {
             g_ptr<person> p = sel->get<g_ptr<person>>("person");
@@ -851,20 +999,15 @@ int main()  {
             }
         }
 
-        vec2 move2d = input_move_2d_keys(8.0f)*-1;
-        if(move2d.length()!=0) {
-            root->track(move2d);
-            for(int i=0;i<scene->quads.length();i++) {
-                auto q = scene->quads[i];
-                if(!q->parent&&!q->culled()) {
-                    if(!q->check("fix_to_screen")) {
-                        // vec2 p = q->getPosition();
-                        // if(p.x()>win.x()) 
-                        q->move(move2d);
-                    }
-                }
-            }
+        vec2 move2d = input_move_2d_keys(8.0f)*-(s_tool.tpf*100);
+        if(pan_to!=vec2(0,0)) {
+            if(pan_to.distance(win/2)<50) pan_to = vec2(0,0);
+            else {
+                move2d = (win/2).direction(pan_to)*-(s_tool.tpf*2000);
+                pan_to+=move2d;
+            } 
         }
+        shift_all(move2d);
        s_tool.tick();
     });
 
