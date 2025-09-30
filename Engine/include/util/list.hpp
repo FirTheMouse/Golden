@@ -289,9 +289,10 @@ public:
 
     /// @brief a conditonal push that ensures the list does not already have an entry first
     template<typename TT>
-    void push_if(TT&& value) {
+    void push_if_absent(TT&& value) {
         if(!has(value)) push(value);
     }
+
 
     void reserve(size_t new_capacity) {
         if (new_capacity <= capacity_) return;
