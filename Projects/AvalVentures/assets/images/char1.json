@@ -1,0 +1,201 @@
+{
+    "mira": {
+        "injuries": {},
+        "name": "mira",
+        "species": "Squirrel",
+        "stats": {
+            "SIZE": 1,
+            "MOV": 10,
+            "AGI": 8,
+            "AWR": 4,
+            "CHA": 12,
+            "CON": -6,
+            "DEX": 8,
+            "STR": -8,
+            "WIT": 8,
+            "NA": -2
+        },
+        "parts": {
+            "head": {
+                "name": "head",
+                "hit_mod": 5,
+                "NA": 4,
+                "parts": {
+                    "face": {
+                        "name": "face",
+                        "mass_cur": 16,
+                        "mass_max": 16,
+                        "parts": {
+                            "mouth": {
+                                "name": "mouth",
+                                "mass_cur": 8,
+                                "mass_max": 8,
+                                "parts": {
+                                    "teeth": {
+                                        "name": "teeth",
+                                        "mass_cur": 24,
+                                        "mass_max": 24,
+                                        "parts": {},
+                                        "events": []
+                                    },
+                                    "events": []
+                                },
+                                "events": []
+                            },
+                            "events": []
+                        },
+                        "events": []
+                    },
+                    "back": {
+                        "dirt_cur": 0,
+                        "dirt_max": 10
+                    }
+                }
+            },
+            "torso": {
+                "name": "torso",
+                "hit_mod": 0,
+                "NA": 10,
+                "parts": {
+                    "chest": {
+                        "name": "chest",
+                        "parts": {
+                            "heart": {},
+                            "lungs": {
+                                "parts": {
+                                    "lung_left": {},
+                                    "lung_right": {}
+                                }
+                            }
+                        }
+                    },
+                    "belly": {
+                        "name": "belly",
+                        "parts": {
+                            "stomach": {
+                                "name": "stomach",
+                                "parts": {
+                                    "fundus": {
+                                        "name": "fundus"
+                                    },
+                                    "corpus": {
+                                        "name": "corpus"
+                                    },
+                                    "antrum": {
+                                        "name": "antrum"
+                                    }
+                                },
+                                "events": [
+                                    {
+                                        "name": "churn",
+                                        "cur": 3,
+                                        "max": 12,
+                                        "from": "",
+                                        "active": false,
+                                        "active_for": 0,
+                                        "active_dur": 3,
+                                        "on_active": [
+                                            "distr",
+                                            "sound"
+                                        ],
+                                        "active_to": [
+                                            {
+                                                "fundus": "corpus",
+                                                "corpus": "antrum"
+                                            },
+                                            {
+                                                "fundus": 10,
+                                                "corpus": 5,
+                                                "antrum": 1
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "counters": {},
+                                "gauges": {}
+                            }
+                        }
+                    },
+                    "groin": {
+                        "dirt_cur": 0,
+                        "dirt_max": 10
+                    },
+                    "back": {
+                        "dirt_cur": 0,
+                        "dirt_max": 10
+                    }
+                }
+            }
+        }
+    },
+    "apple": {
+        "name": "apple",
+        "parts": {
+            "skin": {
+                "name": "skin",
+                "mass_cur": 3,
+                "mass_max": 6,
+                "parts": {
+                    "flesh": {
+                        "name": "flesh",
+                        "mass_cur": 10,
+                        "mass_max": 10,
+                        "links": [
+                            {
+                                "to": "skin",
+                                "type": "cover",
+                                "strength": 4
+                            }
+                        ],
+                        "parts": {
+                            "core": {
+                                "name": "core",
+                                "mass_cur": 6,
+                                "mass_max": 6,
+                                "links": [
+                                    {
+                                        "to": "flesh",
+                                        "type": "cover",
+                                        "strength": 8
+                                    }
+                                ],
+                                "parts": {
+                                    "seeds": {
+                                        "name": "seeds",
+                                        "mass_cur": 1,
+                                        "mass_max": 1
+                                    },
+                                    "events": []
+                                },
+                                "events": []
+                            },
+                            "events": []
+                        },
+                        "events": []
+                    },
+                    "events": []
+                },
+                "events": []
+            },
+            "stem": {
+                "name": "stem",
+                "mass": 1,
+                "events": []
+            }
+        },
+        "events": [],
+        "contents": []
+    },
+    "floor": {
+        "parts": {
+            "0,0": {
+                "name": "0,0",
+                "contents": []
+            },
+            "0,1": {
+                "name": "0,1",
+                "contents": []
+            }
+        }
+    }
+}

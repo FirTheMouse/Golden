@@ -19,8 +19,23 @@
 // #include <util/q_map.hpp>
 #include<util/basic.hpp>
 
-
-
+inline list<std::string> split_str(const std::string& s,char delimiter)
+{
+    list<std::string> toReturn;
+    int last = 0;
+    for(int i=0;i<s.length();i++)
+    {
+        if(s.at(i)==delimiter) {
+            toReturn << s.substr(last,i-last);
+            last = i+1;
+        }
+    }
+    if(last<s.length())
+    {
+        toReturn << s.substr(last,s.length()-last);
+    }
+    return toReturn;
+}
 
 class Data{
 public:

@@ -126,6 +126,9 @@ public:
     inline T* begin() {return ptr;}
     inline T* end() {return ptr+size_;}
 
+    inline T* begin() const {return ptr;}
+    inline T* end() const {return ptr+size_;}
+
     void pushAll(const list<T>& input) {
         for(int i = 0;i<input.size_;i++)
         {
@@ -399,7 +402,11 @@ public:
     }
 
     inline T& rand() {
-        return ptr[randi(0,size_)];
+        return ptr[randi(0,size_-1)];
+    }
+
+    inline T& rand() const {
+        return ptr[randi(0,size_-1)];
     }
 
     template<typename TT>

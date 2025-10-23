@@ -2,7 +2,6 @@
 #include <util/string_generator.hpp>
 #include <util/logger.hpp>
 
-#define USE_CACHE 0
 
 //djb2
 uint32_t hash1(const std::string& str) {
@@ -203,7 +202,7 @@ int main() {
 
     list<std::string> added;
     for(int i=0;i<a_len;i++) {
-        std::string name = name::randname(name::RANDOM);
+        std::string name = sgen::randsgen(sgen::RANDOM);
         added << name;
     }
 

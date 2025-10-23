@@ -15,7 +15,6 @@ namespace Golden
 {
 
 
-list<std::string> split_str(const std::string& s,char delimiter = '_');
 uint loadTexture2D(const std::string& path, bool flipY = true);
 uint loadTexture2D(const std::string& path, bool flipY,int& outW, int& outH);
 

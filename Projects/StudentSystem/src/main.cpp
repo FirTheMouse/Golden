@@ -2,6 +2,7 @@
 #include<core/helper.hpp>
 #include<util/color.hpp>
 #include<util/string_generator.hpp>
+#include<util/logger.hpp>
 
 using namespace Golden;
 
@@ -368,7 +369,7 @@ std::string get_place_name(int type,const std::string exclude = "") {
                     "Red|Green|Blue|White|Black|North|South|East|West|Big|Small|Old|New|Long|Tall|High|Low|Short|Thorn|Stone|Wood|Dirt,"
                     "river|hill|glade|stream|rest|tree|wall|field|burrow");
             }
-            result = name::randsgen({town_n});
+            result = sgen::randsgen(town_n);
         } else if(type==4) {
             //Can add indivdual districts and areas, like Applehill, or East Hearthstead for Neuin
             list<std::string> cty_n = {"Neuin","Redclaw","Greenlake"};
@@ -398,14 +399,14 @@ if(!dead) {
     age++; //Step age, stops if dead but maybe shouldn't?
     if(age<=1) { //Birth years
 
-        name = name::randsgen({name::AVAL_CENTRAL_FIRST},1);
+        name = sgen::randsgen(sgen::AVAL_CENTRAL_FIRST_MALE);
         node->setName(name);
 
         intel = weighted_dist({{3,1},{8,2},{20,3},{45,4},{75,5},{92,6},{98,7},{100,8}});
 
         if(!parent) {
 
-            surname = name::randsgen({name::AVAL_CENTRAL_LAST},1);
+            surname = sgen::randsgen(sgen::AVAL_CENTRAL_LAST);
 
             origin = weighted_dist({{10,1},{50,2},{75,3},{100,4}});
             lives = origin;
@@ -857,17 +858,56 @@ int main()  {
 
     int b_year = 0;
 
-    auto j = make<person>();
-    for(int i=0;i<10;i++)
-        j->step_life();
-    auto t = make<thing>();
-    t->add_modifier(EDUCATION,[](life& l,int& chance){
-        chance+=l.age;
-    });
-    int c = 10;
-    t->run_modifier(EDUCATION,j->l,c);
-    print(c);
+    // auto j = make<person>();
+    // for(int i=0;i<10;i++)
+    //     j->step_life();
+    // auto t = make<thing>();
+    // t->add_modifier(EDUCATION,[](life& l,int& chance){
+    //     chance+=l.age;
+    // });
+    // int c = 10;
+    // t->run_modifier(EDUCATION,j->l,c);
+    // print(c);
 
+       // log::rig test;
+    // test.add_process("new_randsgen",[&](int i){
+    //     volatile std::string s = sgen::randsgen(sgen::AVAL_CENTRAL_LAST);
+    // });
+    // test.add_process("sgen_randsgen",[&](int i){
+    //     volatile std::string s = sgen::randsgen(sgen::RANDOM);
+    // });
+    // // test.add_process("nsplit",[&](int i){
+    // //     nsplit_str(name::STANDARD,'|');
+    // // });
+    // // test.add_process("osplit",[&](int i){
+    // //     split_str(name::STANDARD,'|');
+    // // });
+    // //test.add_comparison("nsplit","osplit");
+    // test.add_comparison("new_randsgen","sgen_randsgen");
+    // test.run(500,true,50);
+
+    sgen::namebase test("");
+
+    //Regions to create:
+    //AVAL_
+    //  CENTRAL
+    //  WESTERN
+    //  EASTERN
+    //  TUNDRA
+
+    // list<std::string> names;
+    // for(int i=0;i<50;i++) {
+    //     names << sgen::randsgen(sgen::AVAL_CENTRAL_FIRST_MALE);
+    // }
+    // int lret = 0;
+    // for(auto s : names) {
+    //     printnl(s," ");
+    //     if((lret+=s.length())>70) {
+    //         lret = 0;
+    //         print();
+    //     }
+    // }
+    // print();
 
 
     auto root = make<person>();
@@ -890,7 +930,7 @@ int main()  {
     S_Tool s_tool;
     //s_tool.log_fps = true;
     vec2 pan_to(0,0);
-    print("Generated: ",scene->quads.length()," quads");
+    //print("Generated: ",scene->quads.length()," quads");
     start::run(window,d,[&]{
         if(pressed(ESCAPE)) {
             sel = nullptr;

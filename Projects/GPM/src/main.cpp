@@ -152,10 +152,10 @@ int main()
     scene->camera.speedMod = 0.01f;
 
 
-    // std::string name = "ThymeLoop";
+    // std::string name = "AvalVentures";
     // startProject(name);
     // addProjectToCMake(name);
-    std::string p1 = "Learning";
+    std::string p1 = "AvalVentures";
     std::string p2 = "GUIDE";
     std::string p3 = "GDSL";
     std::string p4 = "Testing";
