@@ -274,6 +274,7 @@ class vec3 {
         vec3 operator*(float scalar) const { return vec3(impl * scalar); }
         vec3 operator*(const vec3& rhs) const { return vec3(impl * rhs.impl); }
         vec3 operator/(const vec3& rhs) const { return vec3(impl / rhs.impl); }
+        vec3 operator/(float scalar) const { return vec3(impl / scalar); }
         bool operator==(const vec3& rhs) const {return impl == rhs.impl;}
         bool operator!=(const vec3& rhs) const {return impl != rhs.impl;}
     

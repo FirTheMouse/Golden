@@ -1,7 +1,6 @@
 #include<core/helper.hpp>
-#include "../../Engine/ext/json/json.hpp"
 #include<util/files.hpp>
-using json = nlohmann::ordered_json;
+#include<materials.hpp>
 using namespace Golden;
 
 const std::string IROOT = "../Projects/AvalVentures/assets/images/";
@@ -9,6 +8,11 @@ const std::string IROOT = "../Projects/AvalVentures/assets/images/";
 class v_object;
 g_ptr<v_object> ROOT = nullptr;
 list<json*> decode_path(const std::string& path); 
+json& thing_at(const std::string& path);
+
+static inline float clampf(float x, float a, float b) {
+     return x < a ? a : (x > b ? b : x);
+ }
 
 class v_object : public virtual Object {
 private:
@@ -130,6 +134,37 @@ public:
           }
      }
 
+     static void process_links(json& link,list<json*> path) {
+          if(link["type"] == "cover") {
+               // print((*path[path.length()-1])["name"]," is ",calculate_accessibility(*path[path.length()-1],*path[path.length()-2])," acessible ");
+               // std::string t_str = path_to_string(path);
+               // print("UNCODE: ",t_str);
+               // print("DECODE: ",path_to_string(decode_path(t_str)));
+          }
+     }
+
+     static std::string path_to_string(list<json*> path) {
+          std::string result = "";
+          for(int i=0;i<path.length();i++) {
+               json& j = *path[i];
+               result.append(j["name"]);
+               if(i+1<path.length()) {
+                    json& j_n = *path[i+1];
+                    if(j.contains("parts") && j["parts"].contains(j_n["name"])) {
+                         result.append(">p>");
+                    } else if(j.contains("contents") && j["contents"].contains(j_n["name"])) {
+                         result.append(">c>");
+                    } 
+                    else {
+                         result.append(">!>");
+                    }
+               }
+              
+          }
+          return result;
+     }
+
+
      static void process_event(json& event, list<json*> path) {
           int max_val = event.value("max", 1);
           print("Processing ",event["name"]);
@@ -154,11 +189,12 @@ public:
               event["active_for"] = event.value("active_for", 0) + 1;
               
               if(event.contains("on_active")) {
-                  for(auto& action : event["on_active"]) {
-                      execute_action(action.get<std::string>(), event, path);
-                  }
+               json actions = event["on_active"];
+     
+               for(auto& action : actions) {
+                    execute_action(action.get<std::string>(), event, path);
+               }
               }
-              
               int active_for = event["active_for"];
               int active_dur = event.value("active_dur", 1);
               
@@ -177,65 +213,700 @@ public:
           else if(action == "sound") {
               //execute_sound(event, path);
           }
-          // ... more actions
+          else if(action == "impact") {
+               execute_impact(event, path);
+          }
       }
 
-     static void process_links(json& link,list<json*> path) {
-          if(link["type"] == "cover") {
-               print((*path[path.length()-1])["name"]," is ",calculate_accessibility(*path[path.length()-1],*path[path.length()-2])," acessible ");
-               std::string t_str = path_to_string(path);
-               print("UNCODE: ",t_str);
-               print("DECODE: ",path_to_string(decode_path(t_str)));
-          }
+     static void execute_impact(json& event, list<json*>& path) {
+     //     json& d = event["data"];
+     //     double area = d["area"];
+     //     int force = d["force"];
+
+     //     print("Impacting of area ",area," force ",force," from ",event["name"]," path: ",path_to_string(path));
+         resolve_impact(event,path);
+
      }
 
-     // Calculate how accessible a part is
-     static float calculate_accessibility(json& part, json& parent) {
-          if(!part.contains("links")) {
-              return 1.0; 
+     static float calculate_volume_cm3(json& geometry) {
+          auto& base = geometry["base"];
+          float w = base["dims"][0].get<float>() / 10.0;  // mm to cm
+          float h = base["dims"][1].get<float>() / 10.0;
+          float d = base["dims"][2].get<float>() / 10.0;
+          
+          float rx = base["round"][0].get<float>();
+          float ry = base["round"][1].get<float>();
+          float rz = base["round"][2].get<float>();
+          
+          float base_volume = 0;
+          
+          if(rx >= 0.9 && ry >= 0.9 && rz >= 0.9) {
+              // Sphere: V = 4/3 π r³
+              float r = (w + h + d) / 6.0;
+              base_volume = (4.0/3.0) * 3.14159 * r * r * r;
+          } 
+          else if(rx >= 0.9 && ry >= 0.9 && rz < 0.5) {
+              // Cylinder: V = π r² h
+              float r = (w + h) / 4.0;
+              base_volume = 3.14159 * r * r * d;
           }
-          float total_coverage = 0.0;
-          for(auto& link : part["links"]) {
-              if(link["type"] == "cover") {
-                  std::string covering_part = link["to"];
-                  auto cover = parent;
-                  if(parent["name"]!=covering_part) {
-                    if(parent.contains("parts")) {
-                         if(parent["parts"].contains(covering_part)) {
-                              cover = parent["parts"][covering_part];
-                         } else print("172 ",parent["name"]," is missing part ",covering_part);
-                    } else print("173 ",parent["name"]," has no parts");
-                  }
-                  float mass_cur = cover.value("mass_cur", 0.0);
-                  float mass_max = cover.value("mass_max", 1.0);
-                  float coverage = mass_cur / mass_max;
-                  total_coverage += coverage;
+          else {
+              // Ellipsoid: V = 4/3 π abc
+              float a = w / 2.0;
+              float b = h / 2.0;
+              float c = d / 2.0;
+              base_volume = (4.0/3.0) * 3.14159 * a * b * c;
+          }
+          
+          // Subtract diffs (CSG subtraction)
+          if(geometry.contains("diffs")) {
+              for(auto& diff : geometry["diffs"]) {
+                  json diff_geom = {{"base", diff}, {"diffs", json::array()}};
+                  base_volume -= calculate_volume_cm3(diff_geom);
               }
           }
-          return std::max(0.0f, 1.0f - total_coverage);
-     }  
-
-     static std::string path_to_string(list<json*> path) {
-          std::string result = "";
-          for(int i=0;i<path.length();i++) {
-               json& j = *path[i];
-               result.append(j["name"]);
-               if(i+1<path.length()) {
-                    json& j_n = *path[i+1];
-                    if(j.contains("parts") && j["parts"].contains(j_n["name"])) {
-                         result.append(">p>");
-                    } else if(j.contains("contents") && j["contents"].contains(j_n["name"])) {
-                         result.append(">c>");
-                    } 
-                    else {
-                         result.append(">!>");
-                    }
-               }
-              
+          
+          return std::max(0.0f, base_volume);
+      }
+      
+      static float calculate_masss_g(json& part) {
+          if(!part.contains("geometry") || !part.contains("mat")) {
+              return 0.0;
           }
-          return result;
+          
+          // Base volume from geometry
+          float base_volume_cm3 = calculate_volume_cm3(part["geometry"]);
+          float density = part["mat"]["density"].get<float>();
+          
+          return std::max(0.0f, base_volume_cm3 * density);
+      }
+
+      // Calculate shell thickness by comparing base and first diff
+     static float calculate_thickness_mm(json& geometry) {
+          if(!geometry.contains("base")) {
+          return 1.0;  // Default fallback
+          }
+          
+          auto& base = geometry["base"];
+          
+          // If no diffs, it's solid - use smallest dimension as "thickness"
+          if(!geometry.contains("diffs") || geometry["diffs"].empty()) {
+          float w = base["dims"][0].get<float>();
+          float h = base["dims"][1].get<float>();
+          float d = base["dims"][2].get<float>();
+          return std::min({w, h, d});
+          }
+          
+          // Shell thickness = difference between base and first diff
+          auto& first_diff = geometry["diffs"][0];
+          
+          // Compare dimensions
+          float base_w = base["dims"][0].get<float>();
+          float base_h = base["dims"][1].get<float>();
+          float base_d = base["dims"][2].get<float>();
+          
+          float diff_w = first_diff["dims"][0].get<float>();
+          float diff_h = first_diff["dims"][1].get<float>();
+          float diff_d = first_diff["dims"][2].get<float>();
+          
+          // Thickness is half the difference (symmetric shell)
+          float thickness_w = (base_w - diff_w) / 2.0;
+          float thickness_h = (base_h - diff_h) / 2.0;
+          float thickness_d = (base_d - diff_d) / 2.0;
+          
+          // Return average thickness (or could be direction-specific later)
+          float avg_thickness = (thickness_w + thickness_h + thickness_d) / 3.0;
+          
+          return std::max(0.1f, avg_thickness);  // Minimum 0.1mm
      }
+      
+     static float calculate_surface_area_mm2(json& geometry) {
+          auto& base = geometry["base"];
+          float w = base["dims"][0].get<float>();
+          float h = base["dims"][1].get<float>();
+          float d = base["dims"][2].get<float>();
+          
+          float rx = base["round"][0].get<float>();
+          float ry = base["round"][1].get<float>();
+          float rz = base["round"][2].get<float>();
+          
+          float surface_area = 0;
+          
+          if(rx >= 0.9 && ry >= 0.9 && rz >= 0.9) {
+              // Sphere: A = 4πr²
+              float r = (w + h + d) / 6.0;
+              surface_area = 4.0 * M_PI * r * r;
+          }
+          else if(rx >= 0.9 && ry >= 0.9 && rz < 0.5) {
+              // Cylinder: A = 2πr² + 2πrh
+              float r = (w + h) / 4.0;
+              surface_area = 2.0 * M_PI * r * r + 2.0 * M_PI * r * d;
+          }
+          else {
+              // Box approximation: A = 2(wh + wd + hd)
+              surface_area = 2.0 * (w*h + w*d + h*d);
+          }
+          
+          return surface_area;
+      }
+
+      static float calculate_opening_area_mm2(json& geometry) {
+          float w = geometry["dims"][0].get<float>();
+          float h = geometry["dims"][1].get<float>();
+          
+          float rx = geometry["round"][0].get<float>();
+          float ry = geometry["round"][1].get<float>();
+          
+          if(rx >= 0.8 && ry >= 0.8) {
+              // Circular opening
+              float r = (w + h) / 4.0;
+              return 3.14159 * r * r;
+          } else {
+              // Rectangular opening
+              return w * h;
+          }
+      }
+
+      struct Opening {
+          vec3 position;     // Center of opening
+          vec3 dimensions;   // Size of opening
+          float area_mm2;    // Surface area exposed
+      };
+
+      // Check if diff reaches outer surface
+      static bool breaches_surface(json& base, json& diff, float shell_thickness) {
+          vec3 base_dims = {
+              base["dims"][0].get<float>(),
+              base["dims"][1].get<float>(),
+              base["dims"][2].get<float>()
+          };
+          
+          vec3 diff_pos = {
+              diff.value("pos", json::array({0,0,0}))[0].get<float>(),
+              diff.value("pos", json::array({0,0,0}))[1].get<float>(),
+              diff.value("pos", json::array({0,0,0}))[2].get<float>()
+          };
+          
+          vec3 diff_dims = {
+              diff["dims"][0].get<float>(),
+              diff["dims"][1].get<float>(),
+              diff["dims"][2].get<float>()
+          };
+          
+          // Calculate distance from center to edge of diff
+          float dist_from_center = sqrt(
+              diff_pos.x() * diff_pos.x() + 
+              diff_pos.y() * diff_pos.y() + 
+              diff_pos.z() * diff_pos.z()
+          );
+          
+          float diff_extent = (diff_dims.x() + diff_dims.y() + diff_dims.z()) / 6.0;
+          float base_radius = (base_dims.x() + base_dims.y() + base_dims.z()) / 6.0;
+          float inner_radius = base_radius - shell_thickness;
+          
+          // Diff breaches surface if it extends beyond inner radius
+          return (dist_from_center + diff_extent) > inner_radius;
+      }
+      
+      // Find all diffs that breach the surface = openings
+      static list<Opening> calculate_openings(json& part) {
+          list<Opening> openings;
+          
+          if(!part.contains("geometry")) return openings;
+          
+          auto& geom = part["geometry"];
+          if(!geom.contains("base") || !geom.contains("diffs")) return openings;
+          
+          auto& base = geom["base"];
+          float shell_thickness = calculate_thickness_mm(geom);
+          
+          // Check each diff (after the first, which is the hollow interior)
+          int diff_count = geom["diffs"].size();
+          int start_idx = (diff_count > 1) ? 1 : 0;  // Skip first diff if it's the interior
+          
+          for(int i = start_idx; i < diff_count; i++) {
+              auto& diff = geom["diffs"][i];
+              
+              // Check if this diff penetrates the outer surface
+              if(breaches_surface(base, diff, shell_thickness)) {
+                  Opening opening;
+                  
+                  opening.position = {
+                      diff.value("pos", json::array({0,0,0}))[0].get<float>(),
+                      diff.value("pos", json::array({0,0,0}))[1].get<float>(),
+                      diff.value("pos", json::array({0,0,0}))[2].get<float>()
+                  };
+                  
+                  opening.dimensions = {
+                      diff["dims"][0].get<float>(),
+                      diff["dims"][1].get<float>(),
+                      diff["dims"][2].get<float>()
+                  };
+                  
+                  opening.area_mm2 = calculate_opening_area_mm2(diff);
+                  
+                  openings << opening;
+              }
+          }
+          
+          return openings;
+      }
+
+      // Nearest point ON the surface of an AABB (works for inside & outside).
+      static vec3 nearest_surface_point(json* target, const vec3& origin) {
+          // center and half-extents
+          const vec3 center((*target)["pos"][0].get<float>(),
+                            (*target)["pos"][1].get<float>(),
+                            (*target)["pos"][2].get<float>());
+      
+          const json& base = (*target)["geometry"]["base"];
+          const vec3 half(base["dims"][0].get<float>() * 0.5f,
+                          base["dims"][1].get<float>() * 0.5f,
+                          base["dims"][2].get<float>() * 0.5f);
+      
+          // point in target-local space
+          vec3 p = origin - center;
+      
+          // distance outside along each axis (<=0 means inside along that axis)
+          const float dx = std::fabs(p.x()) - half.x();
+          const float dy = std::fabs(p.y()) - half.y();
+          const float dz = std::fabs(p.z()) - half.z();
+      
+          // Case 1: point is OUTSIDE the box on at least one axis → clamp to boundary.
+          if (dx > 0.f || dy > 0.f || dz > 0.f) {
+              vec3 q(clampf(p.x(), -half.x(), half.x()),
+                     clampf(p.y(), -half.y(), half.y()),
+                     clampf(p.z(), -half.z(), half.z()));
+              return center + q;
+          }
+      
+          // Case 2: point is INSIDE → push to nearest face (minimum distance to a face).
+          const float sx = half.x() - std::fabs(p.x()); // distance to ±X face
+          const float sy = half.y() - std::fabs(p.y()); // distance to ±Y face
+          const float sz = half.z() - std::fabs(p.z()); // distance to ±Z face
+      
+          vec3 q = p; // start from the inside point
+      
+          if (sx <= sy && sx <= sz) {
+              q.setX((p.x() >= 0.f ? half.x() : -half.x()));
+          } else if (sy <= sx && sy <= sz) {
+              q.setY((p.y() >= 0.f ? half.y() : -half.y()));
+          } else {
+              q.setZ((p.z() >= 0.f ? half.z() : -half.z()));
+          }
+      
+          return center + q;
+      }
+
+      static vec3 derive_impact_velocity(const json& event, const vec3& surface_point,const vec3& origin) {
+          vec3 velocity(0, 0, 0);
+          // if (event["data"].contains("velocity")) {
+          //     velocity = vec3(event["data"]["velocity"][0].get<float>(),
+          //                     event["data"]["velocity"][1].get<float>(),
+          //                     event["data"]["velocity"][2].get<float>());
+          // }
+      
+          // If velocity magnitude is missing, derive from direction to surface
+          if (velocity.length() <= 0) {
+              velocity = (surface_point - origin);
+          }
+      
+          return velocity;
+      }
+
+      // Unit normal at hit_point on target's surface (AABB with optional fillet radii in mm).
+     static vec3 estimate_surface_normal(json& target, const vec3& hit_point) {
+          const auto& base = target["geometry"]["base"];
+          const vec3 center(base.contains("pos") ? vec3(base["pos"][0], base["pos"][1], base["pos"][2])
+                                             : vec3(target["pos"][0], target["pos"][1], target["pos"][2]));
+     
+          const vec3 half(base["dims"][0].get<float>() * 0.5f,
+                         base["dims"][1].get<float>() * 0.5f,
+                         base["dims"][2].get<float>() * 0.5f);
+     
+          // Use a single effective fillet radius for blending (min of per-axis), clamped.
+          float rx = base["round"][0].get<float>();
+          float ry = base["round"][1].get<float>();
+          float rz = base["round"][2].get<float>();
+          float r  = std::max(0.0f, std::min(rx, std::min(ry, rz)));
+     
+          // Core box after removing the fillet band.
+          vec3 core(std::max(0.0f, half.x() - r),
+                    std::max(0.0f, half.y() - r),
+                    std::max(0.0f, half.z() - r));
+     
+          // Local point
+          vec3 p = hit_point - center;
+     
+          // q = how far beyond the core box along each axis (<=0 means inside the core slab on that axis)
+          vec3 ap(std::fabs(p.x()), std::fabs(p.y()), std::fabs(p.z()));
+          vec3 q(ap.x() - core.x(), ap.y() - core.y(), ap.z() - core.z());
+     
+          // If outside the core (in the fillet/edge region), normal points from nearest core point to p.
+          vec3 d(std::max(q.x(), 0.0f), std::max(q.y(), 0.0f), std::max(q.z(), 0.0f));
+          if (d.x() > 0.0f || d.y() > 0.0f || d.z() > 0.0f) {
+          vec3 n(d.x() * (p.x() >= 0.0f ? 1.0f : -1.0f),
+                    d.y() * (p.y() >= 0.0f ? 1.0f : -1.0f),
+                    d.z() * (p.z() >= 0.0f ? 1.0f : -1.0f));
+          float L = n.length();
+          if (L > 1e-6f) return (n / L);
+          }
+     
+          // Otherwise we're on a face of the core box: pick the nearest face (largest q, i.e., least negative).
+          float ax = q.x(), ay = q.y(), az = q.z(); // all <= 0 here
+          if (ax >= ay && ax >= az) return vec3(p.x() >= 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f);
+          if (ay >= ax && ay >= az) return vec3(0.0f, p.y() >= 0.0f ? 1.0f : -1.0f, 0.0f);
+          return vec3(0.0f, 0.0f, p.z() >= 0.0f ? 1.0f : -1.0f);
+     }
+     
+     // --- helpers ---
+     static inline vec3 world_to_local(const json& target, const vec3& p_world) {
+          return vec3(
+          p_world.x() - target["pos"][0].get<float>(),
+          p_world.y() - target["pos"][1].get<float>(),
+          p_world.z() - target["pos"][2].get<float>());
+     }
+     static inline int argmax3(float ax, float ay, float az) {
+          return (ax >= ay && ax >= az) ? 0 : (ay >= ax && ay >= az) ? 1 : 2;
+     }
+     static constexpr float kEpsDepth = 0.05f; // mm; don't create "zero" holes
+
+     static void resolve_impact(json& event, list<json*>& /*path*/) {
+          // Decode objects
+          auto target_path = decode_path(event["target"]);
+          auto from_path   = decode_path(event["from"]);
+          json* from   = target_path.empty() ? nullptr : from_path.last();
+          json* target = target_path.empty() ? nullptr : target_path.last();
+          if (!target || !from) { print("Impact: bad paths"); return; }
+      
+          // Positions & velocity
+          vec3 origin_pos(event["data"]["pos"][0], event["data"]["pos"][1], event["data"]["pos"][2]);
+          vec3 hit_point = nearest_surface_point(target, origin_pos);                   // world
+          vec3 velocity  = derive_impact_velocity(event, hit_point, origin_pos);        // mm per action (dt)
+      
+          // Mass → kg
+          float mass_g = event["data"].value("mass", -1.0f);
+          if (mass_g <= 0.f) mass_g = calculate_masss_g(thing_at(event["from"]));
+          print("Mass calculated at ", mass_g, "g");
+          const float m_kg = mass_g * 0.001f;
+      
+          // Time step (defaults to 2 s per action)
+          const float dt = event["data"].value("dt", 2.0f);
+      
+          // Velocity → m/s (velocity is mm per action)
+          const float v_mm_per_action = velocity.length();
+          const float v_mps = (v_mm_per_action / dt) * 0.001f;   // (mm / action) / s → m/s
+      
+          // Simple force model: a ≈ v / dt (reach v in dt)
+          const float a_mps2 = v_mps / dt;
+          float force_n = m_kg * a_mps2;
+      
+          print("Calculated momentum force: ", force_n, "n");
+          force_n += event["data"].value("force", 0.0f); // add user-specified force if any
+          print("Final force: ", force_n, "n");
+      
+          // Surface/pressure gating uses the NORMAL component only
+          float impact_area_mm2 = event["data"].value("profile", 0.0f);
+          if (impact_area_mm2 <= 0.f) { print("Impact: no area/profile"); return; }
+      
+          vec3 n = estimate_surface_normal(*target, hit_point); // unit
+          float v_len = v_mm_per_action;
+          float v_n   = (v_len > 1e-6f) ? std::max(0.0f, -velocity.dot(n)) : 0.0f; // mm/action toward surface
+          float F_n   = (v_len > 1e-6f && v_n > 1e-6f) ? force_n * (v_n / v_len) : force_n;
+          float P_mpa = F_n / impact_area_mm2; // N/mm^2 == MPa
+      
+          if (!target->contains("mat")) { print("Impact: target has no material"); return; }
+          json& mat = (*target)["mat"];
+          float yield_mpa = mat.value("yield", 0.0f);
+          float break_mpa = mat.value("break", std::max(1.0f, yield_mpa + 1e-3f));
+          float thickness_mm = calculate_thickness_mm((*target)["geometry"]);
+      
+          print("Before impact, ", (*target)["name"], " had ", calculate_openings(*target).length(), " openings");
+      
+          // Route by normal pressure
+          if (P_mpa > break_mpa) {
+              // SHARP/penetrative
+              apply_penetration(target, from, target_path, from_path, event,
+                                F_n, impact_area_mm2, /*excess*/ 0.0f,
+                                thickness_mm, hit_point, velocity);
+          } else if (P_mpa > yield_mpa) {
+              // Plastic deformation only (no hole)
+              float deformation_ratio = (P_mpa - yield_mpa) / yield_mpa;
+              apply_deformation(target, deformation_ratio);
+          } else {
+              print("Impact resisted");
+          }
+      
+          print("After impact, ", (*target)["name"], " has ", calculate_openings(*target).length(), " openings");
+      }
+      static void apply_penetration(
+          json* target, json* from, list<json*>& target_path, list<json*>& from_path, json& event,
+          float force_n_normal, float area_mm2, float /*excess_mpa*/,
+          float thickness_mm, const vec3& hit_point_world, const vec3& velocity_mm_per_action)
+      {
+          if (!target || area_mm2 <= 0.f || thickness_mm <= 0.f) return;
+      
+          json& mat = (*target)["mat"];
+          const float yield_mpa = mat.value("yield", 0.0f);
+          const float break_mpa = std::max(mat.value("break", yield_mpa + 1e-3f), yield_mpa + 1e-3f);
+      
+          // Normal & tangential components (velocity is mm per action)
+          vec3 n = estimate_surface_normal(*target, hit_point_world);      // unit
+          const float v_len = velocity_mm_per_action.length();
+          const float v_n   = (v_len > 1e-6f) ? std::max(0.0f, -velocity_mm_per_action.dot(n)) : 0.0f; // mm/action
+          vec3  v_t_v       = velocity_mm_per_action - n * velocity_mm_per_action.dot(n);
+      
+          // Normal pressure (N/mm^2 == MPa)
+          const float P_mpa = force_n_normal / area_mm2;
+      
+          // ---- Depth (pressure gate → kinematic cap) ----
+          float depth_pressure_mm = 0.0f;
+          if (P_mpa > yield_mpa) {
+              const float frac_pressure = std::clamp((P_mpa - yield_mpa) / (break_mpa - yield_mpa), 0.0f, 1.0f);
+              depth_pressure_mm = thickness_mm * frac_pressure;
+          }
+      
+          // kinematic cap: cannot advance deeper than ~ v_n * dt/2; dt baked into velocity units → 0.5 * v_n
+          const float depth_cap_mm = 0.5f * v_n;
+          float penetration_depth  = std::min(depth_pressure_mm, depth_cap_mm);
+      
+          // Actual fraction through this layer (use this for spending & propagation)
+          const float frac_actual = (thickness_mm > 1e-6f) ? (penetration_depth / thickness_mm) : 0.0f;
+      
+          // ---- Opening footprint (don’t balloon) ----
+          float opening_w = std::sqrt(area_mm2);
+          float opening_h = opening_w;
+          float elong     = std::min(opening_w * 0.5f, 0.1f * v_t_v.length());   // conservative
+          opening_w      += elong;
+      
+          // ---- Local placement & axis selection (use FINAL depth) ----
+          vec3 hit_local = world_to_local(*target, hit_point_world);
+          vec3 n_local   = n; // if you add rotations, rotate n into local
+          vec3 diff_center_local = hit_local - n_local * (penetration_depth * 0.5f);
+      
+          auto axis = argmax3(std::fabs(n_local.x()), std::fabs(n_local.y()), std::fabs(n_local.z()));
+          float dx = opening_w, dy = opening_h, dz = penetration_depth;
+          if (axis == 0) { dx = penetration_depth; dy = opening_w;  dz = opening_h; }
+          if (axis == 1) { dy = penetration_depth; dx = opening_w;  dz = opening_h; }
+          if (axis == 2) { dz = penetration_depth; dx = opening_w;  dy = opening_h; }
+      
+          print("Penetration: ", penetration_depth, " mm (", 100.f * frac_actual,
+                "%) at local [", diff_center_local.x(), ", ", diff_center_local.y(), ", ", diff_center_local.z(), "]");
+      
+          // ---- Spend & carry remaining force (scale by actual depth traversed) ----
+          const float carry_coeff  = event["data"].value("penetration_loss", 0.6f);
+          const float spent_force  = break_mpa * area_mm2 * frac_actual * carry_coeff;   // N
+          float       remaining_force = std::max(0.0f, force_n_normal - spent_force);
+          print("Force remaining: ", remaining_force);
+      
+          // ---- Create geometry/fragment only if real depth ----
+          if (penetration_depth > kEpsDepth) {
+              if (!target->contains("geometry")) { print("ERROR: Target has no geometry"); return; }
+              if (!(*target)["geometry"].contains("diffs")) { (*target)["geometry"]["diffs"] = json::array(); }
+      
+              json damage_diff = {
+                  {"dims",  json::array({dx, dy, dz})},
+                  {"round", json::array({0.8f, 0.8f, 0.5f})},
+                  {"pos",   json::array({diff_center_local.x(), diff_center_local.y(), diff_center_local.z()})}
+              };
+              (*target)["geometry"]["diffs"].push_back(damage_diff);
+      
+              json fragment = create_fragment(*target, damage_diff);
+              if (!from->contains("contents")) { (*from)["contents"] = json::array(); }
+              (*from)["contents"].push_back(fragment);
+              print("Fragment (", fragment["name"], ") attached to ", (*from)["name"]);
+          }
+      
+          // ---- Propagate only if actually through layer (frac_actual), not pressure frac ----
+          if (frac_actual >= 0.99f && target->contains("covers") && !(*target)["covers"].empty()) {
+              if (remaining_force > 10.f) {
+                  std::string next_layer = (*target)["covers"][0].get<std::string>();
+                  print("FULLY PENETRATED through ", mat["name"]);
+                  print("Reached ", next_layer, " with ", remaining_force, " N");
+                  std::string new_path = path_to_string(target_path) + ">p>" + next_layer;
+                  event["target"]        = new_path;
+                  event["data"]["force"] = remaining_force;          // pass remaining, not original
+                  resolve_impact(event, target_path);
+              }
+          }
+      }
+          
+      static void apply_fracture(json* target, float force_n, float area_mm2, 
+                                float excess_mpa, json* event = nullptr) {
+          json& mat = (*target)["mat"];
+          float density = mat["density"].get<float>();
+          float thickness_mm = calculate_thickness_mm((*target)["geometry"]);
+          float brittleness = mat.value("brittle", 0.5);
+          
+          // More excess pressure = more fragments
+          int fragment_count = 1 + (int)(brittleness * (excess_mpa / 10.0));
+          fragment_count = std::min(fragment_count, 10);  // Cap at 10 fragments
+          
+          print("Fracturing into ", fragment_count, " fragments");
+          
+          // Create opening
+          float opening_size = sqrt(area_mm2);
+          
+          json opening = {
+              {"pos", json::array({0, 0, 0})},
+              {"geometry", {
+                  {"dims", json::array({opening_size, opening_size, thickness_mm})},
+                  {"round", json::array({0.8, 0.8, 0.5})}
+              }},
+              {"contents", json::array()}
+          };
+          
+          if(!target->contains("openings")) {
+              print("451 ", (*target)["name"], " is missing an openings field");
+              (*target)["openings"] = json::array();
+          }
+          
+          // Create multiple fragments
+          json base_fragment = create_fragment(*target, opening);
+          float total_mass = base_fragment["mass"].get<float>();
+          
+          for(int i = 0; i < fragment_count; i++) {
+              json fragment = base_fragment;
+              
+              // Divide mass among fragments (with variation)
+              float mass_fraction = (1.0 / fragment_count) * (0.8 + (rand() % 40) / 100.0);
+              fragment["mass"] = total_mass * mass_fraction;
+              
+              // Scale geometry proportionally
+              float scale = std::pow(mass_fraction, 1.0/3.0);  // Cube root for volume
+              fragment["geometry"]["dims"][0] = 
+                  fragment["geometry"]["dims"][0].get<float>() * scale;
+              fragment["geometry"]["dims"][1] = 
+                  fragment["geometry"]["dims"][1].get<float>() * scale;
+              
+              // Attach to impactor or opening
+              if(event && event->contains("from")) {
+                  json& impactor = thing_at((*event)["from"]);
+                  if(!impactor.contains("contents")) {
+                      impactor["contents"] = json::array();
+                  }
+                  impactor["contents"].push_back(fragment);
+              } else {
+                  opening["contents"].push_back(fragment);
+              }
+          }
+          
+          (*target)["openings"].push_back(opening);
+          
+          float opening_area = calculate_opening_area_mm2(opening["geometry"]);
+          print("Created opening: ", opening_area, "mm² with ", fragment_count, " fragments");
+      }
+
+      static void apply_deformation(json* target, float deformation_ratio) {
+          print("TO DO: add defformation");
+          // json& mat = (*target)["mat"];
+          
+          // // Check elasticity
+          // float elasticity = mat.value("elastic", 0.0);
+          // float permanent_deformation = deformation_ratio * (1.0 - elasticity);
+          
+          // if(!target->contains("deformation")) {
+          //      (*target)["deformation"] = 0.0;
+          // }
+          
+          // float current_deform = (*target)["deformation"].get<float>();
+          // (*target)["deformation"] = current_deform + permanent_deformation;
+          
+          // print("Deformed", mat["name"], "by", permanent_deformation * 100, "%");
+          
+          // if((*target)["deformation"].get<float>() > 0.5) {
+          //      (*target)["impaired"] = true;
+          //      print(mat["name"], "is severely deformed");
+          // }
+     }
+
+     static json create_fragment(json& source_part, json& opening) {
+          // Copy opening geometry - this is the shape of what was removed
+          
+          // Get source properties
+          json source_material = source_part["mat"];
+          
+          // Calculate fragment mass
+          json frag_geom_wrapper = {
+              {"base", opening},
+              {"diffs", json::array()}
+          };
+
+          std::string name = source_part["name"].get<std::string>();
+          if(name.find("_fragment")==std::string::npos) {
+               name.append("_fragment");
+          }
+          // Create fragment
+          json fragment = {
+              {"name", name },
+              {"geometry", frag_geom_wrapper},
+              {"mat", source_material},
+          };
+          
+          return fragment;
+      }
+      
+      static void check_impactor_damage(json& event, float reflected_pressure_mpa) {
+          json& impactor_mat = event["data"]["impactor_mat"];
+          float impactor_yield = impactor_mat["yield"];
+          
+          if(reflected_pressure_mpa > impactor_yield) {
+              print("Impactor damaged by !?!");
+              
+              // Queue damage event to impactor
+              std::string origin = event["data"]["origin_path"];
+              // ... send damage back to origin
+          }
+      }
+
 };
+
+json make_event(const std::string& action,const std::string& target,const std::string& from, json data = json::object()) {
+     json& origin =  thing_at(from);
+     if(origin.contains("pos"))
+          data["pos"] = origin["pos"];
+     if(origin.contains("geometry")) {
+          auto base = origin["geometry"]["base"];
+          int use = 0;
+    if (data.contains("use_profile"))
+     int use = data.value("use_profile", 1); // 0 = sharpest, 1 = middle, 2 = bluntest (default middle)
+        if (base.contains("profiles") && base["profiles"].is_array()) {
+            std::vector<float> vals;
+            for (auto& p : base["profiles"])
+                vals.push_back(p.get<float>());
+            if (vals.size() == 3) {
+                std::vector<float> sorted = vals;
+                std::sort(sorted.begin(), sorted.end());
+    
+                float chosen = 0.f;
+                switch (use) {
+                    case 0: chosen = sorted[0]; break; // smallest area = sharpest
+                    case 1: chosen = sorted[1]; break; // middle area
+                    case 2: chosen = sorted[2]; break; // largest area = bluntest
+                    default: chosen = sorted[1]; break;
+                }
+    
+                data["profile"] = chosen;
+            } else {
+                print("WARNING: expected 3 profiles (x,y,z), got ", vals.size());
+            }
+        } else {
+            print("WARNING: no profiles array in geometry");
+        }
+     }
+     return {
+         {"name", action+" event"},
+         {"cur", 0},
+         {"max", 0},
+         {"active", true},
+         {"active_for", 0},
+         {"active_dur", 1},
+         {"on_active", json::array({action})},
+         {"from", from},
+         {"target", target},
+         {"data",data}
+     };
+ }
  
 list<json*> decode_path(const std::string& path) {
      list<json*> result;
@@ -287,6 +958,13 @@ list<json*> decode_path(const std::string& path) {
      return result;
  }
 
+json& thing_at(const std::string& path){
+    return (*decode_path(path).last());
+}
+
+ void add_event(const std::string& action,const std::string& target,const std::string& from,json data = json::object()) {
+     thing_at(target)["events"].push_back(make_event(action,target,from,data));
+ }
 
 int main() {
 using namespace helper;
@@ -309,9 +987,29 @@ using namespace helper;
      //      apple->ref("parts")["skin"]["parts"]["flesh"],
      //      apple->ref("parts")["skin"]  // parent context
      // );
+     add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
+     {
+     {"use_profile",0},
+     {"mass",190},
+     {"force",500}
+     }
+     );
+
+     //thing_at("mira>p>head>p>face>p>mouth>p>teeth")["mat"] = mat_tooth_enamel;
+     //thing_at("apple>p>skin")["mat"] = mat_apple_skin;
  
      apple->update();
      mira->update();
+
+     // add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
+     // {
+     // {"force",100},
+     // {"area",50},
+     // }
+     // );
+
+     // apple->update();
+     // mira->update();
 
      //ROOT->sync_with_file();
      print("Done");

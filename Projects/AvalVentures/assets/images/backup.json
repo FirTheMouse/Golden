@@ -2,7 +2,7 @@
     "mira": {
         "injuries": {},
         "name": "mira",
-        "pos": [100, 50, 20],
+        "pos": [100, 50, 300],
         "species": "Squirrel",
         "stats": {
             "SIZE": 1,
@@ -33,7 +33,7 @@
                                 "parts": {
                                     "teeth": {
                                         "name": "teeth",
-                                        "pos": [100, 5000, 300],
+                                        "pos": [100, 50, 300],
                                         "geometry": {
                                             "base": {
                                             "dims": [8.9, 7.0, 22.5],
