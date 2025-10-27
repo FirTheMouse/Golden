@@ -37,6 +37,16 @@ inline list<std::string> split_str(const std::string& s,char delimiter)
     return toReturn;
 }
 
+inline std::string wrap_str(const std::string& s,const std::string& c) {
+    return c+s+c;
+}
+
+inline std::string trim_str(const std::string& s,const char c) {
+    if (s.size() >= 2 && s.front() == c && s.back() == c)
+        return s.substr(1, s.size() - 2);
+    return s; 
+}
+
 class Data{
 public:
     Data() {}

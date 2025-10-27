@@ -3,7 +3,7 @@
         "injuries": {},
         "name": "mira",
         "pos": [100, 50, 300],
-        "species": "Squirrel",
+        "species": "Human",
         "stats": {
             "SIZE": 1,
             "MOV": 10,
@@ -139,9 +139,214 @@
                     "back": {
                         "dirt_cur": 0,
                         "dirt_max": 10
+                    },
+                    "shoulder_right": {
+                        "name": "shoulder_right",
+                        "pos": [150, 50, 250],
+                        "linked": ["torso"],
+                        "covers": [],
+                        "hit_mod": -1,
+                        "NA": 6,
+                        "geometry": {
+                            "base": {
+                                "dims": [120, 100, 80],
+                                "round": [0.8, 0.8, 0.7],
+                                "profiles": [12000.0, 9600.0, 8000.0]
+                            },
+                            "diffs": []
+                        },
+                        "mat": {
+                            "name": "skin",
+                            "yield": 2.5,
+                            "break": 15.0,
+                            "hardness": 2.5,
+                            "density": 1.09,
+                            "toughness": 8.0
+                        },
+                        "parts": {
+                            "arm_right": {
+                                "name": "arm_right",
+                                "pos": [150, 50, 200],
+                                "linked": ["shoulder_right"],
+                                "covers": [],
+                                "hit_mod": -2,
+                                "NA": 8,
+                                "parts": {
+                                    "upper_arm": {
+                                        "name": "upper_arm",
+                                        "pos": [150, 50, 180],
+                                        "linked": ["shoulder_right", "elbow"],
+                                        "covers": ["muscle", "bone"],
+                                        "geometry": {
+                                            "base": {
+                                                "dims": [80, 80, 300],
+                                                "round": [0.95, 0.95, 0.3],
+                                                "profiles": [5026.5, 5026.5, 6400.0]
+                                            },
+                                            "diffs": []
+                                        },
+                                        "mat": {
+                                            "name": "skin",
+                                            "yield": 2.5,
+                                            "break": 15.0,
+                                            "hardness": 2.5,
+                                            "density": 1.09,
+                                            "toughness": 8.0
+                                        },
+                                        "parts": {
+                                            "muscle": {
+                                                "name": "muscle",
+                                                "linked": [],
+                                                "covers": ["bone"],
+                                                "geometry": {
+                                                    "base": {
+                                                        "dims": [70, 70, 290],
+                                                        "round": [0.95, 0.95, 0.3]
+                                                    },
+                                                    "diffs": []
+                                                },
+                                                "mat": {
+                                                    "name": "muscle",
+                                                    "yield": 0.5,
+                                                    "break": 2.0,
+                                                    "hardness": 1.5,
+                                                    "density": 1.06,
+                                                    "toughness": 4.0
+                                                }
+                                            },
+                                            "bone": {
+                                                "name": "humerus",
+                                                "linked": [],
+                                                "covers": [],
+                                                "geometry": {
+                                                    "base": {
+                                                        "dims": [25, 25, 280],
+                                                        "round": [1.0, 1.0, 0.2]
+                                                    },
+                                                    "diffs": [
+                                                        {
+                                                            "dims": [15, 15, 270],
+                                                            "round": [1.0, 1.0, 0.2],
+                                                            "pos": [0, 0, 0]
+                                                        }
+                                                    ]
+                                                },
+                                                "mat": {
+                                                    "name": "bone",
+                                                    "yield": 100,
+                                                    "break": 150,
+                                                    "hardness": 4.0,
+                                                    "density": 1.85,
+                                                    "vickers": 50,
+                                                    "toughness": 3.0
+                                                }
+                                            }
+                                        },
+                                        "events": []
+                                    },
+                                    "lower_arm": {
+                                        "name": "lower_arm",
+                                        "pos": [150, 50, 30],
+                                        "linked": ["elbow", "wrist"],
+                                        "covers": ["muscle", "bone"],
+                                        "geometry": {
+                                            "base": {
+                                                "dims": [65, 65, 250],
+                                                "round": [0.95, 0.95, 0.3],
+                                                "profiles": [3318.3, 3318.3, 4225.0]
+                                            },
+                                            "diffs": []
+                                        },
+                                        "mat": {
+                                            "name": "skin",
+                                            "yield": 2.5,
+                                            "break": 15.0,
+                                            "hardness": 2.5,
+                                            "density": 1.09,
+                                            "toughness": 8.0
+                                        },
+                                        "parts": {
+                                            "muscle": {
+                                                "name": "muscle",
+                                                "linked": [],
+                                                "covers": ["bone"],
+                                                "geometry": {
+                                                    "base": {
+                                                        "dims": [55, 55, 240],
+                                                        "round": [0.95, 0.95, 0.3]
+                                                    },
+                                                    "diffs": []
+                                                },
+                                                "mat": {
+                                                    "name": "muscle",
+                                                    "yield": 0.5,
+                                                    "break": 2.0,
+                                                    "hardness": 1.5,
+                                                    "density": 1.06,
+                                                    "toughness": 4.0
+                                                }
+                                            },
+                                            "bone": {
+                                                "name": "radius_ulna",
+                                                "linked": [],
+                                                "covers": [],
+                                                "geometry": {
+                                                    "base": {
+                                                        "dims": [20, 20, 230],
+                                                        "round": [1.0, 1.0, 0.2]
+                                                    },
+                                                    "diffs": [
+                                                        {
+                                                            "dims": [12, 12, 220],
+                                                            "round": [1.0, 1.0, 0.2],
+                                                            "pos": [0, 0, 0]
+                                                        }
+                                                    ]
+                                                },
+                                                "mat": {
+                                                    "name": "bone",
+                                                    "yield": 100,
+                                                    "break": 150,
+                                                    "hardness": 4.0,
+                                                    "density": 1.85,
+                                                    "vickers": 50,
+                                                    "toughness": 3.0
+                                                }
+                                            }
+                                        },
+                                        "events": []
+                                    },
+                                    "hand": {
+                                        "name": "hand",
+                                        "pos": [150, 50, -130],
+                                        "linked": [],
+                                        "covers": [],
+                                        "geometry": {
+                                            "base": {
+                                                "dims": [90, 60, 100],
+                                                "round": [0.7, 0.7, 0.5],
+                                                "profiles": [5400.0, 9000.0, 6000.0]
+                                            },
+                                            "diffs": []
+                                        },
+                                        "mat": {
+                                            "name": "skin",
+                                            "yield": 2.5,
+                                            "break": 15.0,
+                                            "hardness": 2.5,
+                                            "density": 1.09,
+                                            "toughness": 8.0
+                                        },
+                                        "contents": [],
+                                        "events": []
+                                    }
+                                },
+                                "events": []
+                            }
+                        }
                     }
                 }
-            }
+        }
         }
     },
     "apple": {

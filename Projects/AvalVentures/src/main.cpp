@@ -95,14 +95,13 @@ public:
      }
 
      void update() {
-          if(info->contains("parts")) {
-               for(auto& [part_name, part_data] : (*info)["parts"].items()) {
-                    list<json*> path;
-                    path << info;
-                    update_part(part_name, part_data,path);
-               }
+          list<json*> empty_path;
+          if(info->contains("name")) {
+              update_part((*info)["name"].get<std::string>(), *info, empty_path);
+          } else {
+              update_part("root", *info, empty_path);
           }
-     }
+      }
 
      static void update_part(const std::string name, json& part, list<json*> path) {
           list<json*> new_path; new_path << path << &part;
@@ -216,7 +215,48 @@ public:
           else if(action == "impact") {
                execute_impact(event, path);
           }
+          else if(action == "grab") {
+               execute_grab(event, path);
+          }
       }
+      
+      static void execute_grab(json& event, list<json*>& path) {
+          auto target_path = decode_path(event["target"]);
+          auto from_path   = decode_path(event["from"]);
+          
+          json* target = target_path.empty() ? nullptr : target_path.last();
+          json* hand   = from_path.empty() ? nullptr : from_path.last();
+          
+          if (!target || !hand) {
+               print("Grab failed: invalid paths");
+               return;
+          }
+          
+          // Find and remove target from its current parent
+          // (Need to find parent in target_path)
+          if (target_path.length() >= 2) {
+               json* parent = target_path[target_path.length() - 2];
+               
+               // Remove from parent's contents or parts
+               if (parent->contains("contents")) {
+                    auto& contents = (*parent)["contents"];
+                    for (int i = 0; i < contents.size(); i++) {
+                         if (contents[i]["name"] == (*target)["name"]) {
+                              contents.erase(contents.begin() + i);
+                              break;
+                         }
+                    }
+               }
+          }
+          
+          // Add to hand
+          if (!hand->contains("contents")) {
+               (*hand)["contents"] = json::array();
+          }
+          (*hand)["contents"].push_back(*target);
+          
+          print("Grabbed ", (*target)["name"], " with ", (*hand)["name"]);
+     }
 
      static void execute_impact(json& event, list<json*>& path) {
      //     json& d = event["data"];
@@ -500,11 +540,11 @@ public:
 
       static vec3 derive_impact_velocity(const json& event, const vec3& surface_point,const vec3& origin) {
           vec3 velocity(0, 0, 0);
-          // if (event["data"].contains("velocity")) {
-          //     velocity = vec3(event["data"]["velocity"][0].get<float>(),
-          //                     event["data"]["velocity"][1].get<float>(),
-          //                     event["data"]["velocity"][2].get<float>());
-          // }
+          if (event["data"].contains("velocity")) {
+              velocity = vec3(event["data"]["velocity"][0].get<float>(),
+                              event["data"]["velocity"][1].get<float>(),
+                              event["data"]["velocity"][2].get<float>());
+          }
       
           // If velocity magnitude is missing, derive from direction to surface
           if (velocity.length() <= 0) {
@@ -595,11 +635,9 @@ public:
       
           // Velocity → m/s (velocity is mm per action)
           const float v_mm_per_action = velocity.length();
-          const float v_mps = (v_mm_per_action / dt) * 0.001f;   // (mm / action) / s → m/s
-      
-          // Simple force model: a ≈ v / dt (reach v in dt)
-          const float a_mps2 = v_mps / dt;
-          float force_n = m_kg * a_mps2;
+          const float v_mps = (v_mm_per_action * 0.001f);  // mm to m (velocity is already per-action)
+          const float momentum_kg_m_s = m_kg * v_mps;
+          float force_n = momentum_kg_m_s / dt;
       
           print("Calculated momentum force: ", force_n, "n");
           force_n += event["data"].value("force", 0.0f); // add user-specified force if any
@@ -650,41 +688,81 @@ public:
           const float yield_mpa = mat.value("yield", 0.0f);
           const float break_mpa = std::max(mat.value("break", yield_mpa + 1e-3f), yield_mpa + 1e-3f);
       
-          // Normal & tangential components (velocity is mm per action)
-          vec3 n = estimate_surface_normal(*target, hit_point_world);      // unit
+          // Normal & tangential components
+          vec3 n = estimate_surface_normal(*target, hit_point_world); // unit (world==local if axis aligned)
           const float v_len = velocity_mm_per_action.length();
-          const float v_n   = (v_len > 1e-6f) ? std::max(0.0f, -velocity_mm_per_action.dot(n)) : 0.0f; // mm/action
+          const float v_n   = (v_len > 1e-6f) ? std::max(0.0f, -velocity_mm_per_action.dot(n)) : 0.0f;
           vec3  v_t_v       = velocity_mm_per_action - n * velocity_mm_per_action.dot(n);
       
-          // Normal pressure (N/mm^2 == MPa)
-          const float P_mpa = force_n_normal / area_mm2;
+          // ---- FORCE BUDGET APPROACH ----
       
-          // ---- Depth (pressure gate → kinematic cap) ----
-          float depth_pressure_mm = 0.0f;
-          if (P_mpa > yield_mpa) {
-              const float frac_pressure = std::clamp((P_mpa - yield_mpa) / (break_mpa - yield_mpa), 0.0f, 1.0f);
-              depth_pressure_mm = thickness_mm * frac_pressure;
+          // Step 1: Check if we can even start penetrating (yield gate)
+          const float P_mpa = force_n_normal / area_mm2;
+          if (P_mpa <= yield_mpa) {
+              print("Impact resisted - pressure ", P_mpa, " MPa below yield ", yield_mpa, " MPa");
+              return;
           }
       
-          // kinematic cap: cannot advance deeper than ~ v_n * dt/2; dt baked into velocity units → 0.5 * v_n
-          const float depth_cap_mm = 0.5f * v_n;
-          float penetration_depth  = std::min(depth_pressure_mm, depth_cap_mm);
+         // Step 2: Force above YIELD drives penetration
+          const float F_yield = yield_mpa * area_mm2; 
+          const float fracture_force_available = std::max(0.0f, force_n_normal - F_yield);
+          print("Fracture force available: ", fracture_force_available, " N"); 
+
+          // Step 3: But resistance per mm is based on BREAK strength
+          const float resistance_per_mm = break_mpa * area_mm2;   
+          const float toughness = mat.value("toughness", 1.0f);
+          const float effective_resistance = resistance_per_mm * toughness;
+          print("Resistance: ", effective_resistance, " N/mm");
       
-          // Actual fraction through this layer (use this for spending & propagation)
+          // Step 4: Depth from force budget
+          float depth_from_force = (effective_resistance > 1e-6f)
+                                 ? (fracture_force_available / effective_resistance)
+                                 : 0.0f;
+          print("Depth from force budget: ", depth_from_force, " mm");
+      
+          // Step 5: Kinematic cap (can’t advance faster than motion)
+          const float depth_kinematic = 0.5f * v_n; // conservative: ~v_n*dt/2 with dt baked in
+      
+          // Step 6: Geometric cap (impactor reach)
+          float depth_geometric = thickness_mm;     // default: full layer
+          if (from && (*from).contains("geometry")) {
+              auto& from_base = (*from)["geometry"]["base"];
+              float impactor_length = std::max({
+                  from_base["dims"][0].get<float>(),
+                  from_base["dims"][1].get<float>(),
+                  from_base["dims"][2].get<float>()
+              });
+              depth_geometric = std::min(impactor_length, thickness_mm);
+          }
+      
+          // Step 7: Take the minimum of all constraints
+          float penetration_depth = std::min({
+              depth_from_force,
+              depth_kinematic,
+              depth_geometric,
+              thickness_mm
+          });
+          print("Depth caps - kinematic: ", depth_kinematic,
+                ", geometric: ", depth_geometric,
+                ", thickness: ", thickness_mm);
+          print("Final penetration depth: ", penetration_depth, " mm");
+      
+          // Step 8: Fraction through this layer
           const float frac_actual = (thickness_mm > 1e-6f) ? (penetration_depth / thickness_mm) : 0.0f;
+          const bool  full = (frac_actual >= 0.95f);
       
-          // ---- Opening footprint (don’t balloon) ----
+          // ---- Opening footprint ----
           float opening_w = std::sqrt(area_mm2);
           float opening_h = opening_w;
-          float elong     = std::min(opening_w * 0.5f, 0.1f * v_t_v.length());   // conservative
+          float elong     = std::min(opening_w * 0.5f, 0.1f * v_t_v.length()); // mm
           opening_w      += elong;
       
-          // ---- Local placement & axis selection (use FINAL depth) ----
+          // ---- Local placement & axis selection ----
           vec3 hit_local = world_to_local(*target, hit_point_world);
-          vec3 n_local   = n; // if you add rotations, rotate n into local
+          vec3 n_local   = n; // if you add rotations, rotate n into local here
           vec3 diff_center_local = hit_local - n_local * (penetration_depth * 0.5f);
       
-          auto axis = argmax3(std::fabs(n_local.x()), std::fabs(n_local.y()), std::fabs(n_local.z()));
+          int axis = argmax3(std::fabs(n_local.x()), std::fabs(n_local.y()), std::fabs(n_local.z()));
           float dx = opening_w, dy = opening_h, dz = penetration_depth;
           if (axis == 0) { dx = penetration_depth; dy = opening_w;  dz = opening_h; }
           if (axis == 1) { dy = penetration_depth; dx = opening_w;  dz = opening_h; }
@@ -693,13 +771,12 @@ public:
           print("Penetration: ", penetration_depth, " mm (", 100.f * frac_actual,
                 "%) at local [", diff_center_local.x(), ", ", diff_center_local.y(), ", ", diff_center_local.z(), "]");
       
-          // ---- Spend & carry remaining force (scale by actual depth traversed) ----
-          const float carry_coeff  = event["data"].value("penetration_loss", 0.6f);
-          const float spent_force  = break_mpa * area_mm2 * frac_actual * carry_coeff;   // N
-          float       remaining_force = std::max(0.0f, force_n_normal - spent_force);
-          print("Force remaining: ", remaining_force);
+          // ---- Force spending based on ACTUAL depth achieved ----
+          const float force_spent = penetration_depth * effective_resistance; // N
+          float remaining_force   = std::max(0.0f, force_n_normal - force_spent);
+          print("Force spent: ", force_spent, " N, remaining: ", remaining_force, " N");
       
-          // ---- Create geometry/fragment only if real depth ----
+          // ---- Create geometry; fragment only if (near) full through ----
           if (penetration_depth > kEpsDepth) {
               if (!target->contains("geometry")) { print("ERROR: Target has no geometry"); return; }
               if (!(*target)["geometry"].contains("diffs")) { (*target)["geometry"]["diffs"] = json::array(); }
@@ -711,23 +788,30 @@ public:
               };
               (*target)["geometry"]["diffs"].push_back(damage_diff);
       
-              json fragment = create_fragment(*target, damage_diff);
-              if (!from->contains("contents")) { (*from)["contents"] = json::array(); }
-              (*from)["contents"].push_back(fragment);
-              print("Fragment (", fragment["name"], ") attached to ", (*from)["name"]);
+              if (full) {
+                  json fragment = create_fragment(*target, damage_diff);
+                  if (!from->contains("contents")) { (*from)["contents"] = json::array(); }
+                  (*from)["contents"].push_back(fragment);
+                  print("Fragment (", fragment["name"], ") attached to ", (*from)["name"]);
+              } else {
+                  print("Partial cut: no fragment (skin still attached).");
+              }
           }
       
-          // ---- Propagate only if actually through layer (frac_actual), not pressure frac ----
-          if (frac_actual >= 0.99f && target->contains("covers") && !(*target)["covers"].empty()) {
-              if (remaining_force > 10.f) {
-                  std::string next_layer = (*target)["covers"][0].get<std::string>();
-                  print("FULLY PENETRATED through ", mat["name"]);
-                  print("Reached ", next_layer, " with ", remaining_force, " N");
-                  std::string new_path = path_to_string(target_path) + ">p>" + next_layer;
-                  event["target"]        = new_path;
-                  event["data"]["force"] = remaining_force;          // pass remaining, not original
-                  resolve_impact(event, target_path);
-              }
+          // ---- Propagate only if fully penetrated AND force remains ----
+          if (full && remaining_force > 10.f &&
+              target->contains("covers") && !(*target)["covers"].empty()) {
+      
+              std::string next_layer = (*target)["covers"][0].get<std::string>();
+              print("FULLY PENETRATED through ", mat["name"]);
+              print("Propagating to ", next_layer, " with ", remaining_force, " N");
+      
+              std::string new_path = path_to_string(target_path) + ">p>" + next_layer;
+              event["target"]        = new_path;
+              event["data"]["force"] = remaining_force; // pass remaining
+              resolve_impact(event, target_path);
+          } else if (!full) {
+              print("Stopped inside ", mat["name"], " at ", 100.f * frac_actual, "% depth");
           }
       }
           
@@ -966,53 +1050,365 @@ json& thing_at(const std::string& path){
      thing_at(target)["events"].push_back(make_event(action,target,from,data));
  }
 
+class m_table : public Object {
+     public:
+     int width = 0;
+     list<std::string> headers;
+     list<std::string> contents;
+
+     m_table() {}
+     m_table(const std::string& table) {
+          list<std::string> sections = split_str(table,'|');
+          for (auto& s : sections) {
+               while (!s.empty() && s.front() == ' ')
+                   s.erase(s.begin());
+               while (!s.empty() && s.back() == ' ')
+                   s.pop_back();
+           }
+          int spacer_start = -1;
+          for(int i = 0;i<sections.length();i++) {
+               if(sections[i]=="-----") {
+                    width++;
+                    if(spacer_start==-1) 
+                         spacer_start = i;
+               } else if (spacer_start!=-1) {
+                    for(int w = 0; w<width;w++) {
+                         sections.removeAt(spacer_start);
+                    }
+                    break;
+               }
+          }
+          for(int i = 0; i<sections.length();i++) {
+               if(i<width) {
+                    headers << sections[i];
+               } else {
+                    contents << sections[i];
+               }
+          }
+     }
+     m_table(int _width) {
+          width = _width;
+     }
+
+     std::string to_string() {
+          std::string result = "";
+          for(auto h : headers) result.append(h+"|");
+          for(int i=0;i<contents.length();i++) {
+               if(i%width==0) result.append("\n");
+               result.append(contents[i]+"|");
+          }
+          return result;
+     }
+
+     std::string to_markdown() {
+          std::string result = "";
+          for(auto h : headers) result.append(" "+h+" |");
+          result.append("\n");
+          for(int w = 0;w<width;w++) result.append(" ------ |");
+          for(int i=0;i<contents.length();i++) {
+               if(i%width==0) result.append("\n");
+               result.append(" "+contents[i]+" |");
+          }
+          return result;
+     }
+
+     std::string to_terminal() {
+          std::string result = "\"";
+          for(auto h : headers) result.append(" "+h+" |");
+          result.append("\"\n\"");
+          for(int w = 0;w<width;w++) result.append(" ------ |");
+          for(int i=0;i<contents.length();i++) {
+               if(i%width==0) result.append("\"\n\"");
+               result.append(" "+contents[i]+" |");
+          }
+          result.append("\"");
+          return result;
+     }
+
+     void print_out() {
+          print("headers: "); 
+          for(auto h : headers) {
+               print("   "+h);
+          }
+          print("Contents: "); 
+          for(int i=0;i<contents.length();i++) {
+               if(i%width==0) print("BREAK");
+               print("  "+headers[i%width]+": "+contents[i]);
+          }
+     }
+     
+     list<std::string> column_contents(int column) {
+          list<std::string> result;
+          for(int i=0;i<contents.length();i++) { 
+               if(i%width==column) result << contents[i];
+          }
+          return result;
+     }
+
+     list<std::string> row_contents(int row) {
+          list<std::string> result;
+          int on_row = -1;
+          for(int i=0;i<contents.length();i++) { 
+               if(i%width==0) on_row++;
+               if(on_row==row) {
+                    result << contents[i];
+               } else if (on_row > row) break;
+          }
+          return result;
+     }
+
+     size_t find_and_infer(const std::string& section,const std::string& thing,int infer,int depth = 0) {
+          int at = section.find(thing);
+          if(at!=std::string::npos) {
+               return at;
+          } else {
+               std::string s = section;
+               std::string t = thing;
+               switch(infer) {
+                    case 1: 
+                    {
+                         std::transform(s.begin(), s.end(), s.begin(),[](unsigned char c){ return std::tolower(c);});
+                         std::transform(t.begin(), t.end(), t.begin(),[](unsigned char c){ return std::tolower(c);});
+                         return find_and_infer(s,t,2);
+                    }
+                    break;
+
+                    case 2:
+                    {
+                         if(depth==0) return find_and_infer(s,split_str(t,'/')[0],2,1);
+                         else if(depth==1) return find_and_infer(s,split_str(t,'(')[0],3,0);
+                    }
+                    break;
+
+                    default: //Also 0 or No inference
+                         return std::string::npos;
+               }
+          }
+          return std::string::npos;
+     }
+     int column_from_string(const std::string& in_column,int infer = 1) {
+          for(int i=0;i<width;i++) {
+               if(find_and_infer(headers[i],in_column,infer)!=std::string::npos) {
+                    return i;
+               }
+          }
+          return -1;
+     }
+     int row_from_string(const std::string& in_row,int infer = 1) {
+          for(int i=0;i<contents.length()/width;i++) {
+               if(find_and_infer(contents[i*width],in_row,infer)!=std::string::npos) {
+                    return i;
+               }
+          }
+          return -1;
+     }
+     //Inference level controls how much auto-correct the procceser will add
+     //0 = None at all, read as written
+     //
+     void process_command(const std::string& command,int infer = 1) {
+          list<std::string> sections = split_str(command,'|');
+          for(auto s : sections) {
+               list<std::string> parts = split_str(s,';');
+               if(parts.length()<3) {
+                    print("Malformed command section: ",s);
+               } else {
+                    execute_command(parts[0],parts[1],parts[2],parts.length()>3?parts[3]:"");
+               }
+          }
+     }     
+     void execute_command(const std::string& in_column, const std::string& in_row,const std::string& thing, 
+                          std::string arg,int infer = 1) {
+          int column_num = column_from_string(in_column,infer);
+          int row_num = row_from_string(in_row,infer);
+          
+          if(column_num == -1) {
+               print("No such column found: ",in_column);
+               return;
+          }
+          if (row_num == -1) {
+               print("No such row found: ",in_row);
+               return;
+          }
+          execute_command(column_num,row_num,thing,arg);
+     }
+     const std::string command_args[5] = {"ADD_IN","REMOVE_IN","MOVE_TO","INC","NEW_DESC"};
+     bool is_command_arg(const std::string& arg) {
+          for(int i = 0;i<4;i++) {
+               if(arg==command_args[i]) return true;
+          }
+          return false;
+     }
+     void execute_command(int in_column, int in_row,const std::string& thing, std::string arg, int infer = 1) { 
+          int id = (in_row*width)+in_column;
+          auto sub_arg = split_str(arg,':');
+          std::string s = contents[id];
+          if(sub_arg.length()==0) {
+               contents[id].append(thing);
+          } else {
+               arg = sub_arg[0];
+               std::string loc = "";
+               if(sub_arg.length()>1) loc = sub_arg[1];
+               if(arg=="ADD_IN") {
+                    int at = find_and_infer(s,loc,infer);
+                    if(at==std::string::npos) {
+                         print("Unable to find arg loc: ",loc," In:\n",s);
+                    } else
+                         contents[id].insert(at+loc.length(),thing);
+               }
+               else if (arg=="REMOVE_IN") {
+                    int at = find_and_infer(s,thing,infer);
+                    if(at==std::string::npos) {
+                         print("Unable to find thing to remove: ",thing," In:\n",s);
+                    } else {
+                         int next = s.find('*',at);
+                         contents[id].erase(at,at-next);
+                    }
+               } else if (arg=="MOVE_TO") {
+                    int at = find_and_infer(s,thing,infer);
+                    std::string full_thing = "";
+                    if(at==std::string::npos) {
+                         print("Unable to find thing for move: ",thing," In:\n",s);
+                    } else {
+                         int next = s.find('*',at);
+                         full_thing = s.substr(at,at-next);
+                    }
+                    std::string new_cmd = "";
+                    for(int a = 1;a<sub_arg.length();a++) {
+                         if(a==3) {
+                              new_cmd.append(full_thing+";"+"ADD_IN:");
+                         }
+                         new_cmd.append(sub_arg[a]);
+                         if(a<sub_arg.length()-1) {
+                              new_cmd.append(";");
+                         } 
+                    }
+                    execute_command(in_column,in_row,thing,"REMOVE_IN:");
+                    process_command(new_cmd);
+               } else if(arg=="INC") {
+                    int at = find_and_infer(s,thing,infer);
+                    if(at==std::string::npos) {
+                         print("Unable to find thing for inc: ",thing," In:\n",s);
+                    } else {
+                         int ex = s.find('x',at)+1;
+                         if(ex!=std::string::npos) {
+                              int num = ex+1;
+                              while(std::isdigit(s.at(num))) {
+                                   num++;
+                              } 
+                              std::string ns = s.substr(ex,num-ex);
+                              contents[id].erase(ex,ns.length());
+                              int inc_num = std::stoi(ns);
+                              int inc_val = 1;
+                              if(loc!="") inc_val = std::stoi(loc);
+                              contents[id].insert(ex,std::to_string(inc_num+inc_val));
+                         }
+                    }
+               } else if(arg=="NEW_DESC") {
+                    int at = find_and_infer(s,thing,infer);
+                    if(at==std::string::npos) {
+                         print("Unable to find thing for new_desc: ",thing," In:\n",s);
+                    } else {
+                         int ex = s.find('-',at)+1;
+                         if(ex!=std::string::npos) {
+                              int next = s.find('*',at);
+                              contents[id].erase(ex,(ex-next)-4);
+                              contents[id].insert(ex,loc);
+                         }
+                    }
+               }
+               else {
+                    print("Unrecognized arg: ",arg);
+               }
+          }
+     }
+};
+
+
+
+
 int main() {
 using namespace helper;
 
-     Window window = Window(1280, 768, "AvalVentures 0.1");
+     Window window = Window(1280, 768, "AvalVentures 0.4");
      g_ptr<Scene> scene = make<Scene>(window,2);
      Data d = make_config(scene,K);
      //load_gui(scene, "AvalVentures", "gui.fab");
-     ROOT = make<v_object>("char1.json");
-     auto mira = ROOT->get_chunk("mira");
-     auto apple = ROOT->get_chunk("apple");
-     auto floor = ROOT->get_chunk("floor");
 
-     // json c = apple->ref("parts")["core"];
-     // apple->ref("contents").push_back(c);
-
-     //floor->ref("parts")["0,0"]["contents"].push_back((*apple->info));
-
-     // float flesh_accessible = calculate_accessibility(
-     //      apple->ref("parts")["skin"]["parts"]["flesh"],
-     //      apple->ref("parts")["skin"]  // parent context
-     // );
-     add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
-     {
-     {"use_profile",0},
-     {"mass",190},
-     {"force",500}
-     }
-     );
-
-     //thing_at("mira>p>head>p>face>p>mouth>p>teeth")["mat"] = mat_tooth_enamel;
-     //thing_at("apple>p>skin")["mat"] = mat_apple_skin;
+     auto table = make<m_table>(
  
-     apple->update();
-     mira->update();
+"Region | Gear | Trivial | Minor | Normal | Major | Severe | Permanent |"
+"----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |"
+"**Head** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+"**Face / Neck** | None | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+"**Chest / Belly** | None | **Injuries** **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** |"
+"**Back / Shoulders** | Satchel | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+"**Arms / Paws** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+"**Legs / Feet** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+"**Tail / Base** | None | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          );
 
-     // add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
+     
+
+
+
+     // table->process_command("trivial;face; *Dirt bit* x1 - a bit of dirt ;ADD_IN:**Filth**");
+     // table->process_command("trivial;face; *Dirt bit* ;REMOVE_IN:**Filth**");
+     //table->process_command("trivial;face; *Dirt bit* ;MOVE_TO:minor:face:**Filth**");
+     //table->process_command("trivial;head; *Dirt bit* ;INC:4");
+     //table->process_command("trivial;head; *Dirt bit* ;NEW_DESC: whatever you want! ");
+     // table->process_command("trivial;head; *Scratch* ;INC:-2|trivial;head; *Scratch* ;NEW_DESC: A bit worse now |trivial;head; *Scratch* ;MOVE_TO:minor:head:**Injuries**");
+     print(table->to_markdown());
+     std::string cmd = "echo \"" + table->to_markdown() + "\" | pbcopy";
+     std::system(cmd.c_str());
+     //print(table->to_markdown());
+
+     // ROOT = make<v_object>("char1.json");
+     // auto mira = ROOT->get_chunk("mira");
+     // auto apple = ROOT->get_chunk("apple");
+     // auto floor = ROOT->get_chunk("floor");
+
+     // randi(0,0);
+
+     // // json c = apple->ref("parts")["core"];
+     // // apple->ref("contents").push_back(c);
+
+     // //floor->ref("parts")["0,0"]["contents"].push_back((*apple->info));
+
+     // // float flesh_accessible = calculate_accessibility(
+     // //      apple->ref("parts")["skin"]["parts"]["flesh"],
+     // //      apple->ref("parts")["skin"]  // parent context
+     // // );
+     // // add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
+     // // {
+     // // {"use_profile",0},
+     // // {"mass",190},
+     // // {"force",800}
+     // // }
+     // // );
+
+     // add_event("grab","apple","mira>p>torso>p>shoulder_right>p>arm_right>p>hand",
      // {
-     // {"force",100},
-     // {"area",50},
      // }
      // );
 
+     // //thing_at("mira>p>head>p>face>p>mouth>p>teeth")["mat"] = mat_tooth_enamel;
+     // //thing_at("apple>p>skin")["mat"] = mat_apple_skin;
+ 
      // apple->update();
      // mira->update();
 
-     //ROOT->sync_with_file();
-     print("Done");
+     // // add_event("impact","apple>p>skin","mira>p>head>p>face>p>mouth>p>teeth",
+     // // {
+     // // {"force",100},
+     // // {"area",50},
+     // // }
+     // // );
+
+     // // apple->update();
+     // // mira->update();
+
+     // //ROOT->sync_with_file();
+     // print("Done");
 
      start::run(window,d,[&]{
      });
