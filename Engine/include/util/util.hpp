@@ -37,6 +37,7 @@ inline list<std::string> split_str(const std::string& s,char delimiter)
     return toReturn;
 }
 
+
 inline std::string wrap_str(const std::string& s,const std::string& c) {
     return c+s+c;
 }
@@ -222,6 +223,7 @@ public:
     ivec2 operator*(const ivec2& rh) const { return ivec2(impl * rh.impl); }
     ivec2 operator*(int scalar) const      { return ivec2(impl * scalar); }
     ivec2 operator/(int scalar) const      { return ivec2(impl / scalar); }
+    ivec2 operator/(const ivec2& rh) const { return ivec2(impl / rh.impl); }
 
     bool operator==(const ivec2& rh) const { return impl == rh.impl; }
     bool operator!=(const ivec2& rh) const { return impl != rh.impl; }
@@ -229,6 +231,11 @@ public:
     // int dot(const ivec2& rh) const { return glm::dot(impl, rh.impl); }
     // int length2() const { return glm::dot(impl, impl); } // squared length
     float length() const { return glm::length(glm::vec2(impl)); } // promote to float
+    ivec2 normalized() const {
+        int len = length();
+        if (len == 0.0f) return ivec2(0,0);
+        return ivec2(impl / len);
+    }
 
     std::string to_string() const { return std::to_string(x()) + "," + std::to_string(y()); }
 

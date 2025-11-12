@@ -8,6 +8,7 @@ using json = nlohmann::ordered_json;
 // density: g/cm³
 // thick: mm (for sheet materials)
 // elastic: dimensionless ratio (0-1)
+const std::string IROOT = "../Projects/AvalVentures/assets/images/";
 
 // BIOLOGICAL - HARD
 json mat_tooth_enamel = {

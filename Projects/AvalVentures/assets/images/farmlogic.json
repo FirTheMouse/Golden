@@ -1,0 +1,153 @@
+{
+    "chars": {
+        "R": {
+            "id": "R",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "none",
+            "with": "none",
+            "strength": 4
+        },
+        "L": {
+            "id": "L",
+            "pos": [
+                12,
+                9
+            ],
+            "state": "eat_impacted_9",
+            "with": "C01",
+            "strength": -7
+        },
+        "G": {
+            "id": "G",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "dead",
+            "with": "none",
+            "strength": 0
+        },
+        "A": {
+            "id": "A",
+            "pos": [
+                11,
+                10
+            ],
+            "state": "dead",
+            "with": "none",
+            "strength": -5
+        },
+        "Y": {
+            "id": "Y",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "none",
+            "with": "none",
+            "strength": 4
+        },
+        "K": {
+            "id": "K",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "none",
+            "with": "none",
+            "strength": 4
+        },
+        "C": {
+            "id": "C",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "none",
+            "with": "none",
+            "strength": 4
+        },
+        "D": {
+            "id": "D",
+            "pos": [
+                12,
+                9
+            ],
+            "state": "eat_impacted_8",
+            "with": "C01",
+            "strength": -6
+        },
+        "M": {
+            "id": "M",
+            "pos": [
+                12,
+                8
+            ],
+            "state": "dead",
+            "with": "none",
+            "strength": -4
+        }
+    },
+    "animals": {
+        "C00": {
+            "id": "C00",
+            "pos": [
+                0,
+                1
+            ],
+            "state": "none"
+        },
+        "C01": {
+            "id": "C01",
+            "pos": [
+                12,
+                9
+            ],
+            "state": "none"
+        },
+        "C02": {
+            "id": "C02",
+            "pos": [
+                18,
+                17
+            ],
+            "state": "none"
+        },
+        "C03": {
+            "id": "C03",
+            "pos": [
+                11,
+                7
+            ],
+            "state": "none"
+        },
+        "C04": {
+            "id": "C04",
+            "pos": [
+                10,
+                10
+            ],
+            "state": "none"
+        },
+        "C05": {
+            "id": "C05",
+            "pos": [
+                10,
+                9
+            ],
+            "state": "none"
+        },
+        "C06": {
+            "id": "C06",
+            "pos": [
+                12,
+                7
+            ],
+            "state": "none"
+        }
+    },
+    "flipbook": []
+}

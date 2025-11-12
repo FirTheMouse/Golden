@@ -115,6 +115,7 @@ public:
 
 
 
+//This is horribly unoptimized, by passing strings everywhere
 template<typename K,typename V>
 class map
 {
