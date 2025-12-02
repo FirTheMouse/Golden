@@ -8,17 +8,23 @@
             ],
             "state": "none",
             "with": "none",
-            "strength": 4
+            "strength": 4,
+            "energy": 14.0,
+            "action": "nothing",
+            "injury": 0.0
         },
         "L": {
             "id": "L",
             "pos": [
-                12,
-                9
+                10,
+                10
             ],
-            "state": "eat_impacted_9",
-            "with": "C01",
-            "strength": -7
+            "state": "none",
+            "with": "none",
+            "strength": -7,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "G": {
             "id": "G",
@@ -26,19 +32,25 @@
                 10,
                 10
             ],
-            "state": "dead",
+            "state": "none",
             "with": "none",
-            "strength": 0
+            "strength": 0,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "A": {
             "id": "A",
             "pos": [
-                11,
+                10,
                 10
             ],
-            "state": "dead",
+            "state": "none",
             "with": "none",
-            "strength": -5
+            "strength": -5,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "Y": {
             "id": "Y",
@@ -48,7 +60,10 @@
             ],
             "state": "none",
             "with": "none",
-            "strength": 4
+            "strength": 4,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "K": {
             "id": "K",
@@ -58,7 +73,10 @@
             ],
             "state": "none",
             "with": "none",
-            "strength": 4
+            "strength": 4,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C": {
             "id": "C",
@@ -68,85 +86,122 @@
             ],
             "state": "none",
             "with": "none",
-            "strength": 4
+            "strength": 4,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "D": {
             "id": "D",
             "pos": [
-                12,
-                9
+                10,
+                10
             ],
-            "state": "eat_impacted_8",
-            "with": "C01",
-            "strength": -6
+            "state": "none",
+            "with": "none",
+            "strength": -6,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "M": {
             "id": "M",
             "pos": [
-                12,
-                8
+                10,
+                10
             ],
-            "state": "dead",
+            "state": "none",
             "with": "none",
-            "strength": -4
+            "strength": -4,
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         }
     },
     "animals": {
         "C00": {
             "id": "C00",
             "pos": [
-                0,
-                1
+                12,
+                5
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C01": {
             "id": "C01",
             "pos": [
-                12,
-                9
+                18,
+                19
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C02": {
             "id": "C02",
             "pos": [
-                18,
-                17
+                7,
+                3
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C03": {
             "id": "C03",
             "pos": [
-                11,
+                6,
                 7
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C04": {
             "id": "C04",
             "pos": [
-                10,
-                10
+                8,
+                19
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C05": {
             "id": "C05",
             "pos": [
-                10,
-                9
+                4,
+                0
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         },
         "C06": {
             "id": "C06",
             "pos": [
-                12,
-                7
+                10,
+                16
             ],
-            "state": "none"
+            "state": "none",
+            "with": "none",
+            "energy": 4,
+            "action": "nothing",
+            "injury": 0.0
         }
     },
     "flipbook": []

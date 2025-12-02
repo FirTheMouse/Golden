@@ -158,7 +158,7 @@ int main()
     std::string p1 = "AvalVentures";
     std::string p2 = "GUIDE";
     std::string p3 = "GDSL";
-    std::string p4 = "Testing";
+    std::string p4 = "Learning";
     
     bool runningProject = false;
 

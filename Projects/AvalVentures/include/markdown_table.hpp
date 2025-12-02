@@ -17,9 +17,9 @@ namespace Golden {
         m_table(const std::string& table) {
             list<std::string> sections = split_str(table,'|');
             for (auto& s : sections) {
-                while (!s.empty() && s.back() == ' ')
-                    s.erase(s.begin());
                 while (!s.empty() && s.front() == ' ')
+                    s.erase(s.begin());
+                while (!s.empty() && s.back() == ' ')
                     s.pop_back();
             }
             int spacer_start = -1;
@@ -488,7 +488,7 @@ namespace Golden {
                 if(std::isalpha(t.at(next-1)&&t.at(next+1)!='*'&&t.at(next+1)!=' ')) {
                     t.insert(next+1," ");
                 }
-                next = t.find(next+1,'*');
+                next = t.find('*',next+1);
             }
         }
     }
@@ -499,11 +499,11 @@ namespace Golden {
         "Region | Gear | Trivial | Minor | Normal | Major | Severe | Permanent |"
         "----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |"
         "**Head** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
-        "**Face / Neck** | None | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
-        "**Chest / Belly** | None | **Injuries** **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** |"
-        "**Back / Shoulders** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
-        "**Arms / Paws** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
-        "**Legs / Feet** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
-        "**Tail / Base** | None | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |";
+        "**Face** | None | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+        "**Chest** | None | **Injuries** **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** |"
+        "**Back** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+        "**Forelimbs** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+        "**Hindlimbs** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+        "**Other** | None | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |";
 
 }

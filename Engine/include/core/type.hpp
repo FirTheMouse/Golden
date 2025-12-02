@@ -514,7 +514,7 @@ public:
         }
     }
 
-    inline bool has(int index) {return array.length()<index;}
+    inline bool has(int index) {return index<array.length();}
     inline bool has(const std::string& label) {return notes.hasKey(label);}
     bool validate(list<std::string> check) {
         for(auto c : check) {

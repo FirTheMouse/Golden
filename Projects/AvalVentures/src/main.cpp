@@ -15,12 +15,31 @@ using namespace helper;
      scene->camera.toOrbit();
      //load_gui(scene, "AvalVentures", "gui.fab");
 
-     test();
-     
+     //test();
+     auto table = make<m_table>( 
+          "Region | Gear | Trivial | Minor | Normal | Major | Severe | Permanent |"
+          "----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |"
+          "**Head** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          "**Face** | None | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          "**Chest** | None | **Injuries** **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** |"
+          "**Back** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          "**Forelimbs** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          "**Hindlimbs** | None | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+          "**Other** | None | **Injuries**  **Filth** | **Injuries**  **Filth**  | **Injuries**  **Filth**  | **Injuries**  **Filth** | **Injuries**  **Filth** | **Injuries**  **Filth** |"
+     );
 
 
-     // std::string cmd = "echo \"" + table->to_markdown() + "\" | pbcopy";
-     // std::system(cmd.c_str());
+     int game = 0;
+
+     if(game==0) {
+          table->process_command("trivial;face; *Dirt bit* x1 - a bit of dirt ;ADD_IN:**Filth**");
+
+     }
+
+     std::string cmd = "echo \"" + table->to_markdown() + "\" | pbcopy";
+     std::system(cmd.c_str());
+
+     table->print_out();
 
      // ROOT = make<v_object>("char1.json");
      // auto mira = ROOT->get_chunk("mira");
