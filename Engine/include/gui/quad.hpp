@@ -107,10 +107,12 @@ public:
     float getRotation();
     vec2 getCenter();
     vec2 getScale();
+    CollisionLayer& getLayer();
 
     Quad& startAnim(float duration);
     Quad& setPhysicsState(P_State p);
     Quad& setLinearVelocity(const vec2& v);
+    Quad& impulseL(const vec2& v);
     Quad& setPosition(const vec2& pos);
     Quad& setCenter(const vec2& pos);
 
@@ -126,6 +128,66 @@ public:
             move(t_vec);
             t_vec = vec2(0,0);
         }
+    }
+
+    vec2 getLeft() { return vec2(getCenter().x()-getScale().x()/2,getCenter().y()); }
+    vec2 getRight() { return vec2(getCenter().x()+getScale().x()/2,getCenter().y()); }
+    vec2 getTop() { return vec2(getCenter().x(),getCenter().y()-getScale().y()/2); }
+    vec2 getBottom() { return vec2(getCenter().x(),getCenter().y()+getScale().y()/2); }
+
+    bool intersects(g_ptr<Quad> other, vec2& outMTV) {
+        vec2 cA = getCenter();
+        vec2 cB = other->getCenter();
+    
+        vec2 hA = getScale() * 0.5f;
+        vec2 hB = other->getScale() * 0.5f;
+    
+        float dx = cB.x() - cA.x();
+        float px = (hA.x() + hB.x()) - std::fabs(dx);
+        if (px <= 0.0f) return false;
+    
+        float dy = cB.y() - cA.y();
+        float py = (hA.y() + hB.y()) - std::fabs(dy);
+        if (py <= 0.0f) return false;
+
+        if (px < py)
+            outMTV = vec2((dx < 0.0f ? -px : px), 0.0f);
+        else
+            outMTV = vec2(0.0f, (dy < 0.0f ? -py : py));
+
+        return true;
+    }
+    bool intersects(g_ptr<Quad> other)
+    {
+        vec2 mtv;
+        return intersects(other,mtv);
+    }
+    bool intersects(g_ptr<Quad> other, vec2& normal, float& degree) {
+        vec2 mtv;
+        if (!intersects(other, mtv)) return false;
+        degree = (mtv.x() != 0.0f) ? std::fabs(mtv.x()) : std::fabs(mtv.y());
+        if (mtv.x() != 0.0f) 
+            normal = vec2((mtv.x() < 0.0f) ? -1.0f : 1.0f, 0.0f);
+        else 
+            normal = vec2(0.0f, (mtv.y() < 0.0f) ? -1.0f : 1.0f);
+    
+        return true;
+    }
+ 
+    bool intersectsSimple(g_ptr<Quad> other) {
+        return 
+        ( (getTop().y()<=other->getBottom().y()) && (getBottom().y()>=other->getTop().y()) && 
+          (getLeft().x()<=other->getRight().x()) && (getRight().x()>=other->getLeft().x())  
+        );
+    }
+    float distance(g_ptr<Quad> other) {
+        return std::abs((getCenter() - other->getCenter()).length());
+    }
+    vec2 direction(vec2 point) {
+        return point-getCenter();
+    }
+    vec2 direction(g_ptr<Quad> other) {
+        return direction(other->getCenter());
     }
 
     void setColor(glm::vec4 _color) {color = _color;}

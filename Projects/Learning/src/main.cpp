@@ -193,18 +193,103 @@ public:
 };
 
 
+//More hash-table-y idea
+class mpht {
+public:
+    int num_buckets;
+    int num_keys;
+    list<uint32_t> seeds;
+    list<uint64_t> fingerprints;
+    list<uint32_t> values;
+
+    mpht() {}
+
+    mpht(list<entry<std::string,uint32_t>> entries) {        
+        build(entries);
+    }
+
+    void build(list<entry<std::string,uint32_t>> entries) {
+        //Try to ensure there aren't duplicates, I won't add duplicate culling here because preformance, but I could
+        num_keys = entries.length();
+        num_buckets = std::max(1,num_keys/10);
+        list<list<std::string>> buckets;
+        seeds = list<uint32_t>(num_buckets);
+        values = list<uint32_t>(num_keys);
+        fingerprints = list<uint64_t>(num_keys);
+        for(int i=0;i<num_buckets;i++) {
+            list<std::string> lst;
+            buckets << lst;
+        }
+        for(auto e : entries) {
+            int idx = hash1(e.key)%num_buckets;
+            buckets[idx] << e.key;
+        }
+        for(int b=0;b<num_buckets;b++) {
+            for(int i=0;i<1000;i++) {
+                bool valid = true;
+                list<uint32_t> used_indexes;
+                for(auto key : buckets[b]) {
+                    uint32_t index = seedHash(key,i)%num_keys;
+                    if(used_indexes.has(index)) {
+                        valid = false;
+                        break;
+                    } else {
+                        used_indexes << index;
+                    }
+                }
+                if(valid) {
+                    seeds[b] = i;
+                    break;
+                }
+            }
+        } 
+        for(auto e : entries) {
+            uint32_t seed = seeds[hash1(e.key) % num_buckets];
+            uint32_t index = seedHash(e.key, seed) % num_keys;
+            fingerprints[index] = fingerprint(e.key);
+            values[index] = e.value;
+        }
+    }
+
+    uint32_t seedHash(const std::string& key, int seed) {
+        return hash2(key) + seed * hash3(key);
+    }
+
+    uint64_t fingerprint(const std::string& key) {
+        return ((uint64_t)hash1(key) << 32) | hash2(key);
+    }
+
+    uint32_t getIndex(const std::string& key) {
+        uint32_t first = hash1(key);
+        uint32_t second = hash2(key);
+        uint32_t seed = seeds[first % num_buckets];
+        uint32_t index = (second + seed * hash3(key)) % num_keys;
+        uint64_t fp = ((uint64_t)first << 32) | second;
+        
+        if(fingerprints[index] == fp) {
+            //print("INDEX: ",index," KEY: ",key," VALUE: ",values[index]);
+            return values[index]; 
+        }
+        //print("EXRETURN, INDEX: ",index," KEY: ",key);
+        return -1;
+    }
+};
+
 int main() {
     int bloom_size = 200000;
     bloom_filter bloom(bloom_size); 
-    mphs ht;
+    mphs hs;
 
     int a_len = 20000;
 
+    //int duplicates = 0;
     list<std::string> added;
     for(int i=0;i<a_len;i++) {
         std::string name = sgen::randsgen(sgen::RANDOM);
+        //if(added.has(name)) duplicates++;
         added << name;
     }
+    //print("DUPLICATE NAMES: ",duplicates);
 
     list<std::string> n_added;
     for(int i = 0; i < a_len; i++) {
@@ -226,11 +311,38 @@ int main() {
 
     r.add_process("mphs_build",[&](int i){
         if(i==0)
-            ht.build(added);
+            hs.build(added);
     },1);
     r.add_process("mphs_query",[&](int i){
-        ht.contains(added[i]);
+        hs.contains(added[i]);
     },1);
+
+    map<std::string,uint32_t> nm;
+    r.add_process("map_add",[&](int i){
+            nm.put(added[i],i);
+    },2);
+    r.add_process("map_get",[&](int i){
+        volatile uint32_t a = nm.get(added[i]);
+    },2);
+
+    mpht ht;
+    list<entry<std::string,uint32_t>> entries;
+    for(int i = 0;i<added.length();i++) {
+        entries << entry<std::string,uint32_t>{added[i],i};
+    }
+
+    // ht.build(entries);
+    // print(ht.getIndex(added[50]));
+
+    r.add_process("mpht_build",[&](int i){
+        if(i==0)
+            ht.build(entries);
+    },3);
+    int fails = 0;
+    r.add_process("mpht_retrive",[&](int i){
+       volatile uint32_t a = ht.getIndex(added[i]);
+       if(a == -1) fails++;
+    },3);
 
     r.run(100,false,a_len);
 
@@ -238,15 +350,18 @@ int main() {
     int mpht_fn = 0;
     for(auto key : added) {
         if(!bloom.query(key)) bloom_fn++;
-        if(!ht.contains(key)) mpht_fn++;
+        if(!hs.contains(key)) mpht_fn++;
     }
     
     int bloom_fp = 0;
     int mpht_fp = 0;
     for(auto key : n_added) {
         if(bloom.query(key)) bloom_fp++;
-        if(ht.contains(key)) mpht_fp++;
+        if(hs.contains(key)) mpht_fp++;
     }
+
+    print("MPHT Failed queries: ",fails," / ",a_len,
+        " (", (fails / (double)a_len) * 100, "%)");
     
     print("=== FALSE NEGATIVES ===");
     print("Bloom: ", bloom_fn, " / ", a_len);
@@ -262,82 +377,3 @@ int main() {
 
 
 
-
-//More hash-table-y idea
-// class mpht {
-// public:
-//     int num_buckets;
-//     int num_keys;
-//     list<uint32_t> seeds;
-//     list<uint64_t> fingerprints;
-//     list<uint32_t> values;
-
-//     mpht() {}
-
-//     mpht(list<entry<std::string,uint32_t>> entries) {        
-//         build(entries);
-//     }
-
-//     void build(list<entry<std::string,uint32_t>> entries) {
-//         //Try to ensure there aren't duplicates, I won't add duplicate culling here because preformance, but I could
-//         num_keys = entries.length();
-//         num_buckets = std::max(1,num_keys/10);
-//         list<list<std::string>> buckets;
-//         seeds = list<uint32_t>(num_buckets);
-//         fingerprints = list<uint64_t>(num_keys);
-//         for(int i=0;i<num_buckets;i++) {
-//             list<std::string> lst;
-//             buckets << lst;
-//         }
-//         for(auto e : entries) {
-//             int idx = hash1(e.key)%num_buckets;
-//             buckets[idx] << e.key;
-//         }
-//         for(int b=0;b<num_buckets;b++) {
-//             for(int i=0;i<1000;i++) {
-//                 bool valid = true;
-//                 list<uint32_t> used_indexes;
-//                 for(auto key : buckets[b]) {
-//                     uint32_t index = seedHash(key,i)%num_keys;
-//                     if(used_indexes.has(index)) {
-//                         valid = false;
-//                         break;
-//                     } else {
-//                         used_indexes << index;
-//                     }
-//                 }
-//                 if(valid) {
-//                     seeds[b] = i;
-//                     break;
-//                 }
-//             }
-//         }
-//         for(auto e : entries) {
-//             uint32_t seed = seeds[hash1(e.key) % num_buckets];
-//             uint32_t index = seedHash(e.key, seed) % num_keys;
-//             fingerprints[index] = fingerprint(e.key);
-//             values[index] = e.value;
-//         }
-//     }
-
-//     uint32_t seedHash(const std::string& key, int seed) {
-//         return hash2(key) + seed * hash3(key);
-//     }
-
-//     uint64_t fingerprint(const std::string& key) {
-//         return ((uint64_t)hash1(key) << 32) | hash2(key);
-//     }
-
-//     uint32_t getIndex(const std::string& key) {
-//         uint32_t first = hash1(key);
-//         uint32_t second = hash2(key);
-//         uint32_t seed = seeds[first % num_buckets];
-//         uint32_t index = (second + seed * hash3(key)) % num_keys;
-//         uint64_t fp = ((uint64_t)first << 32) | second;
-        
-//         if(fingerprints[index] == fp) {
-//             return values[index]; 
-//         }
-//         return -1;
-//     }
-// };

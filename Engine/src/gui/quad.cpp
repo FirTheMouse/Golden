@@ -230,7 +230,8 @@ namespace Golden
         #if QUAD_DEBUG
         debug_trace_path = "Quad::getPosition::185";
         #endif
-        return vec2(glm::vec2(getTransform()[3]));
+        position = vec2(glm::vec3(getTransform()[3]));
+        return position;
     }
 
     float Quad::getRotation() {
@@ -258,6 +259,7 @@ namespace Golden
     
         // Position is translation component
         glm::vec3 pos = glm::vec3(mat[3]);
+        position = vec2(pos);
     
         // Center is position + half-extents
         vec2 center(pos + halfExtents);
@@ -273,6 +275,15 @@ namespace Golden
         }
     }
 
+    CollisionLayer& Quad::getLayer() {
+        if(checkGet(11)) {
+            return GET(scene->quadCollisonLayers,ID);
+        } else {
+            static CollisionLayer dummy;
+            return dummy;
+        }
+    }
+
     Quad& Quad::setPhysicsState(P_State p)
     {
         getPhysicsState() = p;
@@ -281,6 +292,13 @@ namespace Golden
 
     Quad& Quad::setLinearVelocity(const vec2& v) {
         getVelocity().position = vec3(v,0);
+        return *this;
+    }
+
+    Quad& Quad::impulseL(const vec2& v) {
+        if (checkGet(9)) {
+            getVelocity().position += vec3(v,0);
+        }
         return *this;
     }
 
@@ -478,7 +496,8 @@ namespace Golden
     }
 
     Quad& Quad::move(const vec2& pos,bool update) {
-        setPosition(position+pos);
+        position+=pos;
+        if(update) updateTransform();
         return *this;
     }
 

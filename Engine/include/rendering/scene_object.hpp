@@ -56,7 +56,7 @@ struct CollisionLayer {
     inline bool isOnLayer(int i) const { return (layer & (1 << i)) != 0; }
     inline bool canCollideWithLayer(int i) const { return (mask & (1 << i)) != 0; }
     inline bool canCollideWith(const CollisionLayer& other) const {
-        return (mask & other.layer) && (other.mask & layer);
+        return (mask & other.layer); //&& (other.mask & layer);
     }
 
     list<int> onLayers() {

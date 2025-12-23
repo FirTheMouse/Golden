@@ -155,10 +155,10 @@ int main()
     // std::string name = "AvalVentures";
     // startProject(name);
     // addProjectToCMake(name);
-    std::string p1 = "AvalVentures";
-    std::string p2 = "GUIDE";
-    std::string p3 = "GDSL";
-    std::string p4 = "Learning";
+    std::string p1 = "Lab";
+    std::string p2 = "GDSL";
+    std::string p3 = "ThymeLoop";
+    std::string p4 = "FirChess";
     
     bool runningProject = false;
 

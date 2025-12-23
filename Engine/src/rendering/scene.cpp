@@ -49,10 +49,28 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         guiEndTransforms.push(glm::mat4(1.0f));
         quadAnimStates.push(AnimState());
         quadVelocities.push(Velocity());
-        quadPhysicsStates.push(P_State::DETERMINISTIC);
+        quadPhysicsStates.push(P_State::ACTIVE);
         quadCollisonLayers.push(CollisionLayer());
         quadPhysicsProp.push(P_Prop());
         slots.push(list<std::string>{"all"});
+    }
+    else if (auto obj = g_dynamic_pointer_cast<Single>(sobj)) 
+    {
+        obj->ID = singles.length();
+        active.push(true);
+        culled.push(false);
+        singles.push(obj);
+        auto p_model = make<Model>(makePhysicsBox(obj->model->localBounds));
+        p_model->UUIDPTR = obj->UUID;
+        //physicsModels.push(p_model);
+        transforms.push(glm::mat4(1.0f));
+        endTransforms.push(glm::mat4(1.0f));
+        animStates.push(AnimState());
+        velocities.push(Velocity());
+        physicsStates.push(P_State::ACTIVE);
+        collisonLayers.push(CollisionLayer());
+        collisionShapes.push(CollisionShape());
+        physicsProp.push(P_Prop());
     }
     // else if(auto obj = g_dynamic_pointer_cast<Instanced>(sobj))
     // {
@@ -74,24 +92,6 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
     //             }
     //         }
     // } 
-    else if (auto obj = g_dynamic_pointer_cast<Single>(sobj)) 
-    {
-        obj->ID = singles.length();
-        active.push(true);
-        culled.push(false);
-        singles.push(obj);
-        auto p_model = make<Model>(makePhysicsBox(obj->model->localBounds));
-        p_model->UUIDPTR = obj->UUID;
-        //physicsModels.push(p_model);
-        transforms.push(glm::mat4(1.0f));
-        endTransforms.push(glm::mat4(1.0f));
-        animStates.push(AnimState());
-        velocities.push(Velocity());
-        physicsStates.push(P_State::DETERMINISTIC);
-        collisonLayers.push(CollisionLayer());
-        collisionShapes.push(CollisionShape());
-        physicsProp.push(P_Prop());
-    }
 }
 
 void Scene::updateScene(float tpf)
@@ -199,8 +199,6 @@ void Scene::updateScene(float tpf)
         if(!quadActive[i]) continue;
         if(quadCulled[i]) continue;
         if (!quads[i]) continue;
-
-       quads[i]->run("onUpdate");
 
         guiShader.setMat4("quad",glm::value_ptr(guiTransforms[i]));
         guiShader.setVec4("uColor", quads[i]->color);

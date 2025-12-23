@@ -173,7 +173,7 @@ class Object : virtual public q_object {
         T inc(const std::string& label,T by)
         { return data.inc<T>(label,by); }
 
-        q_map<std::string,Script<>> scripts;
+        map<std::string,Script<>> scripts;
 
         template<typename F>
         void addScript(const std::string& name, F&& f) {

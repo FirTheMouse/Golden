@@ -1528,6 +1528,16 @@ int main() {
         if(pause>0) pause -=tpf;
         if(snap_grace>0) snap_grace -=tpf;
         bool shift = input.keyPressed(KeyCode::LSHIFT);
+
+        for (size_t i = 0; i < gui->quads.length(); ++i) {
+            if(i>=gui->quads.length()) continue;
+            if(!gui->quadActive[i]) continue;
+            if(gui->quadCulled[i]) continue;
+            if (!gui->quads[i]) continue;
+    
+           gui->quads[i]->run("onUpdate");
+        }
+
         
         std::string new_project_string = "../Projects/"
             +gui->get<std::string>("selected_project")+"/assets/gui/"

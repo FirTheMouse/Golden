@@ -74,7 +74,7 @@ int main() {
 
 
     start::run(window,d,[&]{
-        ship->move(input_move_2d_keys(5));
+        ship->move(input_2d_keys(5));
         if(pressed(SPACE)) ship->run("onFire");
 
 

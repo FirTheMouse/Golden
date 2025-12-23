@@ -19,6 +19,36 @@ namespace base_module {
     }
 }
 
+
+namespace data_module {
+    static void initialize() {
+        size_t list_key_id = reg::new_type("LIST_KEY"); 
+        reg_t_key("list", list_key_id, 8, GET_TYPE(F_TYPE_KEY)); 
+        size_t list_decl_id = reg::new_type("LIST_DECL"); 
+        a_functions.put(list_key_id, type_key_handler);
+        size_t list_id = reg::new_type("LIST");
+        value_to_string.put(list_id,[](void* data) -> std::string{
+            if(*(g_ptr<Type>*)data) {
+                return "list of length "+std::to_string((*(g_ptr<Type>*)data)->array.length());
+            }
+            else {
+                return "null list";
+            }
+        });
+        //a_functions.put(list_id, literal_handler);
+        type_key_to_type.put(list_key_id, list_id);
+        t_literal_handlers.put(list_id, [list_id](g_ptr<Token> token) -> g_ptr<t_node> {
+            g_ptr<t_node> node = make<t_node>();
+            node->type = GET_TYPE(T_LITERAL);
+            node->value.type = list_id;
+            node->value.set<int>(4);
+            return node;
+        });
+       
+    }
+}
+
+
 namespace paren_module {
     static void initialize() {
         size_t end_id = reg::new_type("END"); 
@@ -604,34 +634,6 @@ namespace control_module {
         });  
     }
 
-}
-
-namespace data_module {
-    static void initialize() {
-        size_t list_key_id = reg::new_type("LIST_KEY"); 
-        reg_t_key("list", list_key_id, 8, GET_TYPE(F_TYPE_KEY)); 
-        size_t list_decl_id = reg::new_type("LIST_DECL"); 
-        a_functions.put(list_key_id, type_key_handler);
-        size_t list_id = reg::new_type("LIST");
-        value_to_string.put(list_id,[](void* data) -> std::string{
-            if(*(g_ptr<Type>*)data) {
-                return "list of length "+std::to_string((*(g_ptr<Type>*)data)->array.length());
-            }
-            else {
-                return "null list";
-            }
-        });
-        //a_functions.put(list_id, literal_handler);
-        type_key_to_type.put(list_key_id, list_id);
-        t_literal_handlers.put(list_id, [list_id](g_ptr<Token> token) -> g_ptr<t_node> {
-            g_ptr<t_node> node = make<t_node>();
-            node->type = GET_TYPE(T_LITERAL);
-            node->value.type = list_id;
-            node->value.set<int>(4);
-            return node;
-        });
-       
-    }
 }
 
 namespace type_module {

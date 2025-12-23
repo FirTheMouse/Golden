@@ -1119,6 +1119,7 @@ private:
         });
 
         g->addScript("onDeactivate",[g,this](ScriptContext& ctx){
+            print("Deactivating a quad, is active? ",g->isActive());
             if(g->isActive()) deactivate(g);
             g->run("onClose");
             auto items = g->get<itms>("items");
@@ -1150,7 +1151,11 @@ public:
         {
             auto g = getSlot(type)[0];
             if(!g->isActive()) {
-               g->run("onActivate");
+                if(g->scripts.hasKey("onActivate")) {
+                    g->run("onActivate");
+                } else {
+                    reactivate(g);
+                }
             }
             else if(toggle) {
                 closeWidget(type);
@@ -1167,7 +1172,11 @@ public:
         if(hasSlot(type))
         {
             auto g = getSlot(type)[0];
-            g->run("onDeactivate");
+            if(g->scripts.hasKey("onDeactivate")) {
+                g->run("onDeactivate");
+            } else {
+                deactivate(g);
+            }
         }
     }
 

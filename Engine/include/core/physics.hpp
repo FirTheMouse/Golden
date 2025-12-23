@@ -346,7 +346,81 @@ public:
         return collisionPairs;
     }
     
-    
+    list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> generate2dCollisionPairsNaive() {
+        list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> collisionPairs;
+        
+        for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
+            if (!scene->quadActive[i] || scene->quadPhysicsStates[i] == P_State::NONE) continue;
+            for(int j = 0; j<scene->guiTransforms.length(); ++j) {
+                if (!scene->quadActive[j] || scene->quadPhysicsStates[j] == P_State::NONE) continue;
+                if(i==j) continue;
+                g_ptr<Quad> entityA = scene->quads[i];
+                g_ptr<Quad> entityB = scene->quads[j];
+                
+                CollisionLayer& layersA = scene->quadCollisonLayers.get(entityA->ID);
+                CollisionLayer& layersB = scene->quadCollisonLayers.get(entityB->ID);
+                if (!layersA.canCollideWith(layersB)) continue;
+
+                if (entityA->intersects(entityB)) {
+                    collisionPairs.push(std::pair{entityA,entityB});
+                }
+            }
+        }
+        return collisionPairs;
+    }
+
+    struct collisionData {
+        g_ptr<Quad> first;
+        g_ptr<Quad> second;
+        vec2 mtv;
+    };
+    list<collisionData> generate2dCollisonDataNaive() {
+        list<collisionData> collisionPairs;
+        
+        for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
+            if (!scene->quadActive[i] || scene->quadPhysicsStates[i] == P_State::NONE) continue;
+            for(int j = 0; j<scene->guiTransforms.length(); ++j) {
+                if (!scene->quadActive[j] || scene->quadPhysicsStates[j] == P_State::NONE) continue;
+                if(i==j) continue;
+                g_ptr<Quad> entityA = scene->quads[i];
+                g_ptr<Quad> entityB = scene->quads[j];
+                
+                CollisionLayer& layersA = scene->quadCollisonLayers.get(entityA->ID);
+                CollisionLayer& layersB = scene->quadCollisonLayers.get(entityB->ID);
+                if (!layersA.canCollideWith(layersB)) continue;
+
+                vec2 mtv;
+                if (entityA->intersects(entityB,mtv)) {
+                    collisionData cd;
+                    cd.first = entityA;
+                    cd.second = entityB;
+                    cd.mtv = mtv;
+                    collisionPairs.push(cd);
+                }
+            }
+        }
+        return collisionPairs;
+    }
+
+    void handle2dCollision(g_ptr<Quad> g,vec2 mtv) {
+        vec3& vel3 = g->getVelocity().position;
+        vec2 push = mtv*-1;
+        g->setCenter(g->getCenter() + push);
+        vec2 n;
+        if (push.x() != 0.0f) n = vec2((push.x() < 0.0f) ? -1.0f : 1.0f, 0.0f);
+        else if (push.y() != 0.0f) n = vec2(0.0f, (push.y() < 0.0f) ? -1.0f : 1.0f);
+        else n = vec2(0.0f, 0.0f);
+        vec2 v(vel3.x(), vel3.y());
+        float vn = v.dot(n);
+        if (vn < 0.0f) v -= n * vn;
+        vel3.x(v.x());
+        vel3.y(v.y());
+    }
+    void handle2dCollision(collisionData p) {
+        handle2dCollision(p.first,p.mtv);
+    }
+
+
     void updatePhysics()
     {       
 
@@ -370,6 +444,7 @@ public:
 
             list<std::pair<g_ptr<Single>, g_ptr<Single>>> pairs = generateCollisionPairs();
             //int cs = 0;
+            //Collide based on AABB
             for(auto p : pairs) {
                 int i = p.first->ID;
                 int s = p.second->ID;
@@ -527,7 +602,7 @@ public:
                     transform = transform * scaleDelta; // Apply after rotation
                 }
             }
-
+            scene->quads.get(i)->getPosition();
             c_check2:;
 
             if(p!=P_State::NONE)

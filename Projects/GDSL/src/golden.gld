@@ -19,5 +19,16 @@ layout();
 num one;
 num two;
 num three;
-one.a;
+one.a = 5;
+print(one.a);
+
+
+type num {
+    int a;
+}
+
+one.a = 5;
+print(one.a);
+
+
 

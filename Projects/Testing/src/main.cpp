@@ -6,103 +6,277 @@
 #include<core/type.hpp>
 #include<util/string_generator.hpp>
 
-
-double time_function(int ITERATIONS,std::function<void(int)> process) {
-    auto start = std::chrono::high_resolution_clock::now();
-    for(int i=0;i<ITERATIONS;i++) {
-        process(i);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-    return (double)time.count();
-}
-
-
-void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
-    list<list<double>> t_table;
-
-    for(int c=0;c<f_table.length();c++) {
-        t_table.push(list<double>{});
-        for(int r=0;r<f_table[c].length();r++) {
-            t_table[c].push(0.0);
-        }
-    }
-
-    for(int m = 0;m<(warm_up?2:1);m++) {
-        int C_ITERATIONS = m==0?1:C_ITS;
-
-        for(int c=0;c<t_table.length();c++) {
-            for(int r=0;r<t_table[c].length();r++) {
-                t_table[c][r]=0.0;
-            }
-        }
-
-        for(int i = 0;i<C_ITERATIONS;i++)
-        {
-            for(int c=0;c<f_table.length();c++) {
-                for(int r=0;r<f_table[c].length();r++) {
-                    // if(r==0) print("Running: ",s_table[c][r]);
-                    double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
-                    t_table[c][r]+=time;
-                }
-            }
-        }
-        print("-------------------------");
-        print(m==0 ? "      ==COLD==" : "       ==WARM==");
-        print("-------------------------");
-        for(int c=0;c<t_table.length();c++) {
-            for(int r=0;r<t_table[c].length();r++) {
-                t_table[c][r]/=C_ITERATIONS;
-                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
-            }
-            print("-------------------------");
-        }
-        for(auto v : comps) {
-            double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
-            std::string sfs;
-            double tolerance = 5.0;
-            if (std::abs(factor - 1.0) < tolerance/100.0) {
-                sfs = "around the same as ";
-            } else if (factor > 1.0) {
-                double percentage = (factor - 1.0) * 100.0;
-                sfs = std::to_string(percentage) + "% slower than ";
-            } else {
-                double percentage = (1.0/factor - 1.0) * 100.0;
-                sfs = std::to_string(percentage) + "% faster than ";
-            }
-            print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
-            "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
-        }
-        print("-------------------------");
-
-    }
-}
-
-struct lt {
-    uint8_t tt[100];
-    std::string name = "DEF";
-};
+#include<util/logger.hpp>
 
 int main() {
 
-    list<std::string> names;
-    for(int i=0;i<50;i++) {
-        names << name::randsgen({
-            "|, ,"
-            "Ka|Ke|Ce|Oe|Po|Pa|Lo,"
-            "|||||||||ck|th|sh|ch|pe|en|on,"
-            "os|os|si|sa|es|is"
-        });
+ 
+    g_ptr<Type> t = make<Type>();
+    g_ptr<Object> obj = make<Object>();
+    int ITS = 100;
+    int MAX_RANGE = 4;
+    int STRAT = 0;
+    list<std::string> titles;
+    list<int> seq;
+    //std::pow(ITS,5)
+    for(int i=0;i<ITS;i++) {
+        titles << std::to_string(i);
+        seq << randi(1,MAX_RANGE);
     }
-    int lret = 0;
-    for(auto s : names) {
-        printnl(s);
-        if((lret+=s.length())>70) {
-            lret = 0;
-            print();
+
+    log::rig r;
+    r.add_process("clean",[&](int i){
+        if(i==0) {
+            t = make<Type>();
+            obj = make<Object>();
         }
-    }
-    print();
+    });
+    r.add_process("populate_type",[&](int i){
+        if(STRAT==0) { //DATA strategy
+            t->add<int>(titles[i],i);
+        } else if(STRAT==1) { //ARRAY strategy
+            t->push<int>(i);
+        } else if (STRAT==2) { //VARIED strategy
+            switch(seq[i]) {
+                case 1: t->add<float>(titles[i],randf(0,100.0f)); break;
+                case 2: t->add<std::string>(titles[i],titles[i]); break;
+                case 3: t->add<int>(titles[i],i); break;
+                case 4: t->add<bool>(titles[i],i%2); break;
+                default: t->add<int>(titles[i],i); break;
+            }
+        } else if (STRAT==3) { //Using the fallback
+            t->add<std::string>(titles[i],titles[i]);
+        }
+    });
+    r.add_process("populate_data",[&](int i){
+        if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
+            obj->add<int>(titles[i],i);
+        } else if (STRAT==2) { //VARIED strategy
+            switch(seq[i]) {
+                case 1: obj->add<float>(titles[i],randf(0,100.0f)); break;
+                case 2: obj->add<std::string>(titles[i],titles[i]); break;
+                case 3: obj->add<int>(titles[i],i); break;
+                case 4: obj->add<bool>(titles[i],i%2); break;
+                default: obj->add<int>(titles[i],i); break;
+            }
+        } else if (STRAT==3) { //Using the fallback
+            obj->add<std::string>(titles[i],titles[i]);
+        }
+    });
+    r.add_process("access_type",[&](int i){
+        if(STRAT==0) { //DATA strategy
+            volatile int a = t->get<int>(titles[i]);
+        } else if(STRAT==1) { //ARRAY strategy
+            volatile int a = t->get<int>(i);
+        } else if (STRAT==2) { //VARIED strategy
+            switch(seq[i]) {
+                case 1: { volatile float f = t->get<float>(titles[i]); } break;
+                case 2: { volatile std::string s = t->get<std::string>(titles[i]); } break;
+                case 3: { volatile int a = t->get<int>(titles[i]); } break;
+                case 4: { volatile bool b = t->get<bool>(titles[i]); } break;
+                default: { volatile int a = t->get<int>(titles[i]); } break;
+            }
+        } else if (STRAT==3) { //Using the fallback
+            volatile std::string s = t->get<std::string>(titles[i]);
+        }
+    });
+    r.add_process("access_data",[&](int i){
+        if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
+            volatile int a = obj->get<int>(titles[i]);
+        } else if (STRAT==2) { //VARIED strategy
+            switch(seq[i]) {
+                case 1: { volatile float f = obj->get<float>(titles[i]); } break;
+                case 2: { volatile std::string s = obj->get<std::string>(titles[i]); } break;
+                case 3: { volatile int a = obj->get<int>(titles[i]); } break;
+                case 4: { volatile bool b = obj->get<bool>(titles[i]); } break;
+                default: { volatile int a = obj->get<int>(titles[i]); } break;
+            }
+        } else if (STRAT==3) { //Using the fallback
+            volatile std::string s = obj->get<std::string>(titles[i]);
+        }
+    });
+    r.add_comparison("populate_type","populate_data");
+    r.add_comparison("access_type","access_data");
+    r.run(1000,true,ITS);
+
+    // for(int i=0;i<5;i++) {
+    //     print("ITS: ",(int)std::pow(ITS,i+1));
+    //     r.run(1000,false,(int)std::pow(ITS,i+1));
+    // }
+
+    // print(obj->data.notes.size());
+    // if(STRAT!=1) {
+    //     print(t->notes.size());
+    // } else {
+    //     print(t->row_length(0,4));
+    // }
+
+    // int count = 0;
+    // map<int,std::string> correct_retrival;
+    // for(auto e : t->notes.entrySet()) {
+    //     if(e.value.size==24) {
+    //         count++;
+    //         correct_retrival.put(e.value.sub_index,e.key);
+    //     }
+    // }
+    // print("T contains ",count," strings");
+    // for(auto e : correct_retrival.entrySet()) {
+    //     print("T at: ",e.key," should be ",e.value);
+    //     print(" T at ",e.key," is ",t->get<std::string>(e.value));
+    //     print(" ARRAY: T at ",e.key," is ",t->get<std::string>(0,e.key));
+    // }
+
+    print("==DONE==");
+
+    // print("Naive sweep");
+    // int x = -1000;
+    // int y = -1000;
+    // for(int a=0;a<2000;a++) {
+    //     for(int b=0;b<2000;b++) {
+    //         if((x+y==5)&&(x*y==4)) {
+    //             print("SUCCESS! X: ",x," Y: ",y);
+    //             return 0;
+    //         }
+    //         y+=1;
+    //     }
+    //     x+=1;
+    //     y = -1000;
+    // }
+    // print("No valid combinations");
+
+    return 0;
+}
+
+
+    // g_ptr<Type> t = make<Type>();
+    // g_ptr<Object> obj = make<Object>();
+
+    // ivec2 test(10,5);
+
+    // print("Ivec2 Test\n---------------");
+    // print(" Inserting to Type");
+    // t->add<ivec2>("1",test);
+    // print(" Inserting to Data");
+    // obj->add<ivec2>("1",test);
+    // print("Retrival");
+    // printnl(" Type test: ");
+    // print(t->get<ivec2>("1").to_string());
+    // printnl(" Data test: ");
+    // print(obj->get<ivec2>("1").to_string());
+
+    // list<ivec2> tl;
+    // for(int i=0;i<3;i++) {
+    //     tl << ivec2(i*2,i);
+    // }
+
+    // print("List Ivec2 Test\n---------------");
+    // print(" Inserting to Type");
+    // t->add<list<ivec2>>("2",tl);
+    // print(" Inserting to Data");
+    // obj->add<list<ivec2>>("2",tl);
+    // print("Retrival");
+    // print(" Type test: ");
+    // for(auto a : t->get<list<ivec2>>("2"))
+    //     print(a.to_string());
+    // print(" Data test: ");
+    // for(auto a : obj->get<list<ivec2>>("2"))
+    //     print(a.to_string());
+
+
+// double time_function(int ITERATIONS,std::function<void(int)> process) {
+//     auto start = std::chrono::high_resolution_clock::now();
+//     for(int i=0;i<ITERATIONS;i++) {
+//         process(i);
+//     }
+//     auto end = std::chrono::high_resolution_clock::now();
+//     auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+//     return (double)time.count();
+// }
+
+
+// void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
+//     list<list<double>> t_table;
+
+//     for(int c=0;c<f_table.length();c++) {
+//         t_table.push(list<double>{});
+//         for(int r=0;r<f_table[c].length();r++) {
+//             t_table[c].push(0.0);
+//         }
+//     }
+
+//     for(int m = 0;m<(warm_up?2:1);m++) {
+//         int C_ITERATIONS = m==0?1:C_ITS;
+
+//         for(int c=0;c<t_table.length();c++) {
+//             for(int r=0;r<t_table[c].length();r++) {
+//                 t_table[c][r]=0.0;
+//             }
+//         }
+
+//         for(int i = 0;i<C_ITERATIONS;i++)
+//         {
+//             for(int c=0;c<f_table.length();c++) {
+//                 for(int r=0;r<f_table[c].length();r++) {
+//                     // if(r==0) print("Running: ",s_table[c][r]);
+//                     double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
+//                     t_table[c][r]+=time;
+//                 }
+//             }
+//         }
+//         print("-------------------------");
+//         print(m==0 ? "      ==COLD==" : "       ==WARM==");
+//         print("-------------------------");
+//         for(int c=0;c<t_table.length();c++) {
+//             for(int r=0;r<t_table[c].length();r++) {
+//                 t_table[c][r]/=C_ITERATIONS;
+//                 print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
+//             }
+//             print("-------------------------");
+//         }
+//         for(auto v : comps) {
+//             double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
+//             std::string sfs;
+//             double tolerance = 5.0;
+//             if (std::abs(factor - 1.0) < tolerance/100.0) {
+//                 sfs = "around the same as ";
+//             } else if (factor > 1.0) {
+//                 double percentage = (factor - 1.0) * 100.0;
+//                 sfs = std::to_string(percentage) + "% slower than ";
+//             } else {
+//                 double percentage = (1.0/factor - 1.0) * 100.0;
+//                 sfs = std::to_string(percentage) + "% faster than ";
+//             }
+//             print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
+//             "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
+//         }
+//         print("-------------------------");
+
+//     }
+// }
+
+// struct lt {
+//     uint8_t tt[100];
+//     std::string name = "DEF";
+// };
+
+    // list<std::string> names;
+    // for(int i=0;i<50;i++) {
+    //     names << name::randsgen({
+    //         "|, ,"
+    //         "Ka|Ke|Ce|Oe|Po|Pa|Lo,"
+    //         "|||||||||ck|th|sh|ch|pe|en|on,"
+    //         "os|os|si|sa|es|is"
+    //     });
+    // }
+    // int lret = 0;
+    // for(auto s : names) {
+    //     printnl(s);
+    //     if((lret+=s.length())>70) {
+    //         lret = 0;
+    //         print();
+    //     }
+    // }
+    // print();
 
 
 
@@ -196,65 +370,61 @@ int main() {
     // print((*(list<int>*)addr).get(8));
 
 
-    print("==DONE==");
-    list<list<std::function<void(int)>>> f_table;
-    list<list<std::string>> s_table;
-    list<vec4> comps;
-    int z = 0;
-    f_table << list<std::function<void(int)>>{};
-    s_table << list<std::string>{};
-    g_ptr<Type> type = make<Type>();
-    z = 0;
-    type->add_column(4);
-    s_table[z] << "push_32"; //0
-    f_table[z] << [type](int i){
-       byte32_t t;
-       type->push<byte32_t>(t);
-    };
-    s_table[z] << "push_64"; //1
-    f_table[z] << [type](int i){
-       byte64_t t;
-       type->push<byte64_t>(t);
-    };
-    s_table[z] << "push_128"; //2
-    f_table[z] << [type](int i){
-       lt t;
-       type->push<lt>(t);
-    };
-    s_table[z] << "get_32"; //3
-    f_table[z] << [type](int i){
-       volatile byte32_t b = type->get<byte32_t>(0,i);
-    };
-    s_table[z] << "get_64"; //4
-    f_table[z] << [type](int i){
-       volatile byte64_t b = type->get<byte64_t>(0,i);
-    };
-    s_table[z] << "get_128"; //5
-    f_table[z] << [type](int i){
-        volatile lt b = type->get<lt>(0,i);
-    };
-    list<lt> ltl;
-    s_table[z] << "list:push_128"; //6
-    f_table[z] << [type,&ltl](int i){
-        lt t;
-        ltl.push(t);
-    };
-    s_table[z] << "list:get_128"; //7
-    f_table[z] << [type,&ltl](int i){
-        volatile lt b = ltl.get(i);
-    };
+  // list<list<std::function<void(int)>>> f_table;
+    // list<list<std::string>> s_table;
+    // list<vec4> comps;
+    // int z = 0;
+    // f_table << list<std::function<void(int)>>{};
+    // s_table << list<std::string>{};
+    // g_ptr<Type> type = make<Type>();
+    // z = 0;
+    // type->add_column(4);
+    // s_table[z] << "push_32"; //0
+    // f_table[z] << [type](int i){
+    //    byte32_t t;
+    //    type->push<byte32_t>(t);
+    // };
+    // s_table[z] << "push_64"; //1
+    // f_table[z] << [type](int i){
+    //    byte64_t t;
+    //    type->push<byte64_t>(t);
+    // };
+    // s_table[z] << "push_128"; //2
+    // f_table[z] << [type](int i){
+    //    lt t;
+    //    type->push<lt>(t);
+    // };
+    // s_table[z] << "get_32"; //3
+    // f_table[z] << [type](int i){
+    //    volatile byte32_t b = type->get<byte32_t>(0,i);
+    // };
+    // s_table[z] << "get_64"; //4
+    // f_table[z] << [type](int i){
+    //    volatile byte64_t b = type->get<byte64_t>(0,i);
+    // };
+    // s_table[z] << "get_128"; //5
+    // f_table[z] << [type](int i){
+    //     volatile lt b = type->get<lt>(0,i);
+    // };
+    // list<lt> ltl;
+    // s_table[z] << "list:push_128"; //6
+    // f_table[z] << [type,&ltl](int i){
+    //     lt t;
+    //     ltl.push(t);
+    // };
+    // s_table[z] << "list:get_128"; //7
+    // f_table[z] << [type,&ltl](int i){
+    //     volatile lt b = ltl.get(i);
+    // };
  
-    comps << vec4(0,1 , 0,0);
-    comps << vec4(0,4 , 0,3);
-    comps << vec4(0,2 , 0,1);
-    comps << vec4(0,5 , 0,4);
-    comps << vec4(0,2 , 0,6);
-    comps << vec4(0,5 , 0,7);
+    // comps << vec4(0,1 , 0,0);
+    // comps << vec4(0,4 , 0,3);
+    // comps << vec4(0,2 , 0,1);
+    // comps << vec4(0,5 , 0,4);
+    // comps << vec4(0,2 , 0,6);
+    // comps << vec4(0,5 , 0,7);
 
     //run_rig(f_table,s_table,comps,true,200,50000);
-
-    return 0;
-}
 
 // list<list<std::function<void(int)>>> f_table;
     // list<list<std::string>> s_table;

@@ -360,7 +360,7 @@ void manage_interactions(int c_id) {
     auto obj = grabbed[c_id];
     if(!obj) return;
     if(!obj->isActive()) return;
-    if(obj->inc<int>("cooldown",0)>0) return;
+    if(obj->inc<int>("cooldown",-1)>0) return;
 
     std::string func = obj->has("func")?obj->get<std::string>("func"):"";
     std::string g_name = obj->dtype;
@@ -377,25 +377,26 @@ void manage_interactions(int c_id) {
     } 
 
     if(func=="cut") {
-        if(by_func.hasKey("be_cut"))
-        for(auto c : by_func.get("be_cut")) {
-            if(!c->isActive()) continue;
-            std::string c_name = c->dtype;
-            if(get_velocitiy(c_id,3).y()<-0.3f) {
-                if(grabbed[c_id]->getWorldBounds().intersects(c->getWorldBounds())) {
-                    vec3 cutterRight = grabbed[c_id]->right();
-                    int numPieces = c->get<int>("func_num");
-                    for(int i = 0; i < numPieces; i++) {
-                        vec3 perpOffset = ((i % 2 == 0) ? cutterRight.mult(-1) : cutterRight).mult(0.2f);
-                        float alongCutOffset = (i - (numPieces - 1) / 2.0f) * 0.2f;
-                        vec3 parallelOffset = grabbed[c_id]->facing().nY() * alongCutOffset;
-                        vec3 spawnPos = c->getPosition() + perpOffset + parallelOffset;
-                        auto slice = add_grabbable(c_name+"_cut", spawnPos);
+        if(by_func.hasKey("be_cut")) {
+            if(get_velocitiy(c_id,3).y()<-0.3f) { 
+                for(auto c : by_func.get("be_cut")) {
+                    if(!c->isActive()) continue;
+                    std::string c_name = c->dtype;
+                        if(grabbed[c_id]->getWorldBounds().intersects(c->getWorldBounds())) {
+                            vec3 cutterRight = grabbed[c_id]->right();
+                            int numPieces = c->get<int>("func_num");
+                            for(int i = 0; i < numPieces; i++) {
+                                vec3 perpOffset = ((i % 2 == 0) ? cutterRight.mult(-1) : cutterRight).mult(0.2f);
+                                float alongCutOffset = (i - (numPieces - 1) / 2.0f) * 0.2f;
+                                vec3 parallelOffset = grabbed[c_id]->facing().nY() * alongCutOffset;
+                                vec3 spawnPos = c->getPosition() + perpOffset + parallelOffset;
+                                auto slice = add_grabbable(c_name+"_cut", spawnPos);
+                            }
+                            remove_grabbable(c);
+                            grabbed[c_id]->set<int>("cooldown",30);
+                            break;
+                        } 
                     }
-                    remove_grabbable(c);
-                    grabbed[c_id]->set<int>("cooldown",30);
-                    break;
-                }
             }
         }
     }
@@ -525,9 +526,10 @@ list<_origin> get_level(int l) {
     result << _origin("floor",vec3(0,-1,0),false);
     switch(l) {
         case 0: //Tomato Tamato
-result << _origin("cutting_board",vec3(0,0,-2.5f),true);
-result << _origin("knife",vec3(1,0,-2.5f),true);
-result << _origin("plate",vec3(-1.5f,0,-2.5f),true);
+// result << _origin("cutting_board",vec3(0,1.5,-2.5f),true);
+result << _origin("table",vec3(0,0,-2.5f),false);
+result << _origin("knife",vec3(1,0.5,-2.5f),true);
+// result << _origin("plate",vec3(-1.5f,0,-2.5f),true);
 result << _origin("tomato",vec3(-8,0,0),true);
 result << _origin("tomato",vec3(-6,0,0),true);
 result << _origin("tomato",vec3(-4,0,0),true);
@@ -561,7 +563,7 @@ int main() {
 
     std::string MROOT = "../Projects/ThymeLoop/assets/models/";
 
-    Window window = Window(1280, 768, "ThymeLoop 0.4");
+    Window window = Window(1280, 768, "ThymeLoop 0.5");
     scene = make<Scene>(window,1);
     scene->tickEnvironment(1000);
     scene->setupShadows();
@@ -578,8 +580,8 @@ int main() {
     auto l1 = make<Light>(Light(glm::vec3(0,10,0),glm::vec4(300,300,300,1)));
     scene->lights.push_back(l1);
 
-    starting = get_level(-1);
-    
+    starting = get_level(0);
+    scene->closeWidget("desc");
 
     reloop(true);
 
@@ -589,9 +591,12 @@ int main() {
     // box->setPhysicsState(P_State::PASSIVE);
     S_Tool s_tool;
     int cam_mode = 1;
+    std::string reserved_desc = "";
     start::run(window,d,[&]{
         if(pressed(N)&&!text.editing) text.scan(scene->getSlot("timer")[0]);
         text.tick(s_tool.tpf);
+
+        g_ptr<Single> last_grabbed = grabbed.last();
 
         if(pressed(NUM_1)) {
             window.lock_mouse();
@@ -646,10 +651,11 @@ int main() {
         if(in_loop) {
             
            // physics->printTree(physics->treeRoot);
-            double p_time = log::time_function(1,[](int i){
-                physics->updatePhysics();
-            });
+            // double p_time = log::time_function(1,[](int i){
+            //     physics->updatePhysics();
+            // });
             //print("Phys update: ",p_time/1000000," ms");
+            physics->updatePhysics();
 
             int time = ((l_time*100)/2);
             for(int i = 0;i<clonePoses.length();i++) {
@@ -693,6 +699,21 @@ int main() {
             if(pressed(C)) {
                 print("----------------");
             }    
+
+            if(pressed(F)) {
+                scene->openWidget("desc",true);
+            } else {
+                if(grabbed.last()&&grabbed.last()!=last_grabbed) {
+                    auto desc = scene->getSlot("desc")[0];
+                    std::string func = grabbed.last()->has("func")?grabbed.last()->get<std::string>("func"):"";
+                    reserved_desc = func;
+                    bool already_open = desc->isActive();
+                    text::setText(reserved_desc, desc);
+                    if(!already_open) { 
+                        scene->closeWidget("desc");
+                    } 
+                }
+            }
 
         //    g_ptr<Single> h = at_hand(0);
         //    if(h) {

@@ -48,6 +48,8 @@ inline std::string trim_str(const std::string& s,const char c) {
     return s; 
 }
 
+#define DISABLE_BOUNDS_CHECK 1
+
 class Data{
 public:
     Data() {}
@@ -63,7 +65,9 @@ public:
     template<typename T = std::string>
     T get(const std::string& label)
     {
-        if(!has(label)) std::cerr << "Data does not have label " << label <<"\n";
+        #if !DISABLE_BOUNDS_CHECK
+            if(!has(label)) std::cerr << "Data does not have label " << label <<"\n";
+        #endif
         return std::any_cast<T>(notes.get(label));
     }
 
@@ -149,6 +153,9 @@ public:
     float x() const { return impl.x; }
     float y() const { return impl.y; }
 
+    void x(float x) { impl.x = x; }
+    void y(float y) { impl.y = y; }
+
     vec2 addX(float x) {impl.x = impl.x+x; return vec2(impl.x,impl.y);}
     vec2 addY(float y) {impl.y = impl.y+y; return vec2(impl.x,impl.y);}
     vec2 nX() {impl.x=0; return vec2(impl.x,impl.y);}
@@ -201,6 +208,9 @@ public:
 
     int x() const { return impl.x; }
     int y() const { return impl.y; }
+
+    void x(int x) { impl.x = x; }
+    void y(int y) { impl.y = y; }
 
     ivec2 addX(int x) { impl.x += x; return ivec2(impl.x, impl.y); }
     ivec2 addY(int y) { impl.y += y; return ivec2(impl.x, impl.y); }
@@ -259,6 +269,10 @@ class vec3 {
         float x() const { return impl.x; }
         float y() const { return impl.y; }
         float z() const { return impl.z; }
+
+        void x(float x) { impl.x = x; }
+        void y(float y) { impl.y = y; }
+        void z(float z) { impl.z = z; }
     
         //Quick additions
         //void addX(float x) { impl.x = impl.x+x;}
@@ -327,6 +341,11 @@ class vec4 {
         float y() const { return impl.y; }
         float z() const { return impl.z; }
         float w() const { return impl.w; }
+
+        void x(float x) { impl.x = x; }
+        void y(float y) { impl.y = y; }
+        void z(float z) { impl.z = z; }
+        void w(float w) { impl.w = w; }
     
         vec4 addX(float x) {impl.x = impl.x+x; return vec4(impl.x,impl.y,impl.z,impl.w);}
         vec4 addY(float y) {impl.y = impl.y+y; return vec4(impl.x,impl.y,impl.z,impl.w);}

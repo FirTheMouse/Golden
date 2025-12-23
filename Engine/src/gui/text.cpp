@@ -109,6 +109,7 @@ namespace Golden
             Script<> make_char("make_char",[scene](ScriptContext& ctx){
                 auto q = make<Quad>();
                 scene->add(q);
+                q->setPhysicsState(P_State::NONE);
                 ctx.set<g_ptr<Object>>("toReturn",q);
             });
             scene->define("_text_char",make_char);

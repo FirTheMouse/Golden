@@ -29,7 +29,7 @@ void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>
     }
 
     for(int m = 0;m<(warm_up?2:1);m++) {
-        int C_ITERATIONS = m==0?1:C_ITS;
+        int C_ITERATIONS = m==0?warm_up?1:C_ITS:C_ITS;
 
         for(int c=0;c<t_table.length();c++) {
             for(int r=0;r<t_table[c].length();r++) {
@@ -124,9 +124,9 @@ public:
     }
 
     /// @brief Run the rig and print out the results of the benchmark
+    /// @param C_ITS How many iterations of the processes there should be, this contributes to the averege
     /// @param warm_up Whether or not to do a cold run to warm up the cache
     /// @param PROCESS_ITERATIONS How many times each process should run, not part of the averege
-    /// @param C_ITS How many iterations of the processes there should be, this contributes to the averege
     void run(int C_ITS,bool warm_up = false,int PROCESS_ITERATIONS = 1) {
         run_rig(f_table,s_table,comps,warm_up,PROCESS_ITERATIONS,C_ITS);
     }

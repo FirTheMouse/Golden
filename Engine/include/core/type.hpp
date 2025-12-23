@@ -70,6 +70,7 @@ public:
     //Consider making notes be uint32_t,_note, and have all the puts pre-hash, this will allow us to do enum notes and avoid the string stuff
     map<std::string,_note> notes; // Where reflection info is stored
     list<_note> array; //Ordered array for usage of Type as a MultiArray
+    map<std::string,std::any> fallback_map; //Fallback for non POD types, old Data style
 
     size_t sizes[8] = {1,2,4,8,16,24,32,64};
     list<list<uint8_t>> byte1_columns;   // bool, char (1 byte)
@@ -706,7 +707,11 @@ public:
 
     template<typename T>
     void add(const std::string& name,T value,int t = 0) {
-        add(name,&value,sizeof(T),t);
+        if constexpr (std::is_trivially_copyable_v<T>) {
+            add(name,&value,sizeof(T),t);
+        } else {
+            fallback_map.put(name,std::any(value));
+        }
     }
 
     inline void* get(int index,int sub_index,size_t size) {
@@ -747,7 +752,12 @@ public:
    //Uses data get
    template<typename T>
    T& get(const std::string& label) {
-    return *(T*)data_get(label);
+    if constexpr (std::is_trivially_copyable_v<T>) {
+        return *(T*)data_get(label);
+    } else {
+        std::any& a = fallback_map.get(label);
+        return std::any_cast<T&>(a);
+    }
    }
 
    //Uses array get

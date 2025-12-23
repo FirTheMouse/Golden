@@ -100,7 +100,6 @@ Shader::Shader(const char* vertexSource, const char* fragmentSource) {
     glShaderSource(vertex, 1, &vertexSource, NULL);
     glCompileShader(vertex);
     
-    //std::cout << "Loading vertex shader from: " << vertexSource << std::endl;
     int success;
     char infoLog[512];
     glGetShaderiv(vertex, GL_COMPILE_STATUS, &success);
@@ -109,9 +108,6 @@ Shader::Shader(const char* vertexSource, const char* fragmentSource) {
         std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
-    // Compile fragment shader
-        
-    //std::cout << "Loading fragment shader from: " << fragmentSource << std::endl;
     unsigned int fragment = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment, 1, &fragmentSource, NULL);
     glCompileShader(fragment);
@@ -122,7 +118,6 @@ Shader::Shader(const char* vertexSource, const char* fragmentSource) {
         std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
-    // Link shaders
     ID = glCreateProgram();
     glAttachShader(ID, vertex);
     glAttachShader(ID, fragment);

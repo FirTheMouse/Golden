@@ -5,8 +5,8 @@
 #include<util/group.hpp>
 #include<util/d_list.hpp>
 
-#define PRINT_ALL 0
-#define PRINT_STYLE 0
+#define PRINT_ALL 1
+#define PRINT_STYLE 1
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;

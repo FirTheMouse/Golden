@@ -9,11 +9,11 @@
 
 #define DISABLE_BOUNDS_CHECK 1
 
-//In the future, review changing the increment levels for push to prevent runaway growth
-//and optimize performance
-//Also review improving constructers and adding tighter and more performant features
+struct d_object {};
+
+
 template <typename T>
-class list {
+class list : public d_object {
 protected:
     T* ptr;
     size_t size_;

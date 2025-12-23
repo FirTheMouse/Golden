@@ -49,11 +49,31 @@ namespace Golden
         {
             Data d;
             d.set<g_ptr<Scene>>("scene",scene);
-            d.set<int>("exit_key",K);
+            d.set<int>("exit_key",exit_key);
             return d;
         }
+    
+  
+        vec2 input_2d_arrows(float s)
+        {
+            float x = 0.0f;
+            float y = 0.0f;
+            float z = 0.0f;
+            Input& input = Input::get();
 
-        vec2 input_move_2d_keys(float s)
+            if(input.keyPressed(UP)) z-=1.0;
+            if(input.keyPressed(DOWN)) z+=1.0f;
+            if(input.keyPressed(LEFT)) x-=1.0f;
+            if(input.keyPressed(RIGHT)) x+=1.0f;
+            return vec2(x*s,z*s);
+        }
+
+        vec3 input_3d_arrows(float s) {
+            vec2 v = input_2d_arrows(s);
+            return vec3(v.x(),0,v.y());
+        }
+
+        vec2 input_2d_keys(float s)
         {
             float x = 0.0f;
             float z = 0.0f;
@@ -65,11 +85,16 @@ namespace Golden
             if(input.keyPressed(D)) x+=1.0f;
             return vec2(x*s,z*s);
         }
-    
+
+        vec3 input_3d_keys(float s) {
+            vec2 v = input_2d_keys(s);
+            return vec3(v.x(),0,v.y());
+        }
+
         //Requires physics
         void move_fps(float s,g_ptr<Single> one)
         {
-        vec2 mIn = input_move_2d_keys(s);
+        vec2 mIn = input_2d_keys(s);
         one->setLinearVelocity(
             (one->facing()*-mIn.y())+
             (one->right()*-mIn.x()));
@@ -77,40 +102,12 @@ namespace Golden
 
         vec3 dir_fps(float s,g_ptr<Single> one)
         {
-        vec2 mIn = input_move_2d_keys(s);
+        vec2 mIn = input_2d_keys(s);
         return(
             (one->facing()*-mIn.y())+
             (one->right()*-mIn.x()));
         }
 
-        vec3 input_2d_arrows(float sensitivity)
-        {
-            float x = 0.0f;
-            float y = 0.0f;
-            float z = 0.0f;
-            Input& input = Input::get();
-
-            if(input.keyPressed(UP)) z-=0.3;
-            if(input.keyPressed(DOWN)) z+=0.3f;
-            if(input.keyPressed(LEFT)) x-=0.3f;
-            if(input.keyPressed(RIGHT)) x+=0.3f;
-            return vec3(x,y,z)*sensitivity;
-        }
-
-        vec3 input_2d_keys(float sensitivity)
-        {
-            float x = 0.0f;
-            float y = 0.0f;
-            float z = 0.0f;
-            Input& input = Input::get();
-
-            if(input.keyPressed(W)) z-=0.3;
-            if(input.keyPressed(S)) z+=0.3f;
-            if(input.keyPressed(A)) x-=0.3f;
-            if(input.keyPressed(D)) x+=0.3f;
-            return vec3(x,y,z)*sensitivity;
-        }
-    
         struct S_Tool
         {
             float tpf = 0.1; float frametime = 0; int frame = 0;

@@ -1,10 +1,205 @@
-#include<util/util.hpp>
-#include<core/type.hpp>
+#include <util/util.hpp>
+#include <core/helper.hpp>
+#include <util/color.hpp>
+#include <core/physics.hpp>
 
-int main() {
-    g_ptr<Type> t = make<Type>();
-    t->add_column(4);
-    t->add_column(8);
-    print(t->type_to_string(4));
+using namespace helper;
+
+
+
+int main()
+{
+
+    Window window = Window(1280, 760, "Lab");
+    auto scene = make<Scene>(window, 2);
+    Data d = make_config(scene, K);
+
+    auto square = make<Quad>();
+    scene->add(square);
+    square->scale({50, 50});
+    square->dtype = "player";
+    square->setPosition({50, 200});
+    square->addScript("onCollide",[&](ScriptContext& ctx){
+        g_ptr<Quad> with = ctx.get<g_ptr<Quad>>("with");
+        
+    });
+    square->getLayer().setLayer(1);
+    square->getLayer().setCollision(2);
+
+    g_ptr<Physics> physics = make<Physics>(scene);
+    physics->thread->setSpeed(0.016f);
+
+    // for(int i=0;i<4;i++) {
+    //     switch(i) {
+    //         case 0: {
+    //             auto point = make<Quad>();
+    //             scene->add(point);
+    //             point->scale({5,5});
+    //             point->setColor(Color::RED);
+    //             point->setCenter(square->getTop());
+    //         }
+    //         break;
+    //         case 1: {
+    //             auto point = make<Quad>();
+    //             scene->add(point);
+    //             point->scale({5,5});
+    //             point->setColor(Color::BLUE);
+    //             point->setCenter(square->getBottom());
+    //         }
+    //         break;
+    //         default: break;
+    //     }
+    // }
+
+    // auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
+    // scene->add(Fir);
+    // Fir->setPosition(vec3(1,-1,-9));
+
+    Script<> make_proj("make_proj", [scene](ScriptContext &ctx)
+    {
+        auto proj = make<Quad>();
+        scene->add(proj);
+        proj->scale({15,15});
+        proj->setColor(Color::RED);
+        proj->getLayer().setLayer(3);
+        proj->getLayer().setCollision(2);
+        proj->addScript("onCollide",[&](ScriptContext& ctx) {
+            g_ptr<Quad> with = ctx.get<g_ptr<Quad>>("with");
+            
+        });
+        ctx.set<g_ptr<Object>>("toReturn",proj); 
+    });
+    scene->define("proj", make_proj);
+
+    Script<> make_obj("make_obj", [scene](ScriptContext &ctx)
+    {
+        auto obj = make<Quad>();
+        scene->add(obj);
+        obj->getLayer().setLayer(2);
+        ctx.set<g_ptr<Object>>("toReturn",obj); 
+    });
+    scene->define("obj", make_obj);
+
+    int level = 0;
+    switch (level)
+    {
+    case 0:
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            auto obj = scene->create<Quad>("obj");
+            if (i < 6)
+            {
+                obj->scale({200, 10});
+                obj->setPosition({400.0f * i, 800});
+                obj->setColor(Color::BLACK);
+            }
+            else
+            {
+                obj->scale({200, 10});
+                obj->setPosition({600.0f * (i - 7), 600});
+                obj->setColor(Color::BLACK);
+            }
+        }
+    }
+    break;
+    default:
+    {
+        auto ground = scene->create<Quad>("obj");
+        ground->scale({2000, 50});
+        ground->setPosition({0, 800});
+        ground->setColor(Color::BLACK);
+    }
+    break;
+    }
+    // list<list<g_ptr<Quad>>> tgrid;
+    // auto font = make<Font>("../Engine/assets/fonts/source_code.ttf",50);
+    // list<g_ptr<Quad>> sub_grid;
+    // for(int i=0;i<12;i++) {
+    //     sub_grid.clear();
+    //     for(int j=0;j<15;j++) {
+    //         auto t = text::makeText(std::to_string(i),font,scene,{(float)(i*200.0),(float)(j*100.0)},2);
+    //         sub_grid << t;
+    //     }
+    //     tgrid << sub_grid;
+    // }
+    
+    bool player_on_ground = false;
+    bool player_is_locked = false;
+    int coyote_time = 0;
+
+    S_Tool tool;
+    start::run(window, d, [&]
+    {
+        tool.tick();
+        physics->updatePhysics();
+
+        // if(tool.frame%120==0) {
+        //     for(int a = 0;a<tgrid.length();a++) {
+        //         for(int b=0;b<tgrid[a].length();b++) {
+        //             text::setText(std::to_string(a)+"-"+std::to_string(b),tgrid[a][b]);
+        //         }
+        //     }
+        // }
+
+       player_on_ground = false;
+       player_is_locked = false;
+       vec2 scene_move = input_2d_arrows(12.0f);
+       scene_move = scene_move*-1;
+        for(int i=0;i<scene->quadActive.length();i++)
+        {
+            if(i>=scene->quads.length()) break;
+            if(!scene->quadActive[i]) continue;
+            auto g = scene->quads[i];
+            g->move(scene_move);
+            if(g->dtype=="obj") continue;
+            if(g->dtype=="proj") {
+                if(g->getPosition().length()>8000) {
+                    scene->recycle(g);
+                }
+            }
+        }
+
+        for(Physics::collisionData collision_data : physics->generate2dCollisonDataNaive()) {
+            g_ptr<Quad> g = collision_data.first;
+            g_ptr<Quad> q = collision_data.second;
+
+            if(g->dtype=="player") {
+                player_is_locked = true;
+                player_on_ground = true;
+            }
+            if(g->dtype=="proj") {
+                scene->recycle(g);
+            } 
+            physics->handle2dCollision(collision_data);
+        }
+
+        vec3 curr_vel = square->getVelocity().position;
+        float sensitivity = 6.0f;
+        if(!player_on_ground) {
+            coyote_time -= 1;
+            if(curr_vel.y()<3000) square->impulseL({0,20});
+        } else {
+            coyote_time = 20;
+        }
+
+        if(pressed(SPACE)) {
+            if(coyote_time>0) {
+                square->setLinearVelocity({0,-800});
+            }
+        }
+        vec2 move = input_2d_keys(sensitivity).nY();
+        if(move.length()!=0&&!player_is_locked)
+            square->move(move);
+
+        if(pressed(MOUSE_LEFT)) {
+            auto proj = scene->create<Quad>("proj");
+            proj->setLinearVelocity(square->direction(scene->mousePos2d()).normalized()*800.0f);
+            proj->setPosition(square->getCenter());
+        }
+                   
+        if(pressed(F)) print("QUADS: ",scene->quads.length());
+        if(pressed(R)) tool.log_fps = !tool.log_fps; });
+
     return 0;
 }
