@@ -1,5 +1,5 @@
 dtype,price,power_output
 [TYPE],int,float
-floor_metal,3
+floor_metal,3,0
 half_floor_metal,1
 wall_metal,5,2.0

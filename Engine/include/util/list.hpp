@@ -7,7 +7,7 @@
 #include <functional>
 #include<util/basic.hpp>
 
-#define DISABLE_BOUNDS_CHECK 1
+#define DISABLE_BOUNDS_CHECK 0
 
 struct d_object {};
 
@@ -122,6 +122,10 @@ public:
     inline bool empty() const {return length()==0;}
     inline T& last() {return ptr[size_-1];}
     inline T& first() {return ptr[0];}
+
+    //This implmentation is flawed, or at least, OpenGL doesn't play nice with it
+    T* data() noexcept { return ptr; }
+    const T* data() const noexcept { return ptr; }
 
     inline T* begin() {return ptr;}
     inline T* end() {return ptr+size_;}

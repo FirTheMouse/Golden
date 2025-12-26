@@ -1,205 +1,181 @@
-#include <util/util.hpp>
-#include <core/helper.hpp>
-#include <util/color.hpp>
-#include <core/physics.hpp>
+#include<rendering/scene.hpp>
+#include<core/helper.hpp>
+#include<core/grid.hpp>
+#include<util/meshBuilder.hpp>
+#include<util/color.hpp>
+#include<util/files.hpp>
+#include<core/thread.hpp>
 
-using namespace helper;
+using namespace Golden;
 
+struct bill {
+    bill() {}
+    bill(vec3 _target,bool _complete,int _target_id) : target(_target), complete(_complete), target_id(_target_id) {}
 
+    vec3 target;
+    bool complete; 
+    int target_id;
+};
 
-int main()
-{
+int main()  {
+    using namespace helper;
 
-    Window window = Window(1280, 760, "Lab");
-    auto scene = make<Scene>(window, 2);
-    Data d = make_config(scene, K);
+    Window window = Window(1280, 768, "3d Testing");
+    auto scene = make<Scene>(window,2);
+    scene->camera.toIso();
+    Data d = make_config(scene,K);
 
-    auto square = make<Quad>();
-    scene->add(square);
-    square->scale({50, 50});
-    square->dtype = "player";
-    square->setPosition({50, 200});
-    square->addScript("onCollide",[&](ScriptContext& ctx){
-        g_ptr<Quad> with = ctx.get<g_ptr<Quad>>("with");
-        
-    });
-    square->getLayer().setLayer(1);
-    square->getLayer().setCollision(2);
+    //start::define_objects(scene,"Spaced");
+    //scene->define("nothing",Script<>("nothing",[&](ScriptContext& ctx){}));
 
-    g_ptr<Physics> physics = make<Physics>(scene);
-    physics->thread->setSpeed(0.016f);
+    g_ptr<Single> selected = nullptr;
+    g_ptr<Single> selected_last = nullptr;
 
-    // for(int i=0;i<4;i++) {
-    //     switch(i) {
-    //         case 0: {
-    //             auto point = make<Quad>();
-    //             scene->add(point);
-    //             point->scale({5,5});
-    //             point->setColor(Color::RED);
-    //             point->setCenter(square->getTop());
-    //         }
-    //         break;
-    //         case 1: {
-    //             auto point = make<Quad>();
-    //             scene->add(point);
-    //             point->scale({5,5});
-    //             point->setColor(Color::BLUE);
-    //             point->setCenter(square->getBottom());
-    //         }
-    //         break;
-    //         default: break;
-    //     }
-    // }
-
-    // auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
-    // scene->add(Fir);
-    // Fir->setPosition(vec3(1,-1,-9));
-
-    Script<> make_proj("make_proj", [scene](ScriptContext &ctx)
-    {
-        auto proj = make<Quad>();
-        scene->add(proj);
-        proj->scale({15,15});
-        proj->setColor(Color::RED);
-        proj->getLayer().setLayer(3);
-        proj->getLayer().setCollision(2);
-        proj->addScript("onCollide",[&](ScriptContext& ctx) {
-            g_ptr<Quad> with = ctx.get<g_ptr<Quad>>("with");
-            
-        });
-        ctx.set<g_ptr<Object>>("toReturn",proj); 
-    });
-    scene->define("proj", make_proj);
-
-    Script<> make_obj("make_obj", [scene](ScriptContext &ctx)
-    {
-        auto obj = make<Quad>();
-        scene->add(obj);
-        obj->getLayer().setLayer(2);
-        ctx.set<g_ptr<Object>>("toReturn",obj); 
-    });
-    scene->define("obj", make_obj);
-
-    int level = 0;
-    switch (level)
-    {
-    case 0:
-    {
-        for (int i = 0; i < 12; i++)
-        {
-            auto obj = scene->create<Quad>("obj");
-            if (i < 6)
-            {
-                obj->scale({200, 10});
-                obj->setPosition({400.0f * i, 800});
-                obj->setColor(Color::BLACK);
-            }
-            else
-            {
-                obj->scale({200, 10});
-                obj->setPosition({600.0f * (i - 7), 600});
-                obj->setColor(Color::BLACK);
-            }
-        }
-    }
-    break;
-    default:
-    {
-        auto ground = scene->create<Quad>("obj");
-        ground->scale({2000, 50});
-        ground->setPosition({0, 800});
-        ground->setColor(Color::BLACK);
-    }
-    break;
-    }
-    // list<list<g_ptr<Quad>>> tgrid;
-    // auto font = make<Font>("../Engine/assets/fonts/source_code.ttf",50);
-    // list<g_ptr<Quad>> sub_grid;
-    // for(int i=0;i<12;i++) {
-    //     sub_grid.clear();
-    //     for(int j=0;j<15;j++) {
-    //         auto t = text::makeText(std::to_string(i),font,scene,{(float)(i*200.0),(float)(j*100.0)},2);
-    //         sub_grid << t;
-    //     }
-    //     tgrid << sub_grid;
-    // }
     
-    bool player_on_ground = false;
-    bool player_is_locked = false;
-    int coyote_time = 0;
+    // auto box = scene->create<Single>("floor_metal");
+    // box->setPosition({0,-4,-6});
 
-    S_Tool tool;
-    start::run(window, d, [&]
-    {
-        tool.tick();
-        physics->updatePhysics();
+    //Mesh box_mesh = makeTestBox(1.0f);
+    g_ptr<Model> box_model = make<Model>(makeTestBox(0.5f));
 
-        // if(tool.frame%120==0) {
-        //     for(int a = 0;a<tgrid.length();a++) {
-        //         for(int b=0;b<tgrid[a].length();b++) {
-        //             text::setText(std::to_string(a)+"-"+std::to_string(b),tgrid[a][b]);
-        //         }
-        //     }
-        // }
+    // g_ptr<Single> box2 = make<Single>(box_model);
+    // scene->add(box2);
+    // box2->setPosition({5,0,0});
+    
+    // g_ptr<Single> box3 = make<Single>(box_model);
+    // scene->add(box3);
+    // box3->setPosition({10,0,0});
 
-       player_on_ground = false;
-       player_is_locked = false;
-       vec2 scene_move = input_2d_arrows(12.0f);
-       scene_move = scene_move*-1;
-        for(int i=0;i<scene->quadActive.length();i++)
-        {
-            if(i>=scene->quads.length()) break;
-            if(!scene->quadActive[i]) continue;
-            auto g = scene->quads[i];
-            g->move(scene_move);
-            if(g->dtype=="obj") continue;
-            if(g->dtype=="proj") {
-                if(g->getPosition().length()>8000) {
-                    scene->recycle(g);
+    g_ptr<Model> snow = make<Model>("../models/agents/Snow.glb");
+    g_ptr<Model> whiskers = make<Model>("../models/agents/Whiskers.glb");
+    g_ptr<Model> whiskers_1 = make<Model>("../models/agents/WhiskersLOD1.glb");
+    g_ptr<Model> whiskers_2 = make<Model>("../models/agents/WhiskersLOD2.glb");
+    g_ptr<Model> whiskers_3 = make<Model>("../models/agents/WhiskersLOD3.glb");
+
+    int row = 0;
+    int fac = 80;
+    int total = 10;
+    list<bill> bills;
+    list<int> apple_ids;
+    list<int> mouse_ids; 
+    for(int i=0;i<total;i++) {
+        //g_ptr<Single> n_box = scene->create<Single>("floor_metal");
+        g_ptr<Single> n_box = make<Single>(whiskers_3);
+        scene->add(n_box);
+        if(i%(total/fac)) row++;
+        n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
+        if(i==total/2) selected = n_box;
+        mouse_ids << n_box->ID;
+    }
+
+    row = 0;
+    map<int,int> claimed;
+    for(int i=0;i<total;i++) {
+        g_ptr<Single> n_box = make<Single>(box_model);
+        scene->add(n_box);
+        if(i%(total/fac)) row++;
+        n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
+        apple_ids << n_box->ID;
+        claimed.put(n_box->ID,-1);
+    }
+
+    list<int> copy_list = apple_ids;
+    for(auto i : mouse_ids) { 
+        int rand_i = randi(0,copy_list.length()-1);
+        int id = copy_list[rand_i];
+        copy_list.removeAt(rand_i);
+        bills << bill(vec3(scene->transforms[id][3]),false,id);
+    }
+
+    bool moving = false;
+
+
+    g_ptr<Thread> thread = make<Thread>();
+    thread->run([&](ScriptContext& ctx){
+        if(moving) {
+            for(auto i : mouse_ids) {
+                if(i>=bills.length()) continue;
+                if(vec3(scene->transforms[i][3]).distance(bills[i].target)<1.0f) {
+                    bills[i].target = {0,-5,0};
+                    claimed.set(bills[i].target_id,i);
+                } else {
+                    //faceMatrixTo(scene->transforms[i],bills[i].target);
+                    translateMatrix(scene->transforms[i],vec3(scene->transforms[i][3]).direction(bills[i].target));
+                }
+                //translateMatrix(scene->transforms[i],{randf(-0.1,0.1),0,randf(-0.1,0.1)});
+            }
+            for(auto i : apple_ids) {
+                int id = claimed.get(i);
+                if(id!=-1) {
+                    scene->transforms[i] = glm::translate(glm::mat4(1.0f),glm::vec3(scene->transforms[id][3])+glm::vec3(0,2,0)); //(vec3(scene->transforms[id][3])+vec3(0,2,0)).toGlm();
                 }
             }
         }
+    },0.002f);
+    thread->start();
+    
+    S_Tool tool;
+    tool.log_fps = true;
+    start::run(window,d,[&]{
+        tool.tick();
+        
+        if(held(H)) scene->cullSinglesSimplePoint();
 
-        for(Physics::collisionData collision_data : physics->generate2dCollisonDataNaive()) {
-            g_ptr<Quad> g = collision_data.first;
-            g_ptr<Quad> q = collision_data.second;
+        if(pressed(F)) {
+            // list<glm::mat4> ntr = {a,box->getTransform()};
+            // box_model->transformInstances(ntr);
+                scene->models[selected->ID]->instance = !scene->models[selected->ID]->instance;
+        }
 
-            if(g->dtype=="player") {
-                player_is_locked = true;
-                player_on_ground = true;
+        if(pressed(SPACE)) moving = !moving;
+   
+        if(held(E)) {
+            if(held(LSHIFT))
+                thread->setSpeed(thread->getSpeed()+0.001f);
+            else if(thread->getSpeed()>0.001f)
+                thread->setSpeed(thread->getSpeed()-0.001f);
+        }
+
+        if(pressed(R)) {
+            bills.clear();
+            row = 0;
+            for(int i=0;i<total;i++) {
+                g_ptr<Single> n_box = scene->singles[mouse_ids[i]];
+                if(i%(total/fac)) row++;
+                n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
             }
-            if(g->dtype=="proj") {
-                scene->recycle(g);
-            } 
-            physics->handle2dCollision(collision_data);
-        }
-
-        vec3 curr_vel = square->getVelocity().position;
-        float sensitivity = 6.0f;
-        if(!player_on_ground) {
-            coyote_time -= 1;
-            if(curr_vel.y()<3000) square->impulseL({0,20});
-        } else {
-            coyote_time = 20;
-        }
-
-        if(pressed(SPACE)) {
-            if(coyote_time>0) {
-                square->setLinearVelocity({0,-800});
+        
+            row = 0;
+            for(int i=0;i<total;i++) {
+                g_ptr<Single> n_box = scene->singles[apple_ids[i]];
+                if(i%(total/fac)) row++;
+                n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
+                claimed.set(n_box->ID,-1);
+            }
+        
+            copy_list = apple_ids;
+            for(auto i : mouse_ids) { 
+                int rand_i = randi(0,copy_list.length()-1);
+                int id = copy_list[rand_i];
+                copy_list.removeAt(rand_i);
+                bills << bill(vec3(scene->transforms[id][3]),false,id);
             }
         }
-        vec2 move = input_2d_keys(sensitivity).nY();
-        if(move.length()!=0&&!player_is_locked)
-            square->move(move);
 
-        if(pressed(MOUSE_LEFT)) {
-            auto proj = scene->create<Quad>("proj");
-            proj->setLinearVelocity(square->direction(scene->mousePos2d()).normalized()*800.0f);
-            proj->setPosition(square->getCenter());
+        // if(pressed(N)) {
+        //     if(held(LSHIFT))
+        //         box2->setColor(Color::BLUE);
+        //     else
+        //         box2->setColor(Color::RED);
+        // }
+
+        // if(held(G)) {
+        //     box2->setPosition(scene->getMousePos());
+        // }
+        if(held(T)) {
+            selected->setPosition(scene->getMousePos());
         }
-                   
-        if(pressed(F)) print("QUADS: ",scene->quads.length());
-        if(pressed(R)) tool.log_fps = !tool.log_fps; });
+    });
 
     return 0;
 }

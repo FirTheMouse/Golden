@@ -195,7 +195,7 @@ public:
 };
 
 
-/// @todo Overhaul rendering system, make scene more flexible and modular
+
 class Scene : virtual public Object {
 public:
 
@@ -204,6 +204,7 @@ public:
     q_list<bool> active;
     q_list<bool> culled;
     q_list<g_ptr<Single>> singles;
+    list<g_ptr<Model>> models;
     q_list<glm::mat4> transforms;
     q_list<glm::mat4> endTransforms;
     q_list<AnimState> animStates;
@@ -214,7 +215,6 @@ public:
     q_list<P_Prop> physicsProp;
 
     //Quad Arrays:
-    //std::vector<size_t> QUUID;
     q_list<bool> quadActive;
     q_list<bool> quadCulled;
     q_list<g_ptr<Quad>> quads;
@@ -318,6 +318,12 @@ public:
 
     virtual void add(const g_ptr<S_Object>& sobj);
 
+    // template<typename T, typename = std::enable_if_t<std::is_base_of_v<Golden::Object, T>>>
+    // g_ptr<T> make(const std::string& type) {
+
+    // }
+    
+
     void deactivate(const g_ptr<S_Object>& sobj)
     {
         sobj->stop();
@@ -378,14 +384,6 @@ public:
         {
             active.get(sobj->ID,"scene::reactivate::233") = true;
         }
-    }
-
-    void setupInstance(const std::string& type, const g_ptr<Model>& model)
-    {
-        //cout << "setting up instance of " << type << " with " << model->instanceTransforms.size() << endl;
-        if(instanceModels.hasKey(type))  return; //instanceModels.set(type,model);
-        else  {instanceModels.put(type,model); instanceTypes.push_back(type);}
-        model->scene=this;
     }
 
     void relight(glm::vec3 direction,glm::vec4 color) {
@@ -492,6 +490,35 @@ public:
     return closest;
     }
 
+    void cullSinglesSimplePoint()
+    {
+        // Build VP once
+        glm::mat4 VP = camera.getProjectionMatrix() * camera.getViewMatrix();
+
+        for (size_t i = 0; i < singles.length(); ++i)
+        {
+            if (!active[i]) { culled[i] = true; continue; }
+
+            // World position of the object origin (transform translation)
+            // GLM matrices are column-major; translation is column 3.
+            glm::vec3 worldPos = glm::vec3(transforms[i][3]);
+
+            glm::vec4 clip = VP * glm::vec4(worldPos, 1.0f);
+
+            // Behind camera or invalid
+            if (clip.w <= 0.0f) { culled[i] = true; continue; }
+
+            // OpenGL clip space frustum: -w..w for x,y,z
+            // (equivalently NDC after divide: -1..1)
+            bool inside =
+                (clip.x >= -clip.w && clip.x <= clip.w) &&
+                (clip.y >= -clip.w && clip.y <= clip.w) &&
+                (clip.z >= -clip.w && clip.z <= clip.w);
+
+            culled[i] = !inside;
+        }
+    }
+
     //Move an object between scenes, currently only works for singles
     void repo(const g_ptr<S_Object>& obj);
 
@@ -565,12 +592,12 @@ public:
             if(item->recycled.load()) {
                 return;
             }
-            item->recycled.store(true);
-
-            return_id(item->UUID);
             if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
                 scene->deactivate(s_obj);
             }
+
+            item->recycled.store(true);
+            return_id(item->UUID);
         }
     };
 

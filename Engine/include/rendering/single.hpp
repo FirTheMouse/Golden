@@ -40,6 +40,7 @@ public:
         model = make<Model>(std::move(m));
     }
     
+    g_ptr<Model> getModel();
 
     virtual glm::mat4& getTransform();
     virtual glm::mat4& getEndTransform();

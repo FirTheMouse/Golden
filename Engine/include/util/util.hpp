@@ -48,7 +48,7 @@ inline std::string trim_str(const std::string& s,const char c) {
     return s; 
 }
 
-#define DISABLE_BOUNDS_CHECK 1
+
 
 class Data{
 public:
@@ -486,4 +486,38 @@ inline std::string readFile(const std::string& filename) {
 }
 
 glm::mat4 interpolateMatrix(const glm::mat4& start, const glm::mat4& end, float alpha);
+
+inline void translateMatrix(glm::mat4& mat,vec3 by) {
+    mat = glm::translate(mat,by.toGlm());
+}
+
+inline void faceMatrixTo(glm::mat4& mat, const vec3& targetPos) {
+    vec3 currentPos = vec3(mat[3]);
+    vec3 toTarget = targetPos - currentPos;
+
+    toTarget.addY(-toTarget.y()); // flatten to XZ plane
+    if (toTarget.length() < 1e-5) return;
+
+    float angle = atan2(toTarget.x(), toTarget.z());
+
+    // Decompose current matrix into position, rotation, and scale
+    glm::vec3 position = glm::vec3(mat[3]);
+    glm::vec3 scale{
+        glm::length(glm::vec3(mat[0])),
+        glm::length(glm::vec3(mat[1])),
+        glm::length(glm::vec3(mat[2]))
+    };
+
+    // Create rotation matrix around Y
+    glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0, 1, 0));
+
+    // Apply scale after rotation
+    rotation[0] *= scale.x;
+    rotation[1] *= scale.y;
+    rotation[2] *= scale.z;
+
+    // Final transform: scaled & rotated, with position
+    mat = rotation;
+    mat[3] = glm::vec4(position, 1.0f);
+}
 

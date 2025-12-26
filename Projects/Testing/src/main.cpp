@@ -15,7 +15,7 @@ int main() {
     g_ptr<Object> obj = make<Object>();
     int ITS = 100;
     int MAX_RANGE = 4;
-    int STRAT = 0;
+    int STRAT = 2;
     list<std::string> titles;
     list<int> seq;
     //std::pow(ITS,5)

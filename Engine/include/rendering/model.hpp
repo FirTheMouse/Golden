@@ -200,7 +200,7 @@ public:
     }
 
     void setupMesh();
-    void setupInstancedVAO(const std::vector<glm::mat4>& instanceMatrices);
+    void setupInstancedVAO(const list<glm::mat4>& instanceMatrices);
     void draw(unsigned int shaderProgram) const;
 
     inline void updateInstanceTransform(size_t idx, const glm::mat4& mat) {
@@ -213,11 +213,12 @@ public:
         glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
 
-    inline void fullInstanceUpdate(const std::vector<glm::mat4>& instanceTransforms) {
-      glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-      glBufferData(GL_ARRAY_BUFFER, instanceTransforms.size() * sizeof(glm::mat4),
-             instanceTransforms.data(), GL_DYNAMIC_DRAW);
+    inline void fullInstanceUpdate(const list<glm::mat4>& instanceTransforms) {
+        glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+        glBufferData(GL_ARRAY_BUFFER, instanceTransforms.size() * sizeof(glm::mat4),
+                instanceTransforms.data(), GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+        instanceCount = instanceTransforms.size();
     }
 };
 
@@ -229,8 +230,6 @@ class Model : virtual public Object {
 public:
     std::vector<Mesh> meshes;
     bool instance = false;
-    //std::vector<g_ptr<S_Object>> instances;
-   // std::vector<glm::mat4> instanceTransforms;
     Scene* scene = nullptr;
     size_t id;
     size_t Iid;
@@ -347,44 +346,15 @@ public:
             mesh.draw(shaderProgram);
     }
 
-    // void addInstance(g_ptr<S_Object> instance);
-
-    // void removeInstance(size_t uid);
-
-    // void setupInstancing(const std::vector<glm::mat4>& instanceMatrices) {
-    //     for (auto& mesh : meshes)
-    //     {  
-    //         instanceTransforms = instanceMatrices;
-    //         mesh.setupInstancedVAO(instanceMatrices);
-    //         mesh.instance=instance;
-    //     }
-    // }
-
-    // inline void updateInstanceTransform(size_t idx, const glm::mat4& mat) {    
-    //     if (Iid < 0 || Iid >= instanceTransforms.size()) {
-    //         std::cerr << "Invalid Iid: " << Iid << " (size: " << instanceTransforms.size() << ")\n";
-    //         std::abort();
-    //     }  
-    //     for (auto& mesh : meshes) 
-    //     {
-    //         instanceTransforms[idx] = mat;
-    //         mesh.updateInstanceTransform(idx,mat);
-    //     }
-    // }
-
-    // void updateInstanceBuffers() {
-    //     for (auto& mesh : meshes) {
-    //         if (mesh.instanceVBO == 0) {
-    //             mesh.setupInstancedVAO(instanceTransforms);
-    //         } else {
-    //             glBindBuffer(GL_ARRAY_BUFFER, mesh.instanceVBO);
-    //             glBufferData(GL_ARRAY_BUFFER, instanceTransforms.size() * sizeof(glm::mat4),
-    //                         instanceTransforms.data(), GL_DYNAMIC_DRAW);
-    //             glBindBuffer(GL_ARRAY_BUFFER, 0);
-    //             mesh.instanceCount = instanceTransforms.size();
-    //         }
-    //     }
-    // }
+    void transformInstances(const list<glm::mat4>& transforms) {
+        for (auto& mesh : meshes) {
+            if (mesh.instanceVBO == 0) {
+                mesh.setupInstancedVAO(transforms);
+            } else {
+                mesh.fullInstanceUpdate(transforms);
+            }
+        }
+    }
 
 
     bool waitingForInstanceUpdate = false;

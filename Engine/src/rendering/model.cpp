@@ -57,7 +57,7 @@ void Mesh::setupMesh() {
 
 
 
-void Mesh::setupInstancedVAO(const std::vector<glm::mat4>& instanceMatrices) {
+void Mesh::setupInstancedVAO(const list<glm::mat4>& instanceMatrices) {
     if (instancedVAO == 0) glGenVertexArrays(1, &instancedVAO);
     if (instanceVBO == 0) glGenBuffers(1, &instanceVBO);
 
@@ -85,7 +85,7 @@ void Mesh::setupInstancedVAO(const std::vector<glm::mat4>& instanceMatrices) {
     }
 
     glBindVertexArray(0);
-
+    instance = true;
     instanceCount = instanceMatrices.size();
 }
 

@@ -259,7 +259,7 @@ namespace Golden
                     if(level)
                     {
                         part->setPosition(level->snapToGrid(scene->getMousePos()));
-                        list<Cell> myCells = level->cellsAround(part->getPosition(),((part->model->localBounds.getSize().x-1)/2));
+                        list<Cell> myCells = level->cellsAround(part->getPosition(),((part->getModel()->localBounds.getSize().x-1)/2));
                         for(auto cell : myCells)
                         {
                             cell->push(part);

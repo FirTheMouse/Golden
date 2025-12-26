@@ -60,9 +60,18 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         active.push(true);
         culled.push(false);
         singles.push(obj);
-        auto p_model = make<Model>(makePhysicsBox(obj->model->localBounds));
-        p_model->UUIDPTR = obj->UUID;
-        //physicsModels.push(p_model);
+        if(obj->model) {
+            if(!obj->model->instance) {
+                int existing_model_id = models.find(obj->model);
+                if(existing_model_id!=-1) {
+                    models[existing_model_id]->instance = true;
+                } 
+            }
+            models.push(obj->model);
+            obj->model = nullptr;
+        } else {
+            models.push(make<Model>());
+        }
         transforms.push(glm::mat4(1.0f));
         endTransforms.push(glm::mat4(1.0f));
         animStates.push(AnimState());
@@ -72,26 +81,6 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         collisionShapes.push(CollisionShape());
         physicsProp.push(P_Prop());
     }
-    // else if(auto obj = g_dynamic_pointer_cast<Instanced>(sobj))
-    // {
-    //         if(obj->getModel())
-    //         {
-    //         obj->getModel()->addInstance(sobj);
-    //          if(!instanceModels.hasKey(obj->type))
-    //          setupInstance(obj->type,obj->model);
-    //         }
-    //         else {
-    //             if(instanceModels.hasKey(obj->type))
-    //             {
-    //                 obj->setModel(instanceModels.get(obj->type));
-    //                 obj->getModel()->addInstance(sobj);
-    //             }
-    //             else {
-    //             std::cerr << "No model for instance type in Scene::add" << std::endl;
-    //             return;
-    //             }
-    //         }
-    // } 
 }
 
 void Scene::updateScene(float tpf)
@@ -108,30 +97,48 @@ void Scene::updateScene(float tpf)
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
     glClear(GL_DEPTH_BUFFER_BIT);
 
+    //Gathering the instances during our singles pass, so we don't need to split things up.
+    //This way, we can feed the values into the instance shader more directly, without disrupting
+    //our normal add/remove infrastructure.
+    list<list<glm::mat4>> instancedTransforms;
+    list<g_ptr<Model>> instancedModels;
+
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
     for (size_t i = 0; i < singles.length(); ++i) {
         if(i>=singles.length()) continue;
-        if(!active.get(i,"scene::updateScene::129")) continue;
-        if(culled.get(i,"scene::updateScene::130")) continue;
-        depthShader.setMat4("model", glm::value_ptr(transforms[i]));
-        g_ptr<Model> model = singles[i]->model;
-        bool hasBones = model->boneDirty.length()>0;
-        depthShader.setInt("hasSkeleton", hasBones ? 1 : 0);
-        if(hasBones)
-        {
-            model->updateBoneHierarchy();
-            model->uploadBoneMatrices(depthShader.getID());
+        if(!active[i]) continue;
+        if(culled[i]) continue;
+
+        if(models[i]->instance) {
+            int existing_instance_id = instancedModels.find(models[i]);
+            if(existing_instance_id!=-1) {
+                instancedTransforms[existing_instance_id].push(transforms[i]);
+            } else {
+                instancedModels.push(models[i]);
+                list<glm::mat4> temp(12);
+                temp << transforms[i];
+                instancedTransforms.push(temp);
+            }
+        } else {
+            depthShader.setMat4("model", glm::value_ptr(transforms[i]));
+            bool hasBones = models[i]->boneDirty.length()>0;
+            depthShader.setInt("hasSkeleton", hasBones ? 1 : 0);
+            if(hasBones)
+            {
+                models[i]->updateBoneHierarchy();
+                models[i]->uploadBoneMatrices(depthShader.getID());
+            }
+            models[i]->draw(depthShader.getID());
         }
-        model->draw(depthShader.getID());
     }
 
     instanceDepthShader.use();
     instanceDepthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
-    for (size_t i = 0; i < instanceTypes.size(); ++i) {
-        if(!active.get(i,"scene::updateScene::38")) continue;
+    for (size_t i = 0; i < instancedModels.size(); ++i) {
         instanceDepthShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
-        instanceModels.get(instanceTypes[i])->draw(instanceDepthShader.getID());
+        instancedModels[i]->transformInstances(instancedTransforms[i]);
+        instancedModels[i]->draw(instanceDepthShader.getID());
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -165,26 +172,36 @@ void Scene::updateScene(float tpf)
     }
 
     singleShader.use();
+
+    float gather_time = 0;
+    float render_time = 0;
+    double a,b,c;
+
     for (size_t i = 0; i < singles.length(); ++i) {
         if(i>=singles.length()) continue;
-        if(!active.get(i,"scene::updateScene::184")) continue;
-        if(culled.get(i,"scene::updateScene::185")) continue;
-        singleShader.setMat4("model", glm::value_ptr(transforms[i]));
-        g_ptr<Model> model = singles[i]->model;
-        bool hasBones = model->boneDirty.length()>0;
-        singleShader.setInt("hasSkeleton", hasBones ? 1 : 0);
-        if(hasBones)
-        {
-            model->uploadBoneMatrices(singleShader.getID());
+        if(!active[i]) continue;
+        if(culled[i]) continue;
+
+        if(!models[i]->instance) {
+            singleShader.setMat4("model", glm::value_ptr(transforms[i]));
+            bool hasBones = models[i]->boneDirty.length()>0;
+            singleShader.setInt("hasSkeleton", hasBones ? 1 : 0);
+            if(hasBones)
+            {
+                models[i]->uploadBoneMatrices(singleShader.getID());
+            }
+            models[i]->draw(singleShader.getID());
+        } else {
+            //Catch for instanced models that were already gathered here?
         }
-        singles[i]->model->draw(singleShader.getID());
     }
 
     instanceShader.use();
-    for (size_t i = 0; i < instanceTypes.size(); ++i) {
-        if(!active.get(i,"scene::updateScene::83")) continue;
-        instanceDepthShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
-        instanceModels.get(instanceTypes[i])->draw(instanceShader.getID());
+    for (size_t i = 0; i < instancedModels.size(); ++i) {
+        //No checks here, may need to introduce them later if this becomes a weak point
+        instanceShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
+        instancedModels[i]->transformInstances(instancedTransforms[i]);
+        instancedModels[i]->draw(instanceShader.getID());
     }
 
     glDisable(GL_DEPTH_TEST);      // ignore depth

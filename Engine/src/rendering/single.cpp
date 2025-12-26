@@ -31,48 +31,76 @@ bool Single::checkGet(int typeId)
 
 vec3 Single::markerPos(std::string marker)
 {
-    return vec3(getTransform() * glm::vec4(model->markers.get(marker).toGlm(), 1.0f));
+    return vec3(getTransform() * glm::vec4(getModel()->markers.get(marker).toGlm(), 1.0f));
 }
 
 void Single::remove()
 {
-    stop();
-    debug_trace_path = ("Single::remove::48");
-    size_t last_idx = scene->active.length() - 1;
-    try {
-    size_t id = (ID != last_idx) ? scene->singles.get(last_idx,debug_trace_path)->ID : 0;
-    size_t idx = ID;
-
-    model = nullptr;
-
-    scene->active.remove(ID);
-    scene->culled.remove(ID);
-    scene->singles.remove(ID);
-    scene->transforms.remove(ID);
-    scene->endTransforms.remove(ID);
-    scene->animStates.remove(ID);
-    scene->velocities.remove(ID);
-    scene->physicsStates.remove(ID);
-    scene->collisonLayers.remove(ID);
-    scene->collisionShapes.remove(ID);
-
-    if(ID!=last_idx)
-    {
-            auto obj = scene->singles.get(id);
-            obj->ID = idx;
-        } else {
-            print("ERROR: Swapped object ID=", id, " not found in objects map!");
+    size_t id = ID;
+    scene->active.impl.removeAt(id);
+    scene->culled.impl.removeAt(id);
+    scene->singles.impl.removeAt(id);
+    if(!scene->models.empty()) {
+        scene->models.removeAt(id);
+        scene->transforms.impl.removeAt(id);
+        scene->endTransforms.impl.removeAt(id);
+        scene->animStates.impl.removeAt(id);
+        scene->velocities.impl.removeAt(id);
+        scene->physicsStates.impl.removeAt(id);
+        scene->collisonLayers.impl.removeAt(id);
+        scene->collisionShapes.impl.removeAt(id);
+        scene->physicsProp.impl.removeAt(id);
     }
-    }
-    catch(const std::exception& e)
-    {
-        print("single::remove::72 Failed removal at index ",ID,": ",e.what());
-    }
+
+    // stop();
+    // debug_trace_path = ("Single::remove::48");
+    // size_t last_idx = scene->active.length() - 1;
+    // try {
+    // size_t id = (ID != last_idx) ? scene->singles.get(last_idx,debug_trace_path)->ID : 0;
+    // size_t idx = ID;
+
+    // model = nullptr;
+
+    // scene->active.remove(ID);
+    // scene->culled.remove(ID);
+    // scene->singles.remove(ID);
+    // scene->models.removeAt(ID);
+    // scene->transforms.remove(ID);
+    // scene->endTransforms.remove(ID);
+    // scene->animStates.remove(ID);
+    // scene->velocities.remove(ID);
+    // scene->physicsStates.remove(ID);
+    // scene->collisonLayers.remove(ID);
+    // scene->collisionShapes.remove(ID);
+
+    // if(ID!=last_idx)
+    // {
+    //         auto obj = scene->singles.get(id);
+    //         obj->ID = idx;
+    //     } else {
+    //         print("ERROR: Swapped object ID=", id, " not found in objects map!");
+    // }
+    // }
+    // catch(const std::exception& e)
+    // {
+    //     print("single::remove::72 Failed removal at index ",ID,": ",e.what());
+    // }
 }
 
 void Single::recycle()
 {
     scene->recycle(this,dtype);
+}
+
+g_ptr<Model> Single::getModel() {
+    if(model) {
+        return model;
+    } else if (checkGet(13)) {
+        return GET(scene->models,ID);
+    } else {
+        return nullptr;
+    }
+
 }
 
 glm::mat4& Single::getTransform() {
@@ -302,13 +330,13 @@ Single& Single::impulseS(const vec3& v) {
 
 BoundingBox Single::getWorldBounds()
 {
-    BoundingBox worldBox = model->localBounds;
+    BoundingBox worldBox = getModel()->localBounds;
     worldBox.transform(getTransform());
     return worldBox;
 }
 
 void Single::setColor(const glm::vec4& color)
-{model->setColor(color);}
+{getModel()->setColor(color);}
 
 
 void Single::hide() {scene->culled.get(ID)=true;}
@@ -359,7 +387,7 @@ Single& Single::faceTo(const vec3& targetPos) {
     rotation[2] *= scale.z;
 
     // Final transform: scaled & rotated, with position
-mat = rotation;
+    mat = rotation;
     mat[3] = glm::vec4(position, 1.0f);
 
     return *this;

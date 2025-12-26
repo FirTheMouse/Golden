@@ -112,8 +112,8 @@ void end() {
 
 void setSpeed(float speed)
 {
-    if(speed<=0.0f) {runningTurn = !runningTurn;}
-    else {sliceSpeed.store(speed);}
+    if(speed<=0.0f) {runningTurn = false; speed = 0.0f;}
+    else {sliceSpeed.store(speed); runningTurn = true;}
 }
 
 float getSpeed() {

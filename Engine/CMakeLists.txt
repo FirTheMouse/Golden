@@ -13,9 +13,17 @@ target_include_directories(GoldenEngine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/glad
 )
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+  set(GLFW_LIB "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/lib-arm64/libglfw3.a")
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+  set(GLFW_LIB "${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/lib-x86_64/libglfw3.a")
+else()
+  message(FATAL_ERROR "Unknown processor: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 # Example: Link GLFW or other libraries here
 target_link_libraries(GoldenEngine PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/ext/glfw/lib-arm64/libglfw3.a 
+    ${GLFW_LIB}
     "-framework OpenGL"
     "-framework Cocoa"
     "-framework IOKit"
