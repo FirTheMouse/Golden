@@ -341,9 +341,27 @@ public:
         copy(*other);
     }
 
+    void enableInstanced() {
+        instance = true;
+    }
+    void disableInstanced() {
+        instance = false;
+        for (auto& mesh : meshes) {
+            if(mesh.instance) {
+                mesh.instance = false;
+            } 
+        }
+    }
+
+    void toggleInstanced() {
+        if(instance) disableInstanced();
+        else enableInstanced();
+    }
+
     void draw(unsigned int shaderProgram) const {
-        for (const auto& mesh : meshes)
+        for (const auto& mesh : meshes) {
             mesh.draw(shaderProgram);
+        }
     }
 
     void transformInstances(const list<glm::mat4>& transforms) {
@@ -356,7 +374,7 @@ public:
         }
     }
 
-
+    //This is tottaly vestigial, ignore for now!
     bool waitingForInstanceUpdate = false;
     void requestInstanceUpdate();
 

@@ -61,10 +61,10 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         culled.push(false);
         singles.push(obj);
         if(obj->model) {
-            if(!obj->model->instance) {
+            if(!obj->model->instance&&instancingEnabled) {
                 int existing_model_id = models.find(obj->model);
                 if(existing_model_id!=-1) {
-                    models[existing_model_id]->instance = true;
+                    models[existing_model_id]->enableInstanced();
                 } 
             }
             models.push(obj->model);
@@ -97,11 +97,8 @@ void Scene::updateScene(float tpf)
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
     glClear(GL_DEPTH_BUFFER_BIT);
 
-    //Gathering the instances during our singles pass, so we don't need to split things up.
-    //This way, we can feed the values into the instance shader more directly, without disrupting
-    //our normal add/remove infrastructure.
-    list<list<glm::mat4>> instancedTransforms;
-    list<g_ptr<Model>> instancedModels;
+    instancedTransforms.clear();
+    instancedModels.clear();
 
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
@@ -200,7 +197,6 @@ void Scene::updateScene(float tpf)
     for (size_t i = 0; i < instancedModels.size(); ++i) {
         //No checks here, may need to introduce them later if this becomes a weak point
         instanceShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
-        instancedModels[i]->transformInstances(instancedTransforms[i]);
         instancedModels[i]->draw(instanceShader.getID());
     }
 
@@ -310,7 +306,8 @@ void Scene::tickEnvironment(int time)
     lightSpaceMatrix = lightProjection * lightView;
 }
 
-
+//This big shadow map could be a big performance drain for more complex scenes, consider refractoring once
+//I care to actaully screw with graphics.
 void Scene::setupShadows()
 {
     glGenFramebuffers(1, &depthMapFBO);

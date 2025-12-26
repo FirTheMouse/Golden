@@ -1,5 +1,6 @@
 #pragma once
 #include <util/list.hpp>
+#include <util/q_object.hpp>
 
 template<typename K,typename V>
 struct entry
@@ -144,6 +145,15 @@ public:
         return hash;
     }
 
+    static inline uint32_t mix32(uint64_t x) {
+        x ^= x >> 33;
+        x *= 0xff51afd7ed558ccdULL;
+        x ^= x >> 33;
+        x *= 0xc4ceb9fe1a85ec53ULL;
+        x ^= x >> 33;
+        return (uint32_t)x;
+    }
+
     template<typename T>
     uint32_t hashT(const T& val)
     {
@@ -158,11 +168,21 @@ public:
         }
         else if constexpr (std::is_same_v<T,int>) {
             return val;
-        }
+        } else if constexpr (std::is_pointer_v<T>) {
+            auto addr = (std::uintptr_t)val;
+            addr >>= 3; 
+            return mix32((uint64_t)addr);
+        } 
         else {
             return val;
         }
     };
+
+    template<class U>
+    uint32_t hashT(const Golden::g_ptr<U>& p)
+    {
+        return hashT(p.getPtr());
+    }
 
     void put(const K& key,V value)
     {

@@ -227,11 +227,35 @@ public:
     q_list<P_Prop> quadPhysicsProp;
     q_list<list<std::string>> slots;
 
+
+
+    //Gathering the instances during our singles pass, so we don't need to split things up.
+    //This way, we can feed the values into the instance shader more directly, without disrupting
+    //our normal add/remove infrastructure.
+    list<list<glm::mat4>> instancedTransforms;
+    //Could optimize this into a map<g_ptr<Model>,list<glm::mat4>> later, when it isn't 11am on Christmas.
+    list<g_ptr<Model>> instancedModels;
+
+
     //Misc Arrays:
-    map<std::string,g_ptr<Model>> instanceModels;
-    std::vector<std::string> instanceTypes;
     std::vector<g_ptr<Light>> lights;
     glm::mat4 lightSpaceMatrix;
+
+    private:
+        bool instancingEnabled = false; //Getter setter here because uniqiue behaviour is needed!
+    public:
+    void enableInstancing() {
+        instancingEnabled = true;
+        map<g_ptr<Model>,int> count;
+        for(int i=0;i<models.length();i++) {
+            count.getOrPut(models[i],-1)++;
+        }
+        for(auto e : count.entrySet()) {
+            if(e.value>0) e.key->enableInstanced();
+        }
+    }
+    void disableInstancing() {instancingEnabled = false;}
+    bool isInstancingEnabled() {return instancingEnabled;}
 
     glm::vec3 sunDir = glm::normalize(glm::vec3(-0.2f, -0.5f,-0.5f));
     glm::vec3 moonDir = glm::normalize(glm::vec3(-0.5f, -0.5f,-0.5f));

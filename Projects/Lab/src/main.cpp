@@ -38,9 +38,9 @@ int main()  {
     //Mesh box_mesh = makeTestBox(1.0f);
     g_ptr<Model> box_model = make<Model>(makeTestBox(0.5f));
 
-    // g_ptr<Single> box2 = make<Single>(box_model);
-    // scene->add(box2);
-    // box2->setPosition({5,0,0});
+    g_ptr<Single> box2 = make<Single>(make<Model>(makeTestBox(0.5f)));
+    scene->add(box2);
+    box2->setPosition({5,0,0});
     
     // g_ptr<Single> box3 = make<Single>(box_model);
     // scene->add(box3);
@@ -59,7 +59,6 @@ int main()  {
     list<int> apple_ids;
     list<int> mouse_ids; 
     for(int i=0;i<total;i++) {
-        //g_ptr<Single> n_box = scene->create<Single>("floor_metal");
         g_ptr<Single> n_box = make<Single>(whiskers_3);
         scene->add(n_box);
         if(i%(total/fac)) row++;
@@ -120,11 +119,9 @@ int main()  {
         tool.tick();
         
         if(held(H)) scene->cullSinglesSimplePoint();
-
         if(pressed(F)) {
-            // list<glm::mat4> ntr = {a,box->getTransform()};
-            // box_model->transformInstances(ntr);
-                scene->models[selected->ID]->instance = !scene->models[selected->ID]->instance;
+            scene->models[mouse_ids[0]]->toggleInstanced();
+            scene->models[apple_ids[0]]->toggleInstanced();
         }
 
         if(pressed(SPACE)) moving = !moving;
