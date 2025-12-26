@@ -1,7 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <util/util.hpp>
+#include <util/engine_util.hpp>
 #include <core/input.hpp>
 
 class Camera {

@@ -4,7 +4,7 @@
 #include <rendering/single.hpp>
 #include <rendering/camera.hpp>
 #include <rendering/renderer.hpp>
-#include <util/util.hpp>
+#include <util/engine_util.hpp>
 #include <rendering/scene_object.hpp>
 #include <gui/quad.hpp>
 #include <gui/text.hpp>

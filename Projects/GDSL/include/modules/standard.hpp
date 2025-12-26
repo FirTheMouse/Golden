@@ -114,8 +114,8 @@ namespace paren_module {
         size_t lparen_id = reg::new_type("LPAREN");
         reg::new_type("ENTER_PAREN");
         a_functions.put(lparen_id, [](a_context& ctx) {
-            auto paren_range = balance_tokens(ctx.tokens, GET_TYPE(LPAREN), GET_TYPE(RPAREN), ctx.index-1);
-            if (paren_range.x() < 0 || paren_range.y() < 0) {
+            std::pair<int,int> paren_range = balance_tokens(ctx.tokens, GET_TYPE(LPAREN), GET_TYPE(RPAREN), ctx.index-1);
+            if (paren_range.first < 0 || paren_range.second < 0) {
                 print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
                 return;
             }
@@ -127,7 +127,7 @@ namespace paren_module {
             // } 
     
             list<g_ptr<Token>> sub_list;
-            for(int i=paren_range.x()+1;i<paren_range.y();i++) {
+            for(int i=paren_range.first+1;i<paren_range.second;i++) {
                 sub_list.push(ctx.tokens[i]);
             }
             ctx.node->sub_nodes = parse_tokens(sub_list,true);
@@ -135,8 +135,8 @@ namespace paren_module {
                 ctx.end_lambda();     
             }
             ctx.state = GET_TYPE(UNTYPED);        
-            ctx.index = paren_range.y()-1;
-            ctx.it = ctx.tokens.begin() + (int)(paren_range.y());
+            ctx.index = paren_range.second-1;
+            ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
             ctx.skip_inc = 1; // Can skip more if needed
         });
      
@@ -160,14 +160,14 @@ namespace array_module {
         size_t indexing_id = reg::new_type("INDEXING"); 
         size_t lbracket_id = reg::new_type("LBRACKET"); 
         a_functions.put(lbracket_id, [brackets_id,indexing_id](a_context& ctx) {
-            auto bracket_range = balance_tokens(ctx.tokens, GET_TYPE(LBRACKET), GET_TYPE(RBRACKET), ctx.index-1);
-            if (bracket_range.x() < 0 || bracket_range.y() < 0) {
+            std::pair<int,int> bracket_range = balance_tokens(ctx.tokens, GET_TYPE(LBRACKET), GET_TYPE(RBRACKET), ctx.index-1);
+            if (bracket_range.first < 0 || bracket_range.second < 0) {
                 print("parse_tokens::128 Unmatched brackets at ", ctx.index);
                 return;
             }
     
             list<g_ptr<Token>> sub_list;
-            for(int i=bracket_range.x()+1;i<bracket_range.y();i++) {
+            for(int i=bracket_range.first+1;i<bracket_range.second;i++) {
                 sub_list.push(ctx.tokens[i]);
             }
 
@@ -182,8 +182,8 @@ namespace array_module {
             ctx.node->sub_nodes = parse_tokens(sub_list,true);
             ctx.end_lambda();
             ctx.state = GET_TYPE(UNTYPED);        
-            ctx.index = bracket_range.y()-1;
-            ctx.it = ctx.tokens.begin() + (int)(bracket_range.y());
+            ctx.index = bracket_range.second-1;
+            ctx.it = ctx.tokens.begin() + (int)(bracket_range.second);
             ctx.skip_inc = 1; // Can skip more if needed
         });
         

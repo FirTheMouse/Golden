@@ -51,10 +51,10 @@ int main()  {
     g_ptr<Model> whiskers_1 = make<Model>("../models/agents/WhiskersLOD1.glb");
     g_ptr<Model> whiskers_2 = make<Model>("../models/agents/WhiskersLOD2.glb");
     g_ptr<Model> whiskers_3 = make<Model>("../models/agents/WhiskersLOD3.glb");
-
+    scene->enableInstancing();
     int row = 0;
     int fac = 80;
-    int total = 10;
+    int total = 10000;
     list<bill> bills;
     list<int> apple_ids;
     list<int> mouse_ids; 

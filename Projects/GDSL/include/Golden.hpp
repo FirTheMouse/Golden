@@ -1,9 +1,7 @@
 #pragma once
 
-#include <util/util.hpp>
+#include<util/util.hpp>
 #include<core/type.hpp>
-#include<util/group.hpp>
-#include<util/d_list.hpp>
 
 #define PRINT_ALL 1
 #define PRINT_STYLE 1
@@ -583,21 +581,21 @@ void print_a_node(const g_ptr<a_node>& node, int depth = 0, int index = 0) {
 #endif
 }
 
-static vec2 balance_tokens(list<g_ptr<Token>> tokens, uint32_t a, uint32_t b,int start = 0) {
-    vec2 result(-1,-1);
+static std::pair<int,int> balance_tokens(list<g_ptr<Token>> tokens, uint32_t a, uint32_t b,int start = 0) {
+    std::pair<int,int> result(-1,-1);
     int depth = 0;
     for(int i=start;i<tokens.length();i++) {
         g_ptr<Token> t = tokens[i];
         if(t->getType()==a) {
             if(depth==0) {
-                result.setX(i);
+                result.first = i;
             }
             depth++;
         }
         else if(t->getType()==b) {
             depth--;
             if(depth<=0) {
-                result.setY(i+1);
+                result.second = (i+1);
                 break;
             }
         }
