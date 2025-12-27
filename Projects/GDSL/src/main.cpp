@@ -1,79 +1,8 @@
-#include<core/helper.hpp>
 #include<modules/standard.hpp>
 
 #include <chrono>
 #include <iostream>
 
-double time_function(int ITERATIONS,std::function<void(int)> process) {
-    auto start = std::chrono::high_resolution_clock::now();
-    for(int i=0;i<ITERATIONS;i++) {
-        process(i);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-    auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-    return (double)time.count();
-}
-
-
-void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
-    list<list<double>> t_table;
-
-    for(int c=0;c<f_table.length();c++) {
-        t_table.push(list<double>{});
-        for(int r=0;r<f_table[c].length();r++) {
-            t_table[c].push(0.0);
-        }
-    }
-
-    for(int m = 0;m<(warm_up?2:1);m++) {
-        int C_ITERATIONS = m==0?1:C_ITS;
-
-        for(int c=0;c<t_table.length();c++) {
-            for(int r=0;r<t_table[c].length();r++) {
-                t_table[c][r]=0.0;
-            }
-        }
-
-        for(int i = 0;i<C_ITERATIONS;i++)
-        {
-            for(int c=0;c<f_table.length();c++) {
-                for(int r=0;r<f_table[c].length();r++) {
-                    // if(r==0) print("Running: ",s_table[c][r]);
-                    double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
-                    t_table[c][r]+=time;
-                }
-            }
-        }
-        print("-------------------------");
-        print(m==0 ? "      ==COLD==" : "       ==WARM==");
-        print("-------------------------");
-        for(int c=0;c<t_table.length();c++) {
-            for(int r=0;r<t_table[c].length();r++) {
-                t_table[c][r]/=C_ITERATIONS;
-                print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
-            }
-            print("-------------------------");
-        }
-        for(auto v : comps) {
-            double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
-            std::string sfs;
-            double tolerance = 5.0;
-            if (std::abs(factor - 1.0) < tolerance/100.0) {
-                sfs = "around the same as ";
-            } else if (factor > 1.0) {
-                double percentage = (factor - 1.0) * 100.0;
-                sfs = std::to_string(percentage) + "% slower than ";
-            } else {
-                double percentage = (1.0/factor - 1.0) * 100.0;
-                sfs = std::to_string(percentage) + "% faster than ";
-            }
-            print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
-            "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
-        }
-        print("-------------------------");
-
-    }
-}
 
 int main() {
 
@@ -159,6 +88,77 @@ int main() {
     return 0;
 }
 
+//#include<util/engine_util.hpp>
+// double time_function(int ITERATIONS,std::function<void(int)> process) {
+//     auto start = std::chrono::high_resolution_clock::now();
+//     for(int i=0;i<ITERATIONS;i++) {
+//         process(i);
+//     }
+//     auto end = std::chrono::high_resolution_clock::now();
+//     auto time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+//     return (double)time.count();
+// }
+
+
+// void run_rig(list<list<std::function<void(int)>>> f_table,list<list<std::string>> s_table,list<vec4> comps,bool warm_up,int PROCESS_ITERATIONS,int C_ITS) {
+//     list<list<double>> t_table;
+
+//     for(int c=0;c<f_table.length();c++) {
+//         t_table.push(list<double>{});
+//         for(int r=0;r<f_table[c].length();r++) {
+//             t_table[c].push(0.0);
+//         }
+//     }
+
+//     for(int m = 0;m<(warm_up?2:1);m++) {
+//         int C_ITERATIONS = m==0?1:C_ITS;
+
+//         for(int c=0;c<t_table.length();c++) {
+//             for(int r=0;r<t_table[c].length();r++) {
+//                 t_table[c][r]=0.0;
+//             }
+//         }
+
+//         for(int i = 0;i<C_ITERATIONS;i++)
+//         {
+//             for(int c=0;c<f_table.length();c++) {
+//                 for(int r=0;r<f_table[c].length();r++) {
+//                     // if(r==0) print("Running: ",s_table[c][r]);
+//                     double time = time_function(PROCESS_ITERATIONS,f_table[c][r]);
+//                     t_table[c][r]+=time;
+//                 }
+//             }
+//         }
+//         print("-------------------------");
+//         print(m==0 ? "      ==COLD==" : "       ==WARM==");
+//         print("-------------------------");
+//         for(int c=0;c<t_table.length();c++) {
+//             for(int r=0;r<t_table[c].length();r++) {
+//                 t_table[c][r]/=C_ITERATIONS;
+//                 print(s_table[c][r],": ",t_table[c][r]," ns (",t_table[c][r] / PROCESS_ITERATIONS," ns per operation)");
+//             }
+//             print("-------------------------");
+//         }
+//         for(auto v : comps) {
+//             double factor = t_table[v.x()][v.y()]/t_table[v.z()][v.w()];
+//             std::string sfs;
+//             double tolerance = 5.0;
+//             if (std::abs(factor - 1.0) < tolerance/100.0) {
+//                 sfs = "around the same as ";
+//             } else if (factor > 1.0) {
+//                 double percentage = (factor - 1.0) * 100.0;
+//                 sfs = std::to_string(percentage) + "% slower than ";
+//             } else {
+//                 double percentage = (1.0/factor - 1.0) * 100.0;
+//                 sfs = std::to_string(percentage) + "% faster than ";
+//             }
+//             print("Factor [",s_table[v.x()][v.y()],"/",s_table[v.z()][v.w()],
+//             "]: ",factor," (",s_table[v.x()][v.y()]," is ",sfs,s_table[v.z()][v.w()],")");
+//         }
+//         print("-------------------------");
+
+//     }
+// }
 
 // g_ptr<Type> data
 //         template<typename T = std::string>
