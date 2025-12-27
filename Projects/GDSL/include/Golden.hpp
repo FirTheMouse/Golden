@@ -3,8 +3,58 @@
 #include<util/util.hpp>
 #include<core/type.hpp>
 
-#define PRINT_ALL 1
+//Controls for the compiler printing, for debugging
+#define PRINT_ALL 0
 #define PRINT_STYLE 1
+//Very important when adding modules, but will add overhead on execution, causes the reg class
+//to check if a hash exists before using it
+#define CHECK_REG 0
+
+
+//The GDSL compiler has undergone plenty of changes over time, its current version is 0.1.9, with 0.2.0 planned to be the
+//addition of proper arrays and for loops that can take advantage of the memory model to test bulk object opperations.
+//Orginally, this started as a one pass string-based parser, similar to my other early domain specific languages. 
+//I was making GDSL (lit. Golden Domain Specific Language) for GUIDE (Golden User Interface Development Envrionment) as
+//a way to store the behaviour of dynamic gui elements with just a string. 
+//While writting the code, I had an idea to eliminate the synactic overhead of the engine API
+//i.e: GDSL was going to be a transpiler to C++, just a way to get rid of 'g_ptr<T>'.
+    // g_ptr<Type> Person = make<Type>();
+    // Person->add_initializer([](g_ptr<Object> object){
+    //     object->set<int>("age",42);
+    // }); //Explicit intilizar addition
+
+    // (*Person)+([](g_ptr<Object> object){
+    //     object->set<int>("age",42);
+    // }); //Will be Person +{ * logic here * }
+
+    // auto people = make<group>(); //Will be: group people;
+    // auto joe = Person->create(); //Will be: Person joe;
+    // *people << joe; //Will be: people << joe;
+    // auto man = (*people)[0]; //Will be: man people[0];
+    // //print(man->get<int>("age")); //Will be: print(man.age);
+//This was the original API sketch I had for how I wanted GDSL's syntax to look, at this point I had decided
+//this would be a dsl for Golden instead of just a script interpreter for GUIDE.
+//By version 0.0.5 (which is archived in the giant storage dump in the main.cpp of testing) I had moved towards a multi-pass system
+//which is more recognizable as GDSL's compiler, with the pipeline: token -> a_node -> t_node/s_node. This was after about 4 days
+//of development. At this time, I started working on the Type as well, a big pain point with this version was adding types, which each 
+//required explicit handeling such as int_list, float_list, and switch cases to detect them all. 
+//At this time, Type was based on the architecture of Scene, with the idea being we create a struct of arrays/ECS and use that as the memory model.
+//To make Type type agnostic, I came up with the idea to store the bytes directly, and bucket the arrays by size instead of by type. 
+//I eventually implmented this on day 6, and got it working in a very basic state with a clunky API, though in testing it matched a 
+//handmade struct of arrays. I actually made the classes now in Logger/rig (my profiler) such as time_function for this. 
+//I used the new Type in version 0.0.6, and realized the next major pain point would be the switch cases. I didn't like the idea
+//of having to go through a bunch of methods to add and maintain cases, it felt like something that would lead to points of failure
+//and development pain later on. I also *really* didn't want to spend hours refractoring all the switch cases I had accumulated.
+//I avoided this for 3 days, and eventually, I had the spike of motivation to just bite the bullet and get it done.
+//It only took 5 hours to actaully fiqure out how to make it modular with the registry and maps. 
+//After that, it was days of one to two hours of just sorting and converting, I would work on it while doing other things
+//like during a long car drive or while watching a show. Eventually, I had everything aranged into the new module system.
+//I did some more work to get GDSL to a functioning state, up to 0.1.0, then I had to go to college and deal with moving in and such.
+//A couple weeks later, I did further work, all of which should be visible on GitHub now.
+//At one point, while working on something else, I had the idea that maybe I could turn the GDSL compiler into a way to make
+//dsls quickly for various projects, instead of my quick string-based parsers I've made a couple times, yet I haven't tried this yet.
+
+
 
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
@@ -36,19 +86,23 @@ public:
     }
 
     static uint32_t ID(uint32_t hash) {
-        if(!hash_to_enum.hasKey(hash)) { //Horrible for performance, replace this later but keep it for security now
+        #if CHECK_REG
+        if(!hash_to_enum.hasKey(hash)) {
             print("reg::40 Warning, key not found for enum ",hash,"!");
             return 0;
         }
-        else return hash_to_enum.get(hash);
+        #endif 
+        return hash_to_enum.get(hash);
     }
 
     static std::string name(uint32_t ID) {
-        if(!enum_to_string.hasKey(ID)) { //Horrible for performance, replace this later but keep it for security now
+        #if CHECK_REG
+        if(!enum_to_string.hasKey(ID)) {
             print("reg::50 Warning, key not found for enum ",ID,"!");
             return "[null]";
-        }
-        else return enum_to_string.get(ID);
+        } 
+        #endif
+        return enum_to_string.get(ID);
     }
 
     static void printRegistry() {
@@ -68,6 +122,8 @@ public:
 
 static std::string fallback = "[undefined]";
 
+//t_info contains all the key information for a token (t stage), the family and such is a bit unnesecary
+//right now, but I keep it around because I've got no idea when we'll need it. 
 struct t_info {
     t_info(uint32_t _type, size_t _size, uint32_t _family) : type(_type), size(_size), family(_family) {}
     t_info(uint32_t _type, size_t _size) : type(_type), size(_size) {}
@@ -77,6 +133,7 @@ struct t_info {
     uint32_t family = 0;
 };
 
+            //Many classes inherity from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
 class Token : public Object {
     public:
         Token(uint32_t _type,const std::string& _content) 
@@ -123,7 +180,7 @@ static void reg_t_key(std::string name,uint32_t enum_key,size_t size, uint32_t f
 //Consider adding this in the future, if it's ever really needed
 //map<char,std::function<void()>> tokenizer_functions;
 
-
+//Basic recursive descent tokenizer, this is probably the least fancy part of the entire compiler
 static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') {
     auto it = code.begin();
     list<g_ptr<Token>> result;
@@ -380,9 +437,11 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
     return result;
 }
 
-
+//Forward delcaring s_node
 class s_node;
 
+//The a_node is used for the 'a stage', it contains groupings of tokens and their scopes.
+//Most a_functions are very basic state transforms for the recursive descent parser, this is more a cleanup stage after tokenization
 class a_node : public Object {
 public:
     a_node() {}
@@ -397,6 +456,7 @@ public:
     bool balanced = false;
 };
 
+//Used for debugging, and for printing 
 map<uint32_t,std::function<std::string(void*)>> value_to_string;
 map<uint32_t, std::function<void(void*)>> negate_value;
 
@@ -477,6 +537,7 @@ struct t_value {
 class r_node;
 class Frame;
 
+
 /// @brief WARNING! Value will cause memory leaks on deconstruction in the current version
 class t_node : public Object {
 public:
@@ -491,6 +552,8 @@ public:
     s_node* scope = nullptr;
 };
 
+//S_node means 'scene node' it's used as the main store for meaning and is where a lot of the linking and transformation happens
+//before the 'r stage'.
 class s_node : public Object {
 public:
     s_node() {
@@ -933,6 +996,9 @@ auto t_literal_handler = [](t_context& ctx) -> g_ptr<t_node> {
 map<uint32_t, uint32_t> type_key_to_type;
 map<uint32_t,std::function<g_ptr<t_node>(t_context& ctx)>> t_functions;
 
+//t_parse_expression is one of my favourite methods, it handles bassicly all experssion parsing for the 't stage'
+//In just 80 lines of code (as of 0.1.9), its a very clean example of how I think code should be structured: 
+//find the core relationship rather than the emergent property.
 static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nullptr) {
     g_ptr<t_node> result = make<t_node>();
     result->type = t_opp_conversion.getOrDefault(node->type,GET_TYPE(UNDEFINED));
@@ -1162,6 +1228,10 @@ struct d_context {
     d_context(g_ptr<s_node> _root, size_t& _idx) : root(_root), idx(_idx) {}
 };
 map<uint32_t, std::function<void(g_ptr<t_node>, d_context&)>> discover_handlers;
+
+//The discovery stage is here because of how Type works, we need to know the memory layout
+//before it gets populated, if we use address refrences instead of indexes in the Type.
+//For streaming and C++ competitive performance we need this. Though this stage can also be used for other things
 
 static void discover_symbol(g_ptr<t_node> node,d_context& ctx) {
     if(discover_handlers.hasKey(node->type)) {
@@ -1520,6 +1590,9 @@ static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
     }
 }
 
+//Streaming is a diffrent execution approach that pre-resolves the values to direct addresses and bytes to feed into the Type
+//while this looses flexibility, it can reach the same performance levels as C++ (within 30% in benchmarks), though, this has
+//been shotgunned by the change to use Type indexes instead of adresses.
 static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
     #if PRINT_ALL
     print("==STREAM NODES==");
