@@ -88,7 +88,14 @@ void Scene::updateScene(float tpf)
     sceneTime+=tpf;
     Input::get().decayScroll();
     double xpos, ypos;
-    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+    int winW=0, winH=0, fbW=0, fbH=0;
+    glfwGetWindowSize(window.getWindow(), &winW, &winH);
+    glfwGetFramebufferSize(window.getWindow(), &fbW, &fbH);
+    window.resolution = glm::vec2((float)fbW, (float)fbH);
+    double sx = (winW > 0) ? (double)fbW / (double)winW : 1.0;
+    double sy = (winH > 0) ? (double)fbH / (double)winH : 1.0;
+    glfwGetCursorPos(window.getWindow(), &xpos, &ypos);
+    Input::get().updateMouse(xpos * sx, ypos * sy);
     Input::get().updateMouse(xpos, ypos);
     camera.update(tpf);
     Input::get().syncMouse();
@@ -140,7 +147,7 @@ void Scene::updateScene(float tpf)
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glClearColor(sunColor.x*0.5f, sunColor.y*0.8f, sunColor.z*1.3f, 1.0f);
-    glViewport(0, 0, window.width*2, window.height*2);
+    glViewport(0, 0, fbW, fbH);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     for(size_t i=0;i<3;i++)

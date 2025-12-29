@@ -20,8 +20,8 @@ Thumbs.db
 
 # Compiled object files and executables
 *.o
-*.obj
-*.glb
+#*.obj
+#*.glb
 *.so
 *.dll
 *.exe

@@ -2,6 +2,7 @@
 #include <string>
 #include <glm.hpp>
 #include <core/input.hpp>
+#include <GLFW/glfw3.h>
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 static void click_callback(GLFWwindow* window, int button, int action, int mods);
@@ -35,9 +36,9 @@ public:
     }
 
     // Optionally: expose access to the native GLFWwindow* if you need it internally
-    void* getWindow(); // or GLFWwindow* getNativeWindow();
+    GLFWwindow*getWindow() {return window;} // or GLFWwindow* getNativeWindow();
 private:
-    void* window; // Or, #include <GLFW/glfw3.h> and use GLFWwindow* window;
+    GLFWwindow* window; // Or, #include <GLFW/glfw3.h> and use GLFWwindow* window;
 };
 
 class Shader {
