@@ -1,4 +1,5 @@
 #include<modules/standard.hpp>
+#include<util/engine_util.hpp>
 
 #include <chrono>
 #include <iostream>
@@ -19,7 +20,7 @@ int main() {
         data_module::initialize();
         paren_module::initialize();
         functions_module::initialize();
-        std::string code = readFile("../Projects/GDSL/src/golden.gld");
+        std::string code = readFile(root()+"/Projects/GDSL/src/golden.gld");
         list<g_ptr<Token>> tokens = tokenize(code);
         list<g_ptr<a_node>> nodes = parse_tokens(tokens);
         balance_precedence(nodes);
