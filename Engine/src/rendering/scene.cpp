@@ -99,7 +99,7 @@ void Scene::updateScene(float tpf)
     Input::get().updateMouse(xpos, ypos);
     camera.update(tpf);
     Input::get().syncMouse();
-
+    
     glViewport(0, 0, 4096, 4096);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
     glClear(GL_DEPTH_BUFFER_BIT);
