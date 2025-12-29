@@ -1,6 +1,5 @@
 # Build folders
 /build/
-Engine/ext/
 cmake-build-*/
 
 # CMake generated files
