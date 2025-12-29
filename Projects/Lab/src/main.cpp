@@ -52,7 +52,7 @@ int main()  {
     g_ptr<Model> whiskers_3 = make<Model>(M_ROOT+"WhiskersLOD3.glb");
     scene->enableInstancing();
     int row = 0;
-    int total = 100;
+    int total = 1000;
     int fac = total/10;
     list<bill> bills;
     list<int> apple_ids;

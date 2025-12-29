@@ -5,8 +5,6 @@
 
 namespace fs = std::filesystem;
 
-#define RECONFIGURE_PROJECT 0
-
 void startProject(std::string name)
 {
     std::string dirPath = "../Projects/" + name+"/";
@@ -131,13 +129,12 @@ int launchProject(std::string name)
     std::string build_string = "cmake -S "+src+" -B "+build;
     int result = 0;
 
-    #if RECONFIGURE_PROJECT
-        std::cout << "Reconfiguring with cmake...\n";
-        int result = std::system(build_string.c_str());
-        if (result != 0) return result;
-    #endif
+    std::cout << "Reconfiguring with cmake...\n";
+    result = std::system(build_string.c_str());
+    if (result != 0) return result;
 
     std::cout << "Building project...\n";
+    print(build);
     build_string = "cmake --build "+build+" --config Release --target "+name;
     result = std::system(build_string.c_str());
     if (result != 0) return result;
@@ -158,9 +155,12 @@ int main()
     scene->camera.speedMod = 0.01f;
 
 
+    //Uncomment and use this to add new projects:
     // std::string name = "AvalVentures";
     // startProject(name);
     // addProjectToCMake(name);
+
+    //Launch projects here, set to the name of the project
     std::string p1 = "Lab";
     std::string p2 = "Spaced";
     std::string p3 = "GDSL";
