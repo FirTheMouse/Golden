@@ -132,7 +132,7 @@ int launchProject(std::string name)
     if (result != 0) return result;
 
     std::cout << "Building project...\n";
-    result = std::system(("cmake --build "+build).c_str());
+    result = std::system(("cmake --build "+build+" --config Release").c_str());
     if (result != 0) return result;
 
     std::string binPath = src+"/build/bin/" + name;
