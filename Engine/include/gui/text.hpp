@@ -26,7 +26,7 @@ public:
     Font() {}
     Font(const std::string& path,int size) {loadFromTTF(path,size);}
     map<char, F_Glyph> glyphs;
-    uint atlasTexID = 0;  // OpenGL texture ID
+    unsigned int atlasTexID = 0;  // OpenGL texture ID
     float lineHeight;
 
     void loadFromTTF(const std::string& ttfPath, int pxHeight);

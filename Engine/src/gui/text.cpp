@@ -363,7 +363,7 @@ namespace Golden
 
     g_ptr<Quad> char_at(size_t idx,g_ptr<Quad> g)
     {
-        size_t id = g->get<txt>("chars")->list::get(idx);
+        size_t id = g->get<txt>("chars")->list<size_t>::get(idx);
         return g->get<txt>("chars")->Object::get<g_ptr<Scene>>("scene")->quads.get(id);
     }
 

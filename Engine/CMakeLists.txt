@@ -3,6 +3,7 @@ file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
 )
 
 add_library(GoldenEngine STATIC ${ENGINE_SOURCES})
+target_compile_definitions(GoldenEngine PUBLIC GLFW_INCLUDE_NONE)
 
 target_include_directories(GoldenEngine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

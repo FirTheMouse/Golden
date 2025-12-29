@@ -4,7 +4,6 @@
 #include <rendering/single.hpp>
 #include <rendering/camera.hpp>
 #include <rendering/renderer.hpp>
-#include <util/engine_util.hpp>
 #include <rendering/scene_object.hpp>
 #include <gui/quad.hpp>
 #include <gui/text.hpp>
@@ -15,8 +14,8 @@ namespace Golden
 {
 
 
-uint loadTexture2D(const std::string& path, bool flipY = true);
-uint loadTexture2D(const std::string& path, bool flipY,int& outW, int& outH);
+unsigned int loadTexture2D(const std::string& path, bool flipY = true);
+unsigned int loadTexture2D(const std::string& path, bool flipY,int& outW, int& outH);
 
 struct Q_Fab {
     vec2 pos;

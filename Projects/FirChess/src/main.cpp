@@ -2114,7 +2114,7 @@ int main() {
 
     bool bot_color = 0;
     //Make the little mouse to reperesnt the bot (Fir!)
-    auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
+    auto Fir = make<Single>(make<Model>(root()+"Engine/assets/models/agents/Snow.glb"));
     scene->add(Fir);
     Fir->setPosition(bot_color==0?vec3(1,-1,-9):vec3(1,-1,11));
     if(bot_color==1) Fir->faceTo(vec3(0,-1,0));

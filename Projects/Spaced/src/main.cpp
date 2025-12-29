@@ -64,37 +64,37 @@ int main()  {
     // scene->add(box3);
     // box3->setPosition({10,0,0});
 
-    g_ptr<Model> snow = make<Model>(root()+"/models/agents/Snow.glb");
-    g_ptr<Model> whiskers = make<Model>(root()+"/models/agents/Whiskers.glb");
-    g_ptr<Model> whiskers_1 = make<Model>(root()+"/models/agents/WhiskersLOD1.glb");
-    g_ptr<Model> whiskers_2 = make<Model>(root()+"/models/agents/WhiskersLOD2.glb");
-    g_ptr<Model> whiskers_3 = make<Model>(root()+"/models/agents/WhiskersLOD3.glb");
-
+    std::string M_ROOT = root()+"/Engine/assets/models/agents/";
+    g_ptr<Model> snow = make<Model>(M_ROOT+"Snow.glb");
+    g_ptr<Model> whiskers = make<Model>(M_ROOT+"Whiskers.glb");
+    g_ptr<Model> whiskers_1 = make<Model>(M_ROOT+"WhiskersLOD1.glb");
+    g_ptr<Model> whiskers_2 = make<Model>(M_ROOT+"WhiskersLOD2.glb");
+    g_ptr<Model> whiskers_3 = make<Model>(M_ROOT+"WhiskersLOD3.glb");
     scene->enableInstancing();
-    
     int row = 0;
     int fac = 80;
     int total = 10000;
     list<bill> bills;
     list<int> apple_ids;
     list<int> mouse_ids; 
+    int width = std::max(1, total / fac);
     for(int i=0;i<total;i++) {
-        //g_ptr<Single> n_box = scene->create<Single>("floor_metal");
+        int r = i / width;
+        int c = i % width;
         g_ptr<Single> n_box = make<Single>(whiskers_3);
         scene->add(n_box);
-        if(i%(total/fac)) row++;
-        n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
-        if(i==300) selected = n_box;
+        n_box->setPosition({ float(c * -2), -5.0f, float(r * -2) });
+        if(i==total/2) selected = n_box;
         mouse_ids << n_box->ID;
     }
 
-    row = 0;
     map<int,int> claimed;
     for(int i=0;i<total;i++) {
+        int r = i / width;
+        int c = i % width;
         g_ptr<Single> n_box = make<Single>(box_model);
         scene->add(n_box);
-        if(i%(total/fac)) row++;
-        n_box->setPosition({(float)(row%(total/fac)*-2),-5,(float)((i%row)*-2)});
+        n_box->setPosition({ float(c * -2), -5.0f, float(r * -2) });
         apple_ids << n_box->ID;
         claimed.put(n_box->ID,-1);
     }

@@ -6,12 +6,12 @@ namespace Golden
 {
 
 
-uint loadTexture2D(const std::string& path, bool flipY)
+unsigned int loadTexture2D(const std::string& path, bool flipY)
 {
     int w,h;
     return loadTexture2D(path,flipY,w,h);
 }
-uint loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
+unsigned int loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
 {
 int n;
 stbi_set_flip_vertically_on_load(flipY);
