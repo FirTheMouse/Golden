@@ -5,6 +5,7 @@
 
 namespace fs = std::filesystem;
 
+#define RECONFIGURE_PROJECT 0
 
 void startProject(std::string name)
 {
@@ -127,12 +128,18 @@ int launchProject(std::string name)
     std::string src = root();
     std::string path = src+"/Projects/"+name;
     std::string build = src+"/build";
-    std::cout << "Reconfiguring with cmake...\n";
-    int result = std::system(("cmake -S "+src+" -B "+build).c_str());
-    if (result != 0) return result;
+    std::string build_string = "cmake -S "+src+" -B "+build;
+    int result = 0;
+
+    #if RECONFIGURE_PROJECT
+        std::cout << "Reconfiguring with cmake...\n";
+        int result = std::system(build_string.c_str());
+        if (result != 0) return result;
+    #endif
 
     std::cout << "Building project...\n";
-    result = std::system(("cmake --build "+build+" --config Release").c_str());
+    build_string = "cmake --build "+build+" --config Release --target "+name;
+    result = std::system(build_string.c_str());
     if (result != 0) return result;
 
     std::string binPath = src+"/build/bin/" + name;
