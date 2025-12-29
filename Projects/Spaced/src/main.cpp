@@ -1,4 +1,3 @@
-#include<rendering/scene.hpp>
 #include<core/helper.hpp>
 #include<core/grid.hpp>
 #include<util/meshBuilder.hpp>
@@ -20,7 +19,7 @@ struct bill {
 int main()  {
     using namespace helper;
 
-    std::string MROOT = "../Projects/Spaced/assets/models/";
+    std::string MROOT = root()+"/Projects/Spaced/assets/models/";
 
     Window window = Window(1280, 768, "Spaced 0.0.1");
     auto scene = make<Scene>(window,2);
@@ -65,12 +64,14 @@ int main()  {
     // scene->add(box3);
     // box3->setPosition({10,0,0});
 
-    g_ptr<Model> snow = make<Model>("../models/agents/Snow.glb");
-    g_ptr<Model> whiskers = make<Model>("../models/agents/Whiskers.glb");
-    g_ptr<Model> whiskers_1 = make<Model>("../models/agents/WhiskersLOD1.glb");
-    g_ptr<Model> whiskers_2 = make<Model>("../models/agents/WhiskersLOD2.glb");
-    g_ptr<Model> whiskers_3 = make<Model>("../models/agents/WhiskersLOD3.glb");
+    g_ptr<Model> snow = make<Model>(root()+"/models/agents/Snow.glb");
+    g_ptr<Model> whiskers = make<Model>(root()+"/models/agents/Whiskers.glb");
+    g_ptr<Model> whiskers_1 = make<Model>(root()+"/models/agents/WhiskersLOD1.glb");
+    g_ptr<Model> whiskers_2 = make<Model>(root()+"/models/agents/WhiskersLOD2.glb");
+    g_ptr<Model> whiskers_3 = make<Model>(root()+"/models/agents/WhiskersLOD3.glb");
 
+    scene->enableInstancing();
+    
     int row = 0;
     int fac = 80;
     int total = 10000;
@@ -106,7 +107,7 @@ int main()  {
         bills << bill(vec3(scene->transforms[id][3]),false,id);
     }
 
-    // auto Fir = make<Single>(make<Model>("../models/agents/Snow.glb"));
+    // auto Fir = make<Single>(make<Model>(root()+"/models/agents/Snow.glb"));
     // scene->add(Fir);
     bool moving = false;
 

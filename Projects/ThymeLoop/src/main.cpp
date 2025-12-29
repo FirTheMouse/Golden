@@ -561,7 +561,7 @@ result << _origin("spoon",vec3(2,0,0),true);
 
 int main() {
 
-    std::string MROOT = "../Projects/ThymeLoop/assets/models/";
+    std::string MROOT = root()+"/Projects/ThymeLoop/assets/models/";
 
     Window window = Window(1280, 768, "ThymeLoop 0.5");
     scene = make<Scene>(window,1);

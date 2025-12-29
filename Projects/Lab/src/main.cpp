@@ -1,4 +1,3 @@
-#include<rendering/scene.hpp>
 #include<core/helper.hpp>
 #include<core/grid.hpp>
 #include<util/meshBuilder.hpp>
@@ -46,11 +45,11 @@ int main()  {
     // scene->add(box3);
     // box3->setPosition({10,0,0});
 
-    g_ptr<Model> snow = make<Model>("../models/agents/Snow.glb");
-    g_ptr<Model> whiskers = make<Model>("../models/agents/Whiskers.glb");
-    g_ptr<Model> whiskers_1 = make<Model>("../models/agents/WhiskersLOD1.glb");
-    g_ptr<Model> whiskers_2 = make<Model>("../models/agents/WhiskersLOD2.glb");
-    g_ptr<Model> whiskers_3 = make<Model>("../models/agents/WhiskersLOD3.glb");
+    g_ptr<Model> snow = make<Model>(root()+"/models/agents/Snow.glb");
+    g_ptr<Model> whiskers = make<Model>(root()+"/models/agents/Whiskers.glb");
+    g_ptr<Model> whiskers_1 = make<Model>(root()+"/models/agents/WhiskersLOD1.glb");
+    g_ptr<Model> whiskers_2 = make<Model>(root()+"/models/agents/WhiskersLOD2.glb");
+    g_ptr<Model> whiskers_3 = make<Model>(root()+"/models/agents/WhiskersLOD3.glb");
     scene->enableInstancing();
     int row = 0;
     int fac = 80;

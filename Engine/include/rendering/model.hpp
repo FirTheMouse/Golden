@@ -2,8 +2,8 @@
 #define MODEL_H
 #pragma once
 
-#include <glad/glad.h>
-#include <glm/glm.hpp>
+#include <glad.h>
+#include <glm.hpp>
 #include <string>
 #include <vector>
 #include <util/engine_util.hpp>

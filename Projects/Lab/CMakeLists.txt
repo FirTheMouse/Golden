@@ -1,16 +1,16 @@
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
 )
-#MACOSX_BUNDLE
+
 add_executable(Lab ${GAME_SOURCES})
 
 target_include_directories(Lab PRIVATE
-    ${CMAKE_SOURCE_DIR}/Engine/include
-    ${CMAKE_SOURCE_DIR}/Projects/Lab/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(Lab PRIVATE GoldenEngine)
 
+#MACOSX_BUNDLE
 #set_target_properties(Lab PROPERTIES
 #  MACOSX_BUNDLE_GUI_IDENTIFIER "com.jackson.golden.lab"
 #  MACOSX_BUNDLE_BUNDLE_NAME "Lab"

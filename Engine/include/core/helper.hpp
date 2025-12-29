@@ -1,7 +1,6 @@
 #pragma once
 
 #include<functional>
-#include<util/util.hpp>
 #include<rendering/scene.hpp>
 #include<core/input.hpp>
 #include<util/files.hpp>
@@ -11,7 +10,6 @@ namespace Golden
 {
     namespace helper
     {
-        static std::string EROOT = "../Engine/assets/";
         bool pressed(KeyCode code) {return Input::get().keyJustPressed(code);}
         bool held(KeyCode code) {return Input::get().keyPressed(code);}
         void check_loaded(list<std::string> needed,g_ptr<Scene> scene) {
@@ -31,7 +29,7 @@ namespace Golden
 
         std::string path_to_gui(const std::string& project,const std::string& filename)
         {
-            std::string start = "../Projects/";
+            std::string start = root()+"/Projects/";
             std::string file = filename;
             size_t dot = filename.find('.');
             if (dot != std::string::npos) {
@@ -135,6 +133,7 @@ namespace Golden
 
         void define_objects(g_ptr<Scene> scene,const std::string& project_name,g_ptr<Grid> level = nullptr) {
             map<std::string,std::string> type_modelPath;
+            std::string src = root();
         
             auto is_model = [](const std::string& filename) -> std::string{ 
                 auto split = split_str(filename,'.');
@@ -172,11 +171,11 @@ namespace Golden
                     process_directory_recursive(subdir);
                 }
             };
-            process_directory_recursive("../Projects/"+project_name+"/assets/models/");
+            process_directory_recursive(src+"/Projects/"+project_name+"/assets/models/");
         
             std::string data_string = "NONE";
             try {
-            data_string = readFile("../Projects/"+project_name+"/assets/models/"+project_name+" - data.csv");
+            data_string = readFile(src+"/Projects/"+project_name+"/assets/models/"+project_name+" - data.csv");
             }
             catch(std::exception e)
             {

@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <glm/glm.hpp>
+#include <glm.hpp>
 #include <core/input.hpp>
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);

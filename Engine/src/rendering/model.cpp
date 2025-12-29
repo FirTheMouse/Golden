@@ -1,6 +1,6 @@
 #include <rendering/model.hpp>
 // #include "scene.h"
-#include <glm/gtc/type_ptr.hpp>
+#include <gtc/type_ptr.hpp>
 #include <iostream>
 
 #define TINYGLTF_IMPLEMENTATION

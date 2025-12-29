@@ -194,8 +194,6 @@ public:
     Light(glm::vec3 pos,glm::vec3 col) : position(pos), color(col) {}
 };
 
-
-
 class Scene : virtual public Object {
 public:
 
@@ -278,29 +276,29 @@ public:
     Scene(Window& win,const Camera& cam,const Shader& singleShad,const Shader& instanceShad,
     const Shader& depthShad,const Shader& depthShadI,const Shader& guiShad) 
     : window(win), camera(cam), singleShader(singleShad), instanceShader(instanceShad), 
-    depthShader(depthShad), instanceDepthShader(depthShadI), guiShader(guiShad) {};
+depthShader(depthShad), instanceDepthShader(depthShadI), guiShader(guiShad) {};
 
     Scene(Window& _window,int _type)
     : window(_window),
       singleShader(
-          Shader(readFile("../Engine/shaders/vertex.glsl").c_str(),
-                 readFile("../Engine/shaders/fragment.glsl").c_str())
+          Shader(readFile(root()+"/Engine/shaders/vertex.glsl").c_str(),
+                 readFile(root()+"/Engine/shaders/fragment.glsl").c_str())
       ),
       instanceShader(
-            Shader(readFile("../Engine/shaders/vertexI.glsl").c_str(),
-                 readFile("../Engine/shaders/fragment.glsl").c_str())
+            Shader(readFile(root()+"/Engine/shaders/vertexI.glsl").c_str(),
+                 readFile(root()+"/Engine/shaders/fragment.glsl").c_str())
       ),
       depthShader(
-          Shader(readFile("../Engine/shaders/depth_vert.glsl").c_str(),
-                 readFile("../Engine/shaders/depth_frag.glsl").c_str())
+          Shader(readFile(root()+"/Engine/shaders/depth_vert.glsl").c_str(),
+                 readFile(root()+"/Engine/shaders/depth_frag.glsl").c_str())
       ),
       instanceDepthShader(
-          Shader(readFile("../Engine/shaders/depth_verti.glsl").c_str(),
-                 readFile("../Engine/shaders/depth_frag.glsl").c_str())
+          Shader(readFile(root()+"/Engine/shaders/depth_verti.glsl").c_str(),
+                 readFile(root()+"/Engine/shaders/depth_frag.glsl").c_str())
       ),
       guiShader(
-        Shader(readFile("../Engine/shaders/gui_vert.glsl").c_str(),
-               readFile("../Engine/shaders/gui_frag.glsl").c_str())
+        Shader(readFile(root()+"/Engine/shaders/gui_vert.glsl").c_str(),
+               readFile(root()+"/Engine/shaders/gui_frag.glsl").c_str())
       ),
       camera(45.0f, 1280.0f/768.0f, 0.1f, 1000.0f, 1)
     {

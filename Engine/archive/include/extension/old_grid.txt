@@ -1,7 +1,7 @@
 #pragma once
 
-#include <glad/glad.h>
-#include <glm/glm.hpp>
+#include <glad.h>
+#include <glm.hpp>
 #include <util/util.hpp>
 #include <rendering/single.hpp>
 #include <unordered_set>

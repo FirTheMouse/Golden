@@ -33,8 +33,7 @@ void startProject(std::string name)
         "\nadd_executable("+name+" ${GAME_SOURCES})"
         "\n"
         "\ntarget_include_directories("+name+" PRIVATE"
-        "\n${CMAKE_SOURCE_DIR}/Engine/include"
-        "\n    ${CMAKE_SOURCE_DIR}/Projects/"+name+"/include"
+        "\n${CMAKE_SOURCE_DIR}/include"
         "\n)                                          "
         "\ntarget_link_libraries("+name+" PRIVATE GoldenEngine)";
 
@@ -83,7 +82,7 @@ void startProject(std::string name)
 }
 
 void addProjectToCMake(const std::string& name) {
-    const std::string cmakePath = "../CMakeLists.txt";
+    const std::string cmakePath = root()+"/CMakeLists.txt";
     std::ifstream inFile(cmakePath);
     if (!inFile) {
         std::cerr << "Error: Cannot open " << cmakePath << '\n';
@@ -125,18 +124,18 @@ void addProjectToCMake(const std::string& name) {
 
 int launchProject(std::string name)
 {
-    std::string path = "../Projects/"+name;
-    std::string build = "../build";
+    std::string src = root();
+    std::string path = src+"/Projects/"+name;
+    std::string build = src+"/build";
     std::cout << "Reconfiguring with cmake...\n";
-    int result = std::system("cmake -S .. -B ../build");
+    int result = std::system(("cmake -S "+src+" -B "+build).c_str());
     if (result != 0) return result;
 
     std::cout << "Building project...\n";
-    result = std::system("cmake --build ../build");
+    result = std::system(("cmake --build "+build).c_str());
     if (result != 0) return result;
 
-    // Step 3: Run project binary
-    std::string binPath = "../build/Projects/" + name + "/" + name;
+    std::string binPath = src+"/build/bin/" + name;
     std::cout << "Running binary: " << binPath << "\n";
     return std::system(binPath.c_str());
 }

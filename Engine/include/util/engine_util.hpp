@@ -1,17 +1,53 @@
 #pragma once
 
 
-#include <glm/glm.hpp>
+#include <glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtx/quaternion.hpp>
+#include <gtc/matrix_transform.hpp>
+#include <gtc/type_ptr.hpp>
+#include <gtx/matrix_decompose.hpp>
+#include <gtx/quaternion.hpp>
 #include <fstream>
 #include <sstream>
 #include <string>
 
 #include<util/basic.hpp>
+
+
+#pragma once
+#include <filesystem>
+#include <string>
+#include <stdexcept>
+
+namespace Golden {
+    inline bool looks_like_root(const std::filesystem::path& p) {
+        return std::filesystem::exists(p / "Engine") &&
+            std::filesystem::is_directory(p / "Engine") &&
+            std::filesystem::exists(p / "CMakeLists.txt");
+    }
+
+    inline std::string find_root_from_cwd() {
+        namespace fs = std::filesystem;
+        fs::path cur = fs::absolute(fs::current_path());
+
+        for (;;) {
+            if (looks_like_root(cur)) return cur.string();
+            if (cur == cur.root_path()) break;
+            cur = cur.parent_path();
+        }
+
+        throw std::runtime_error("Golden root not found from current working directory");
+    }
+
+
+    inline std::string& root() {
+        static std::string r = []{
+            if (const char* env = std::getenv("GOLDEN_ROOT")) return std::string(env);
+            return find_root_from_cwd();
+        }();
+        return r;
+    }
+}
 
 inline glm::vec2 toNDC(const glm::vec2& pos, const glm::vec2& resolution) {
     glm::vec2 ndc = (pos / resolution) * 2.0f - 1.0f;

@@ -5,8 +5,7 @@ file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS
 add_executable(GPM ${GAME_SOURCES})
 
 target_include_directories(GPM PRIVATE
-    ${CMAKE_SOURCE_DIR}/Engine/include
-    ${CMAKE_SOURCE_DIR}/Projects/GPM/include
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_libraries(GPM PRIVATE GoldenEngine)
