@@ -1,33 +1,11 @@
-type sub_num {
-    int sub_value;
-}
-
-type num {
-    int a; 
-    int b;
-    int c;
-    layout();
-}
-
-print("==START==");
-int a;
-int b;
-int c;
-double d;
-string name;
-layout();
-num one;
-num two;
-num three;
-one.a = 5;
-print(one.a);
-
 
 type num {
     int a;
+    layout();
 }
 
 one.a = 5;
+
 print(one.a);
 
 

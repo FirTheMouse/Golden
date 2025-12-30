@@ -177,11 +177,15 @@ struct Q_Fab {
         in.read(reinterpret_cast<char*>(&txtlen), sizeof(txtlen));
         text.resize(txtlen);
         in.read(&text[0], txtlen);
-
         uint32_t fpathlen;
         in.read(reinterpret_cast<char*>(&fpathlen), sizeof(fpathlen));
         filePath.resize(fpathlen);
         in.read(&filePath[0], fpathlen);
+
+        size_t local_ref_dest = filePath.find("..");
+        if(local_ref_dest!=std::string::npos) {
+            filePath.replace(local_ref_dest,2,root());
+        }
     }
 };
 

@@ -7,7 +7,7 @@
 #include <functional>
 #include<util/basic.hpp>
 
-#define DISABLE_BOUNDS_CHECK 0
+#define DISABLE_BOUNDS_CHECK 1
 
 struct d_object {};
 

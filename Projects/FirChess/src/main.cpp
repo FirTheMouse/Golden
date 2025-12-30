@@ -15,7 +15,7 @@ static int max_depth = 4;
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
 #define ENABLE_TACTEXT 1
-#define ENABLE_BOOK 0
+#define ENABLE_BOOK 1
 
 bool debug_move = false;
 bool free_camera = true;
@@ -200,11 +200,11 @@ void type_define_objects(g_ptr<NumGrid> level = nullptr,const std::string& proje
             process_directory_recursive(subdir);
         }
     };
-    process_directory_recursive("../Projects/"+project_name+"/assets/models/");
+    process_directory_recursive(root()+"/Projects/"+project_name+"/assets/models/");
 
     std::string data_string = "NONE";
     try {
-    data_string = readFile("../Projects/"+project_name+"/assets/models/"+project_name+" - data.csv");
+    data_string = readFile(root()+"/Projects/"+project_name+"/assets/models/"+project_name+" - data.csv");
     }
     catch(std::exception e)
     {
@@ -331,7 +331,7 @@ bool in_bounds(const ivec2& pos) {
 
 
 void save_opening_book() {
-    std::string path = "../Projects/FirChess/assets/games/book.odc";
+    std::string path = root()+"/Projects/FirChess/assets/games/book.odc";
     std::ofstream out(path, std::ios::binary);
     
     uint32_t size = opening_book.size();
@@ -352,7 +352,7 @@ void save_opening_book() {
 }
 
 void load_opening_book() {
-    std::string path = "../Projects/FirChess/assets/games/book.odc";
+    std::string path = root()+"/Projects/FirChess/assets/games/book.odc";
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("Can't read opening book: " + path);
     opening_book.clear();
@@ -1451,7 +1451,7 @@ void setup_piece(const std::string& type,int file,int rank) {
 }
 
 void save_game(const std::string& file) {
-    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::string path = root()+"/Projects/FirChess/assets/games/"+file+".gdc";
     std::ofstream out(path, std::ios::binary);
     if (!out) throw std::runtime_error("Can't write to file: " + path);
     out.write(reinterpret_cast<const char*>(&turn_color), sizeof(turn_color));
@@ -1464,7 +1464,7 @@ void save_game(const std::string& file) {
 }
 
 void load_game(const std::string& file) {
-    std::string path = "../Projects/FirChess/assets/games/"+file+".gdc";
+    std::string path = root()+"/Projects/FirChess/assets/games/"+file+".gdc";
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("Can't read from file: " + path);
     in.read(reinterpret_cast<char*>(&turn_color), sizeof(turn_color));
@@ -1548,18 +1548,17 @@ Move findBestMove(int depth,int color) {
                 for(int j=0;j<board_count;j++) {
                     if(j==i) continue;
                     if(!completed[j]&&!stolen[j]) {
-                        print(i," stealing from ",j);
+                        //print(i," stealing from ",j);
                         stolen[j] = true;
                         completed[i] = false;
                         complete--;
-                        list<Move> new_moves;
                         int l = boards[j]->to_process.length();
                         int halfway = (l-boards[j]->progress)/2;
                         for(int k=l;k>=(l-halfway);k--) {
                             boards[i]->to_process.push(boards[j]->to_process.pop());
                         }
                         boards[i]->process_moves(max_depth,color);
-                        print(i," finished ",halfway," from ",j);
+                        //print(i," finished ",halfway," from ",j);
                         complete++;
                         completed[i] = true;
                         break;
@@ -2064,7 +2063,7 @@ void initialize_board() {
 int main() {
     using namespace helper;
 
-    std::string MROOT = "../Projects/FirChess/assets/models/";
+    std::string MROOT = root()+"/Projects/FirChess/assets/models/";
 
     Window window = Window(1280, 768, "FirChess 0.1.2");
     scene = make<Scene>(window,2);
@@ -2077,6 +2076,7 @@ int main() {
     global = make<Board>();
     
     //Define the objects, this pulls in the models and uses the CSV to code them
+    // start::define_objects(scene,"FirChess",num_grid);
     type_define_objects(num_grid);
 
     initialize_board();
@@ -2114,7 +2114,7 @@ int main() {
 
     bool bot_color = 0;
     //Make the little mouse to reperesnt the bot (Fir!)
-    auto Fir = make<Single>(make<Model>(root()+"Engine/assets/models/agents/Snow.glb"));
+    auto Fir = make<Single>(make<Model>(root()+"/Engine/assets/models/agents/Snow.glb"));
     scene->add(Fir);
     Fir->setPosition(bot_color==0?vec3(1,-1,-9):vec3(1,-1,11));
     if(bot_color==1) Fir->faceTo(vec3(0,-1,0));
