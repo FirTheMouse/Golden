@@ -187,7 +187,7 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
     g_ptr<Token> token = nullptr;
 
     enum State {
-       OPEN, IN_STRING, IN_NUMBER, IN_IDENTIFIER
+       OPEN, IN_STRING, IN_NUMBER, IN_IDENTIFIER, IN_COMMENT
     };
 
     State state = OPEN;
@@ -205,10 +205,15 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
         if(state==IN_STRING) {
             if(c=='"') {
                 state=OPEN;
-                token->type_info.size = 32;
+                token->type_info.size = 24;
             }
             else {
                 token->add(c);
+            }
+            ++it;
+        } else if(state==IN_COMMENT) {
+            if(c=='\n') {
+                state=OPEN;
             }
             ++it;
         }
@@ -402,6 +407,9 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
                 case ')':
                     token = make<Token>(GET_TYPE(RPAREN),")");
                     result << token;
+                    break;
+                case '#':
+                    state = IN_COMMENT;
                     break;
                 default:
                     if(std::isalpha(c)||c=='_') {
@@ -1311,8 +1319,14 @@ static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start)
 static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame = nullptr) {
     int index = -1;
     g_ptr<s_node> on_scope = find_scope(scope,[node](g_ptr<s_node> c){
-        return (c->type_ref->get_note(node->name).index!=-1 || c->type_map.hasKey(node->name));
+        return (c->type_ref->get_note(node->name).index!=-1 || c->type_map.hasKey(node->name) || c->type_ref->type_name == node->name);
     });
+
+    if(!on_scope) {
+        print("resolve_symbol::1318 Unable to resolve an identifier: ",node->name);
+        return;
+    }
+
     if(on_scope->type_map.hasKey(node->name)) index = 0;
     else index = on_scope->type_ref->get_note(node->name).index;
     if(index>-1) {
@@ -1320,13 +1334,16 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
         if(on_scope->type_map.hasKey(node->name)) {
             if(on_scope->frame) {
                 //if(on_scope->frame->slots[0].length()<=result->slot) on_scope->frame->slots[0] << 0;
-                result->frame = on_scope->frame;
+                result->frame = on_scope->frame; //Why did I make 2 pointers to the frame?
+                result->in_frame = on_scope->frame; //Check later to see if this is actaully used!
             }
-            else
+            else {
                 print("resolve_identifier::1621 no frame for scope!");
+            }
+            //Assign -2 as the default slot for identifiers if they aren't in the slot map
             result->slot = on_scope->slot_map.getOrDefault(node->name,-2);
+            //Forgot what all the in_scope, in_frame, frame, are meant to do, find that and comment to remind!
             result->in_scope = on_scope->type_map.get(node->name);
-            result->in_frame = on_scope->frame;
             result->value.type = GET_TYPE(OBJECT);
         } 
         else
@@ -1355,13 +1372,21 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
         // }
     }
     else { //This is the foundation for using type keys in debug
-        on_scope = find_type_ref(node->name,scope);
+        // on_scope = find_type_ref(node->name,scope); //Unnesecary because I added this check to the intial scope search check
         if(on_scope) {
             result->name = node->name;
             result->value.address = -1;
             result->value.size = 0;
-            result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
             result->in_scope = on_scope->type_ref;
+            //Using TYPE
+            // result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
+            // result->type = GET_TYPE(TYPE);
+
+            //Trying as a flexible OBJECT instead
+            result->in_frame = on_scope->frame;
+            result->frame = on_scope->frame;
+            result->value.type = GET_TYPE(OBJECT);
+
         }
         else
             print("resolve_symbol::1418 No address found for identifier ",node->name);
@@ -1581,8 +1606,9 @@ static void stream_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index) {
     try {
         std::function<void()> func = stream_handlers.get(node->type)(ctx);
         //frame->context->push(&func,32,1);
-        if(func)
+        if(func) {
             frame->stored_functions << func;
+        }
     }
     catch(std::exception e) {
         if(!stream_handlers.hasKey(node->type)) print("stream_r_node::1380 Missing case for r_type: ",TO_STRING(node->type));

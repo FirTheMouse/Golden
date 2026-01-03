@@ -98,6 +98,7 @@ public:
         return toReturn;
     }
 
+
     template<typename T>
     std::string make_table_from_size(const T& columns,size_t size,int mode) {
         std::string table = "";
@@ -320,6 +321,8 @@ public:
         }
         return result;
     }
+
+    
 
     // for(int r=0;r<byte4_columns.length();r++) {
     //     std::string row = std::to_string(r)+":";

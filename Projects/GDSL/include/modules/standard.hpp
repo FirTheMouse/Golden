@@ -263,7 +263,7 @@ namespace array_module {
                     result->value.sub_size = *(int*)ctx.node->children[0]->right->value.data;
                     if(result->slot==-2) {
                         for(int i=0;i<result->value.sub_size;i++) {
-                        while(ctx.frame->slots[0].length() <= i) ctx.frame->slots[0] << 0;
+                            while(ctx.frame->slots[0].length() <= i) ctx.frame->slots[0] << 0;
                         }
                     } 
                     result->in_scope = info->in_scope;
@@ -375,26 +375,32 @@ namespace array_module {
                 result->right = resolve_symbol(ctx.node->right,ctx.scope,ctx.frame);
             }
         });
-        exec_handlers.put(r_indexing_id, [](exec_context& ctx) -> g_ptr<r_node> { 
-                if(ctx.node->left->slot==-2) {
+        exec_handlers.put(r_indexing_id, [object_id](exec_context& ctx) -> g_ptr<r_node> { 
+                if(ctx.node->left->slot==-2) { //No clue what this is actaully for, find out and comment it
                     execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
                     ctx.node->slot = *(int*)ctx.node->right->value.data;
                 }
                 else if(ctx.node->right) {
-                    execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
-                    int index = ctx.node->left->value.address;
-                    int sub_index = *(int*)ctx.node->right->value.data;
-                    int total_size = ctx.node->value.sub_size;
-                    int size = ctx.node->value.size;
+                    if(ctx.node->left&&ctx.node->left->value.type==object_id) {
+                        //This is meant to allow arraying through a Type, i.e, just moving down the columns
+                        execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
+                        ctx.node->index = *(int*)ctx.node->right->value.data;
+                    } else {
+                        execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
+                        int index = ctx.node->left->value.address;
+                        int sub_index = *(int*)ctx.node->right->value.data;
+                        int total_size = ctx.node->value.sub_size;
+                        int size = ctx.node->value.size;
 
-                    void* array_start = ctx.node->left->in_scope->get(index, ctx.index, total_size);
-                    void* element = (char*)array_start + (sub_index * size);
+                        void* array_start = ctx.node->left->in_scope->get(index, ctx.index, total_size);
+                        void* element = (char*)array_start + (sub_index * size);
 
-                    if(sub_index<0) {
-                        print(ctx.node->left->in_scope->type_to_string(std::abs(sub_index)));
-                    }
-                    else {
-                        ctx.node->value.data = element;
+                        if(sub_index<0) {
+                            print(ctx.node->left->in_scope->type_to_string(std::abs(sub_index)));
+                        }
+                        else {
+                            ctx.node->value.data = element;
+                        }
                     }
                 }
             return ctx.node;
@@ -573,6 +579,21 @@ namespace control_module {
                 execute_sub_frame(ctx.node->frame,ctx.frame);
             }
             return ctx.node;
+        });
+        stream_handlers.put(r_while_id, [](exec_context& ctx) -> std::function<void()>{
+            //execute_r_node(ctx.node->right, ctx.frame, ctx.index,ctx.sub_index);
+            if(ctx.node->frame->stored_functions.empty()) {
+                stream_r_nodes(ctx.node->frame, nullptr);
+            }
+            
+            return [ctx]() {
+                // ctx.node->frame->resurrect();
+                execute_r_node(ctx.node->right, ctx.frame, ctx.index,ctx.sub_index);
+                while(ctx.node->right->value.is_true()) {
+                    execute_stream(ctx.node->frame);  // Streamed body
+                    execute_r_node(ctx.node->right, ctx.frame, ctx.index,ctx.sub_index);  // Interpreted condition
+                }
+            };
         });
 
         size_t do_key_id = reg::new_type("DO_KEY");
@@ -948,8 +969,12 @@ namespace opperator_module {
             if(ctx.node->left->value.type == GET_TYPE(OBJECT)) {
                 //Add opperator overloading for = here
                 size_t r_target_index = ctx.node->right->index!=-1?ctx.node->right->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
-                //print("FROM R: ",ctx.node->right->in_frame->context->type_name,":",target_index,"-",ctx.node->right->slot," TO L: ",ctx.node->left->in_frame->context->type_name,":",r_target_index,"-",ctx.node->left->slot);
-                ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot] = ctx.node->right->in_frame->slots[r_target_index][ctx.node->right->slot];
+                if(ctx.node->right->slot == -1) { //This is to catch things like indexing or direct slot assignment
+                    ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot] = ctx.node->right->index;
+                } else {
+                    //print("FROM R: ",ctx.node->right->in_frame->context->type_name,":",target_index,"-",ctx.node->right->slot," TO L: ",ctx.node->left->in_frame->context->type_name,":",r_target_index,"-",ctx.node->left->slot);
+                    ctx.node->left->in_frame->slots[target_index][ctx.node->left->slot] = ctx.node->right->in_frame->slots[r_target_index][ctx.node->right->slot];
+                }
             } else { //It's a property access or other refrence
                 ctx.node->left->in_scope->set(
                     ctx.node->left->value.address, 
@@ -976,20 +1001,22 @@ namespace opperator_module {
         execute_r_node(ctx.node->left, ctx.frame, ctx.index,ctx.sub_index);
         execute_r_node(ctx.node->right, ctx.frame, ctx.index,ctx.sub_index);
         size_t target_index = 0;
-        g_ptr<Type> l_type = ctx.frame->context;
+        g_ptr<Type> l_type = ctx.node->left->in_scope;
         if(ctx.node->left->slot!=-1) { //Is an object
-            target_index = ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index].get(ctx.node->left->slot);
+            size_t select_index = ctx.node->left->index!=-1?ctx.node->left->index:(ctx.sub_index==-1?ctx.index:ctx.sub_index);
+            target_index = ctx.node->left->in_frame->slots[select_index][ctx.node->left->slot];
             l_type = ctx.node->left->in_scope;
         }
         else {
             target_index = ctx.node->left->index==-1?ctx.index:ctx.node->left->index;
-            l_type = ctx.frame->context;
+            l_type = ctx.node->left->in_scope;
         }
         int l_addr = ctx.node->left->value.address;
             if(l_addr==-1) print("r_assignment::stream_handler: l_addr not resolved");
         void** r_data = &ctx.node->right->value.data;
             if(!r_data) print("r_assignment::stream_handler: r_data not resolved");
         size_t r_size = ctx.node->right->value.size;
+
         std::function<void()> func = [l_type,l_addr,r_data,target_index,r_size]() {
             l_type->set(l_addr, target_index, r_size, *r_data);
         };
@@ -1248,7 +1275,12 @@ namespace variables_module {
                     sub << ctx.frame->slots[0];
                     ctx.frame->slots << sub;
                 } 
-                ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->slot] = obj->ID;
+                int target_index = ctx.sub_index==-1?ctx.index:ctx.sub_index;
+                while (ctx.frame->slots[target_index].length()<=ctx.node->slot) { //For constructing in a loop
+                    ctx.frame->slots[target_index] << 0; //Not sure if this should be 0
+                }
+                //print("IDX: ",ctx.index," SUB_IDX: ",ctx.sub_index," SLOT: ",ctx.node->slot);
+                ctx.frame->slots[target_index][ctx.node->slot] = obj->ID;
                 ctx.frame->active_objects << obj;
                 execute_constructor(ctx.node->frame,obj->ID); //Do the constructer
                 if(!ctx.node->children.empty()) { //For constructors
@@ -1268,8 +1300,20 @@ namespace variables_module {
                 size_t slot = ctx.node->slot;
                 g_ptr<Frame> frame = ctx.frame;
                 g_ptr<Object> obj = resolved_type->create();
+
+                // while(ctx.frame->slots.length() <= ctx.index) {
+                //     list<size_t> sub;
+                //     sub << ctx.frame->slots[0];
+                //     ctx.frame->slots << sub;
+                // } 
+                // int target_index = ctx.sub_index==-1?ctx.index:ctx.sub_index;
+                // while (frame->slots[target_index].length()<=slot) { //For constructing in a loop
+                //     ctx.frame->slots[target_index] << 0; //Not sure if this should be 0
+                // }
+
                 frame->slots[slot] = obj->ID;
                 frame->active_objects << obj;
+                execute_constructor(frame,obj->ID); //Should be down there v
                 std::function<void()> func = [resolved_type,frame,slot](){
                    //Run constructor
                 };
@@ -1360,6 +1404,9 @@ namespace variables_module {
                     }
                 }
                 else {
+                    //print("SLOT OF ",ctx.node->name," IS: ",ctx.node->slot," SUB INDEX IS ",ctx.sub_index," CTX INDEX ",ctx.index);
+                    // if(!ctx.node->frame) print("NO FRAME");
+                    // print(ctx.node->frame->slots.length()," : ",ctx.node->frame->slots[0].length());
                     ctx.node->value.data = ctx.node->in_scope->get(
                         ctx.node->value.address, 
                         ctx.node->frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->slot], 
@@ -1367,7 +1414,24 @@ namespace variables_module {
                 }
             }
             return ctx.node;
-        });        
+        });  
+        stream_handlers.put(r_identifier_id, [object_id](exec_context& ctx) -> std::function<void()>{
+            //May not actaully need anything
+
+            // execute_r_node(ctx.node, ctx.frame, ctx.index,ctx.sub_index);
+            // int addr = ctx.node->value.address;
+            // int idx = ctx.node->frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][ctx.node->slot];
+            // int siz = ctx.node->value.size;
+            // g_ptr<Type> scope = ctx.node->in_scope;
+            // std::function<void()> func = [addr,idx,siz,scope]() {
+            //     scope->set(
+            //         addr, 
+            //         idx, 
+            //         siz);
+            // };
+            // return func;
+            return nullptr;
+        });      
     }
 
 }
@@ -1529,17 +1593,21 @@ namespace functions_module {
 
 
         //Boilerplate of function compilation
-        list<std::string> funcs{"PRINT","LAYOUT","_SLOTS","_NAME","_TYPE","_IN_SCOPE","_FRAME","_IN_FRAME"};
+        list<std::string> funcs{"PRINT","LAYOUT","_SLOTS","_NAME","_TYPE","_IN_SCOPE","_SIZE","_FRAME","_IN_FRAME"};
         for(auto f : funcs) {
             size_t key_id = reg::new_type(f+"_KEY");  
             size_t call_id = reg::new_type(f+"_CALL");
+
             std::string s = f;
             std::transform(s.begin(),s.end(), s.begin(), ::tolower);
             reg_t_key(s, key_id, 0, GET_TYPE(F_KEYWORD)); 
-            a_functions.put(key_id, [call_id](a_context& ctx) {
-                ctx.state = call_id;
-            });
+
+            token_to_opp.put(key_id, call_id);
+            state_is_opp.put(call_id, true);
+            type_precdence.put(call_id, 20);
+
             size_t t_id = reg::new_type("T_"+f);
+            t_opp_conversion.put(call_id, t_id); 
             t_functions.put(call_id, [t_id](t_context& ctx) -> g_ptr<t_node> {
                 ctx.result->type = t_id;
                 parse_sub_nodes(ctx,true);
@@ -1548,6 +1616,10 @@ namespace functions_module {
             size_t r_id = reg::new_type("R_"+f); 
             r_handlers.put(t_id, [r_id](g_ptr<r_node> result, r_context& ctx) {
                 result->type = r_id;
+                if(ctx.node->left) 
+                    result->children << resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+                if(ctx.node->right)
+                    result->children << resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
                 for(auto c : ctx.node->children) {
                     g_ptr<r_node> sub = resolve_symbol(c, ctx.scope, ctx.frame);
                     result->children << sub;
@@ -1593,8 +1665,12 @@ namespace functions_module {
                     print(ctx.node->children[0]->in_scope->type_to_string(mode));
                 }
                 else {
-                    mode = ctx.node->children[0]->value.get<int>();
-                    print(ctx.frame->context->type_to_string(mode));
+                    if(ctx.node->children[0]->value.type==GET_TYPE(INT)) {
+                        mode = ctx.node->children[0]->value.get<int>();
+                        print(ctx.frame->context->type_to_string(mode));
+                    } else {
+                        print(ctx.node->children[0]->in_scope->type_to_string(mode));
+                    }
                 }
             }
             else
@@ -1627,26 +1703,74 @@ namespace functions_module {
             return ctx.node;
         });
 
+        //Provides the name of the current frame as a string or, of the identifiers provided
         exec_handlers.put(GET_TYPE(R__NAME), [](exec_context& ctx) -> g_ptr<r_node> {
             ctx.node->value.type = GET_TYPE(STRING);
-            ctx.node->value.set<std::string>(ctx.frame->context->type_name);
+            std::string result = "";
+            if(!ctx.node->children.empty()) {
+                for(int i=0;i<ctx.node->children.length();i++) {
+                    if(i>0) result.append(",");
+                    result.append(ctx.node->children[i]->name);
+                }
+            } else {
+                result = ctx.frame->context->type_name;
+            }
+            ctx.node->value.set<std::string>(result);
             return ctx.node;
         });
 
+        //Provides the type of the identifier (if any, this is a fragile method)
         exec_handlers.put(GET_TYPE(R__TYPE), [](exec_context& ctx) -> g_ptr<r_node> {
             ctx.node->value.type = GET_TYPE(STRING);
-            ctx.node->value.set<std::string>(ctx.node->children[0]->in_scope->type_name);
+            std::string result = "";
+            if(!ctx.node->children.empty()) {
+                for(int i=0;i<ctx.node->children.length();i++) {
+                    if(i>0) result.append(",");
+                    result.append(TO_STRING(ctx.node->children[i]->type));
+                }
+            }
+            ctx.node->value.set<std::string>(result);
             return ctx.node;
         });
 
+        //Provides the scopes of the identifiers
         exec_handlers.put(GET_TYPE(R__IN_SCOPE), [](exec_context& ctx) -> g_ptr<r_node> {
             ctx.node->value.type = GET_TYPE(STRING);
-            ctx.node->value.set<std::string>(ctx.node->children[0]->in_scope->type_name);
+            std::string result = "";
+            if(!ctx.node->children.empty()) {
+                for(int i=0;i<ctx.node->children.length();i++) {
+                    if(i>0) result.append(",");
+                    result.append(ctx.node->children[i]->in_scope->type_name);
+                }
+            }
+            ctx.node->value.set<std::string>(result);
             return ctx.node;
         });
+
+        //Provides the size of the scope or type
+        exec_handlers.put(GET_TYPE(R__SIZE), [](exec_context& ctx) -> g_ptr<r_node> {
+            ctx.node->value.type = GET_TYPE(INT);
+            int result = 0;
+            if(!ctx.node->children.empty()) {
+                for(int i=0;i<ctx.node->children.length();i++) {
+                    result = ctx.node->children[i]->in_scope->objects.length(); //There's probably a less fragile way of doing this
+                }
+            }
+            ctx.node->value.set<int>(result);
+            return ctx.node;
+        });
+
+        //Provides the in_frames of the identifiers
         exec_handlers.put(GET_TYPE(R__IN_FRAME), [](exec_context& ctx) -> g_ptr<r_node> {
             ctx.node->value.type = GET_TYPE(STRING);
-            ctx.node->value.set<std::string>(ctx.node->children[0]->in_frame->context->type_name);
+            std::string result = "";
+            if(!ctx.node->children.empty()) {
+                for(int i=0;i<ctx.node->children.length();i++) {
+                    if(i>0) result.append(",");
+                    result.append(ctx.node->children[i]->in_frame->context->type_name);
+                }
+            }
+            ctx.node->value.set<std::string>(result);
             return ctx.node;
         });
         exec_handlers.put(GET_TYPE(R__FRAME), [](exec_context& ctx) -> g_ptr<r_node> {

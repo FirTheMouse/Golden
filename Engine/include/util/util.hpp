@@ -134,4 +134,18 @@ inline std::string readFile(const std::string& filename) {
     return ss.str();
 }
 
+inline void writeFile(const std::string& filename, const std::string& contents) {
+    std::ofstream file(filename, std::ios::out | std::ios::binary | std::ios::trunc);
+    if (!file) throw std::runtime_error("Could not open file for writing: " + filename);
+
+    file.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+    if (!file) throw std::runtime_error("Failed while writing file: " + filename);
+}
+
+inline void editTextFile(  const std::string& filename, const std::function<void(std::string&)>& editor) {
+    std::string text = readFile(filename);
+    editor(text);
+    writeFile(filename, text);
+}
+
 

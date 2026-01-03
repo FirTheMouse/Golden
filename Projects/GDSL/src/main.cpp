@@ -1,14 +1,64 @@
 #include<modules/standard.hpp>
 #include<util/engine_util.hpp>
+#include<util/string_generator.hpp>
+#include<util/logger.hpp>
 
 #include <chrono>
 #include <iostream>
 
+#define MAIN_TEST 0
 
 int main() {
 
-    int mode = 0; //0 == Compile and run, 1 == benchmark // 2 == testing
+    int test_ammount = 15;
 
+    #if MAIN_TEST
+    //Adding: this is because I haven't made it so we can loop construct in GDSL yet
+    editTextFile(root()+"/Projects/GDSL/src/golden.gld",[test_ammount](std::string& text){
+        size_t startpos = text.find("#START")+6;
+        std::string to_add;
+        list<std::string> added;
+        for(int i=0;i<test_ammount;i++) {
+            int repeats = 0;
+            std::string n_name = sgen::randsgen(sgen::RANDOM);
+            while(added.has(n_name)&&repeats<10) {
+                n_name = sgen::randsgen(sgen::RANDOM);
+                repeats++;
+            } 
+            if(repeats>=9) {
+                print("GDSL::25 Running out of names to add at the top of main.cpp for GDSL");
+            } else {
+                to_add.append("\nnum "+n_name+";");
+            }
+        }
+        text.insert(startpos,to_add);
+    });
+    #endif
+
+
+        
+    // type num {
+    //     int a;
+    // }
+
+    // #START
+    // #END
+
+    // int n_len = _size(num);
+
+    // int i = 0;
+    // while(i<n_len) {
+    //     num[i].a = i;
+    //     i = i+1;
+    // }
+
+    // #i = 0;
+    // #while(i<n_len) {
+    // #   print(num[i].a);
+    // #    i = i+1;
+    // #}
+
+    int mode = 0; //0 == Compile and run, 1 == benchmark // 2 == testing
     if(mode==0) {
         base_module::initialize();
         literals_module::initialize();
@@ -28,10 +78,11 @@ int main() {
         parse_nodes(root);
         discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
-        execute_r_nodes(frame); 
+        //execute_r_nodes(frame); 
         //Streaming
-        // stream_r_nodes(frame);
-        // execute_stream(frame);
+        stream_r_nodes(frame);
+        print("==EXECUTING STREAM==");
+        execute_stream(frame);
 
         // list<list<std::function<void(int)>>> f_table;
         // list<list<std::string>> s_table;
@@ -77,6 +128,61 @@ int main() {
     }
     else if (mode==1) {
 
+        base_module::initialize();
+        literals_module::initialize();
+        array_module::initialize();
+        variables_module::initialize();
+        opperator_module::initialize();
+        control_module::initialize();
+        type_module::initialize();
+        data_module::initialize();
+        paren_module::initialize();
+        functions_module::initialize();
+        std::string code = readFile(root()+"/Projects/GDSL/src/golden.gld");
+        list<g_ptr<Token>> tokens = tokenize(code);
+        list<g_ptr<a_node>> nodes = parse_tokens(tokens);
+        balance_precedence(nodes);
+        g_ptr<s_node> root = parse_scope(nodes);
+        parse_nodes(root);
+        discover_symbols(root);
+        g_ptr<Frame> frame = resolve_symbols(root);
+
+        log::rig r;
+        // r.add_process("clean",[&](int i){
+           
+        // });
+
+        r.add_process("GDSL_Stream",[&](int i){
+            if(frame->stored_functions.length()==0) {
+                stream_r_nodes(frame);
+            }
+        });
+
+        r.add_process("GDSL",[&](int i){
+            execute_stream(frame); 
+        });
+
+        // r.add_process("GDSL",[&](int i){
+        //     execute_r_nodes(frame);  
+        // });
+        r.add_process("CPP",[&](int v){
+            struct num {
+                int a;
+            };
+            std::vector<num> nums;
+            for(int i=0;i<test_ammount;i++) {
+                nums.emplace_back(num());
+            }
+            int n_len = nums.size();
+            int i = 0;
+            while(i<n_len) {
+                nums[i].a = i;
+                i = i+1;
+            }
+        });
+
+        r.add_comparison("GDSL","CPP");
+        r.run(1000,true,1);
     }
     else if (mode==2) {
         g_ptr<Type> test = make<Type>();
@@ -86,6 +192,28 @@ int main() {
     }
 
     print("==DONE==");
+
+    #if MAIN_TEST
+    //Removing to clean up what was added
+    editTextFile(root()+"/Projects/GDSL/src/golden.gld",[](std::string& text){
+        const std::string startTag = "#START";
+        const std::string endTag   = "#END";
+    
+        size_t start = text.find(startTag);
+        if (start == std::string::npos) return;
+    
+        start += startTag.size();
+    
+        while (start < text.size() && (text[start] == '\n' || text[start] == '\r' || text[start] == ' ' || text[start] == '\t'))
+            ++start;
+    
+        size_t end = text.find(endTag, start); 
+        if (end == std::string::npos) return;
+    
+        text.replace(start, end - start, "");
+    });
+    #endif
+
     return 0;
 }
 

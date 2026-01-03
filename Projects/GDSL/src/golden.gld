@@ -1,12 +1,19 @@
-
 type num {
     int a;
-    layout();
 }
 
-one.a = 5;
+print("Worked");
+num one;
+print("A");
+int i;
+i = 0;
+while(i<3) {
+    print(i);
+    i = i+1;
+    print(i);
+}
+print("B");
 
-print(one.a);
 
 
 
