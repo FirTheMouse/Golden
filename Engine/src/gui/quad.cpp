@@ -352,6 +352,7 @@ namespace Golden
     Quad& Quad::setPosition(const vec2& pos)
     {
        position = pos;
+
        if(lockToParent)
        {
         callingChild=true;

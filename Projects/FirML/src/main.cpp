@@ -52,7 +52,7 @@ int main() {
     };
     list<g_ptr<tensor>> params = {w1, b1, w2, b2};
 
-    log::Line l;
+    Log::Line l;
     l.start();
 
     train_network(
@@ -106,8 +106,7 @@ int main() {
     print("Test Accuracy: ", accuracy, "%");
     
     list<int> indices = {randi(0, test_imgs->data_.rows() - 1), randi(0, test_imgs->data_.rows() - 1), randi(0, test_imgs->data_.rows() - 1)};
-  
-
+    
     for(int i = 0; i < 3; i++) {
         int idx = indices[i];
         
@@ -115,9 +114,12 @@ int main() {
         g_ptr<Quad> q = make<Quad>();
         scene->add(q);
         q->setTexture(mnist_to_texture(test_imgs, idx), 0);
-        q->setPosition({(float)(i * 300.0f), 0});  // Space them out
-        q->scale(vec2(280, 280));
-        
+        float pos_y = (float)i*300.0f;
+        vec2 pos(pos_y,0.0f);
+        q->setPosition(pos);  // Space them out
+        vec2 scale(280, 280);
+        q->scale(scale);
+
         // Get prediction
         auto single_img = test_imgs->get_batch(idx, 1);
         auto output = single_img;
@@ -135,7 +137,8 @@ int main() {
         
         // Display text showing prediction
         print("Image ", i, ": Predicted ", predicted);
-        text::makeText(std::to_string(predicted),source_code,scene,{100.0f+(float)(i * 300.0f), 350},1);
+        vec2 pos2(100.0f+pos_y,350);
+        text::makeText(std::to_string(predicted),source_code,scene,pos2,1);
     }
 
     start::run(window,d,[&]{
@@ -144,6 +147,7 @@ int main() {
 
     return 0;
 }
+
 
 
 
