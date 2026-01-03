@@ -52,7 +52,7 @@ public:
     bool callingChild = false;
     Q_Snapshot ogt;
 
-    bool lockToParent;
+    bool lockToParent = false;
      /// @todo Add methods later for removing children and detatching from parent
      void addChild(g_ptr<Quad> q,bool andLock = false);
      inline void detatchAll()

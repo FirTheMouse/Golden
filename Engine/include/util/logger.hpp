@@ -5,7 +5,7 @@
 #include <chrono>
 #include <iostream>
 
-namespace log {
+namespace Log {
 
 // Provides the time it takes for a function to run, not avereged over iterations
 double time_function(int ITERATIONS,std::function<void(int)> process) {
