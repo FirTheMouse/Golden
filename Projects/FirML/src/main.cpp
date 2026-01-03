@@ -27,7 +27,7 @@ int main() {
     Data d = helper::make_config(scene,K);
     auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
 
-    int amt = 1000;
+    int amt = -1;
 
     auto [train_imgs, train_labels] = load_mnist(
         root()+"/Projects/Learning/assets/images/train-images-idx3-ubyte", 
