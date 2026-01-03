@@ -7,7 +7,7 @@ namespace fs = std::filesystem;
 
 void startProject(std::string name)
 {
-    std::string dirPath = "../Projects/" + name+"/";
+    std::string dirPath = root()+"/Projects/" + name+"/";
 
     if (!fs::exists(dirPath)) {
         fs::create_directories(dirPath);
@@ -156,12 +156,12 @@ int main()
 
 
     //Uncomment and use this to add new projects:
-    // std::string name = "AvalVentures";
+    // std::string name = "FirML";
     // startProject(name);
     // addProjectToCMake(name);
 
     //Launch projects here, set to the name of the project
-    std::string p1 = "Learning";
+    std::string p1 = "FirML";
     std::string p2 = "Testing";
     std::string p3 = "GDSL";
     std::string p4 = "FirChess";

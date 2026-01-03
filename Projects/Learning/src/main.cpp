@@ -51,8 +51,12 @@ public:
             case SIGMOID: result->data_ = (1.0f / (1.0f + (-data_.array()).exp())).matrix(); break;
             case ADD_BIAS: result->data_ = data_.rowwise() + other->data_.row(0); break;
             case SOFTMAX: {
-                auto exp_vals = data_.array().exp();
-                result->data_ = (exp_vals.colwise() / exp_vals.rowwise().sum()).matrix();
+                auto x = data_;
+                VectorXf row_max = x.rowwise().maxCoeff();
+                x = x.colwise() - row_max;
+                auto ex = x.array().exp();
+                VectorXf row_sum = ex.rowwise().sum();
+                result->data_ = (ex.colwise() / row_sum.array()).matrix();
                 break;
             }
             default:
@@ -64,9 +68,9 @@ public:
     }
 
     void backward() {
-        if(grad_.isZero() && op_!=NOP) {
-            grad_ = MatrixXf::Ones(data_.rows(), data_.cols());
-        }
+        // if(grad_.isZero() && op_!=NOP) {
+        //     grad_ = MatrixXf::Ones(data_.rows(), data_.cols());
+        // }
 
         switch(op_) {
             case NOP: //For leaf or unintilized nodes, where we don't want it running backwards
@@ -102,7 +106,10 @@ public:
                 break;
             case SOFTMAX: {
                 //Currently simplified
-                inputs_[0]->grad_ += grad_;
+                MatrixXf s = data_;          // NOTE: data_ here is softmax output
+                MatrixXf g = grad_;
+                MatrixXf dot = (g.array() * s.array()).rowwise().sum().matrix(); // (batch x 1)
+                inputs_[0]->grad_ += (s.array() * (g.array().colwise() - dot.col(0).array())).matrix();
                 inputs_[0]->backward();
                 break;
             }
@@ -140,9 +147,14 @@ float train_step(
             output->grad_ = 2.0f * (output->data_ - target->data_);
             break;
         case CROSS_ENTROPY: {
-            // Assumes output has already gone through softmax
-            // loss = -sum(target * log(output))
-            loss_value = -(target->data_.array() * output->data_.array().log()).sum();
+            //CE needs correction to be correct, this is more of a 'happy acciden't in that it works with fused.
+            //Reutrn to this once I know more.
+            //next step is a fused CE-with-logits and a grad checker
+
+            constexpr float eps = 1e-8f;
+            auto probs = output->data_.array().max(eps);
+            loss_value = -(target->data_.array() * probs.log()).sum();
+
             // Gradient: output - target (when combined with softmax)
             output->grad_ = output->data_ - target->data_;
             break;
@@ -379,7 +391,7 @@ int main() {
     Data d = helper::make_config(scene,K);
     auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
 
-    int amt = 100;
+    int amt = 1000;
 
     auto [train_imgs, train_labels] = load_mnist(
         root()+"/Projects/Learning/assets/images/train-images-idx3-ubyte", 
@@ -414,7 +426,7 @@ int main() {
     log::Line l;
     l.start();
 
-    train_network_batched(train_imgs, train_labels, network, params, CROSS_ENTROPY, 10, 64, 0.01f, 0);
+    train_network_batched(train_imgs, train_labels, network, params, CROSS_ENTROPY, 10, 64, 0.01f, 1);
 
     double time = l.end();
     print("Took ",time/1000000,"ms");
@@ -490,51 +502,28 @@ int main() {
 
     });
 
-// // 3-class problem: predict which quadrant a point is in
-// // 12 examples, 2 features (x, y), 3 classes
-// auto inputs = make<tensor>(MatrixXf(12, 2));
-// inputs->data_ << 
-//     -1, -1,  // class 0 (bottom-left)
-//     -1, -0.5,
-//     -0.5, -1,
-//     -0.5, -0.5,
-//     1, 1,    // class 1 (top-right)
-//     1, 0.5,
-//     0.5, 1,
-//     0.5, 0.5,
-//     -1, 1,   // class 2 (top-left)
-//     -1, 0.5,
-//     -0.5, 1,
-//     -0.5, 0.5;
-
-// auto targets = make<tensor>(MatrixXf(12, 3));
-// // One-hot encoding: [1,0,0] for class 0, [0,1,0] for class 1, etc.
-// targets->data_ << 
-//     1, 0, 0,
-//     1, 0, 0,
-//     1, 0, 0,
-//     1, 0, 0,
-//     0, 1, 0,
-//     0, 1, 0,
-//     0, 1, 0,
-//     0, 1, 0,
-//     0, 0, 1,
-//     0, 0, 1,
-//     0, 0, 1,
-//     0, 0, 1;
-
-// // Network: 2 inputs → 8 hidden → 3 outputs
-// auto w1 = weight(2, 8);
-// auto b1 = bias(8);
-// auto w2 = weight(8, 3);
-// auto b2 = bias(3);
-
-// list<Pass> network = {{MATMUL, w1}, {ADD_BIAS, b1}, {RELU}, {MATMUL, w2}, {ADD_BIAS, b2}, {SOFTMAX}};
-// list<g_ptr<tensor>> params = {w1, b1, w2, b2};
-
-// //train_network(inputs,targets,network,params,MSE,2000,0.01f);
-// train_network_batched(inputs, targets, network, params, CROSS_ENTROPY, 2000, 4, 0.01f, 500);
-
-
     return 0;
 }
+
+
+//CE V2:
+// constexpr float eps = 1e-8f;
+
+// auto probs = output->data_.array().max(eps);
+// int bs = output->data_.rows();
+
+// loss_value = -(target->data_.array() * probs.log()).rowwise().sum().mean();
+// output->grad_ = (output->data_ - target->data_) / float(bs);
+
+//CE V3:
+// constexpr float eps = 1e-8f;
+// int bs = output->data_.rows();
+
+// auto probs = output->data_.array().max(eps);
+
+// // mean CE over batch
+// loss_value = -(target->data_.array() * probs.log()).rowwise().sum().mean();
+
+// // dL/ds = -y / s  (and divide by batch if you're using mean loss)
+// output->grad_ = (-(target->data_.array() / probs) / float(bs)).matrix();
+
