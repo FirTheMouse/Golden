@@ -23,7 +23,7 @@ add_subdirectory(Engine)
 add_subdirectory(Projects/GPM)
 
 # ACTIVE_PROJECT_HERE
-add_subdirectory(Projects/Learning)
+add_subdirectory(Projects/FirML)
 
 
 
