@@ -1,379 +1,540 @@
-#include <util/util.hpp>
-#include <util/string_generator.hpp>
-#include <util/logger.hpp>
+#include<util/util.hpp>
+#include<util/engine_util.hpp>
+#include<core/object.hpp>
 
+#include<core/helper.hpp>
+#include<util/logger.hpp>
 
-//djb2
-uint32_t hash1(const std::string& str) {
-    uint32_t hash = 5381;
-    for (char c : str) {
-        hash = ((hash << 5) + hash) + c; // hash * 33 + c
-    }
-    return hash;
-}
-//fnv1a
-uint32_t hash2(const std::string& str) {
-    uint32_t hash = 2166136261u;
-    for (char c : str) {
-        hash ^= c;
-        hash *= 16777619u;
-    }
-    return hash;
-}
-//murmur3
-uint32_t hash3(const std::string& str) {
-    uint32_t hash = 0;
-    const uint32_t c1 = 0xcc9e2d51;
-    const uint32_t c2 = 0x1b873593;
-    
-    for (size_t i = 0; i + 3 < str.length(); i += 4) {
-        uint32_t k = *(uint32_t*)&str[i];
-        k *= c1;
-        k = (k << 15) | (k >> 17);
-        k *= c2;
-        
-        hash ^= k;
-        hash = (hash << 13) | (hash >> 19);
-        hash = hash * 5 + 0xe6546b64;
-    }
-        
-    hash ^= str.length();
-    hash ^= hash >> 16;
-    hash *= 0x85ebca6b;
-    hash ^= hash >> 13;
-    hash *= 0xc2b2ae35;
-    hash ^= hash >> 16;
-    
-    return hash;
-}
+#include <Eigen/Dense>
 
-struct hashes {
-    hashes(uint32_t a,uint32_t b,uint32_t c) {
-        h[0] = a; h[1] = b; h[2] = c;
-    }
-    uint32_t h[3];
+using namespace Eigen;
+
+enum Opp {
+   NOP, ADD, MATMUL, RELU, ADD_BIAS, SIGMOID, SOFTMAX
 };
 
-class bloom_filter {
-private:
-    uint64_t* bits;
-    size_t num_bits;
+enum LossType {
+    MSE, CROSS_ENTROPY
+};
 
-    inline void set_bit(size_t pos) {
-        bits[pos / 64] |= (1ULL << (pos % 64));
-    }
-    
-    inline bool get_bit(size_t pos) {
-        return bits[pos / 64] & (1ULL << (pos % 64));
-    }
-
+class tensor : public Object {
 public:
-    bloom_filter(size_t num_bits_) : num_bits(num_bits_) {
-        size_t num_words = (num_bits + 63) / 64;
-        bits = new uint64_t[num_words](); 
-    }
-    
-    ~bloom_filter() { delete[] bits; }
+    MatrixXf data_;
+    MatrixXf grad_;
+    Opp op_ = NOP;
 
-    void rebuild(size_t num_bits_) {
-        if(bits) delete[] bits;
-        size_t num_words = (num_bits + 63) / 64;
-        bits = new uint64_t[num_words](); 
+    list<g_ptr<tensor>> inputs_;
+
+    tensor() {
+        grad_ = MatrixXf::Zero(0, 0);
+    }
+    tensor(const MatrixXf& data) : data_(data) {
+       grad_ = MatrixXf::Zero(data.rows(), data.cols());
+    }
+
+    g_ptr<tensor> get_batch(int start, int batch_size) {
+        int rows = std::min(batch_size, (int)data_.rows() - start);
+        auto batch = make<tensor>(data_.block(start, 0, rows, data_.cols()));
+        return batch;
+    }
+  
+    g_ptr<tensor> forward(const Opp& op, g_ptr<tensor> other = nullptr) {
+        g_ptr<tensor> result = make<tensor>();
+        if(other) result->inputs_ = {this,other};
+        else result->inputs_ = {this}; //For unary
+        result->op_ = op;
+        switch(op) {
+            case NOP: return result;
+            case ADD: result->data_ = data_ + other->data_; break;
+            case MATMUL: result->data_ = data_ * other->data_; break;
+            case RELU: result->data_ = data_.cwiseMax(0.0f); break;
+            case SIGMOID: result->data_ = (1.0f / (1.0f + (-data_.array()).exp())).matrix(); break;
+            case ADD_BIAS: result->data_ = data_.rowwise() + other->data_.row(0); break;
+            case SOFTMAX: {
+                auto exp_vals = data_.array().exp();
+                result->data_ = (exp_vals.colwise() / exp_vals.rowwise().sum()).matrix();
+                break;
+            }
+            default:
+                print("WARNING: invalid op_ in forward: ",op_);
+                break;
+        }
+        result->grad_ = MatrixXf::Zero(result->data_.rows(), result->data_.cols());
+        return result;
+    }
+
+    void backward() {
+        if(grad_.isZero() && op_!=NOP) {
+            grad_ = MatrixXf::Ones(data_.rows(), data_.cols());
+        }
+
+        switch(op_) {
+            case NOP: //For leaf or unintilized nodes, where we don't want it running backwards
+                return;
+            case ADD:
+                    inputs_[0]->grad_ += grad_;
+                    inputs_[1]->grad_ += grad_;
+                    inputs_[0]->backward();
+                    inputs_[1]->backward();
+                break;
+            case MATMUL:
+                    inputs_[0]->grad_ += grad_ * inputs_[1]->data_.transpose();
+                    inputs_[1]->grad_ += inputs_[0]->data_.transpose() * grad_;
+                    inputs_[0]->backward();
+                    inputs_[1]->backward();
+                break;
+            case RELU:
+                inputs_[0]->grad_ += grad_.cwiseProduct((inputs_[0]->data_.array() > 0).cast<float>().matrix());
+                inputs_[0]->backward();
+                break;
+            case SIGMOID: {
+                auto sig = inputs_[0]->data_;
+                auto sig_data = (1.0f / (1.0f + (-sig.array()).exp()));
+                inputs_[0]->grad_ += grad_.cwiseProduct((sig_data * (1.0f - sig_data)).matrix());
+                inputs_[0]->backward(); 
+                break;
+            }
+            case ADD_BIAS:
+                inputs_[0]->grad_ += grad_;
+                inputs_[1]->grad_ += grad_.colwise().sum();
+                inputs_[0]->backward();
+                inputs_[1]->backward();
+                break;
+            case SOFTMAX: {
+                //Currently simplified
+                inputs_[0]->grad_ += grad_;
+                inputs_[0]->backward();
+                break;
+            }
+            default:
+                print("WARNING: invalid op_ in backward: ",op_);
+                break;
+        }
+
+    }
+
+    float compute_loss(g_ptr<tensor> pred, g_ptr<tensor> target) {
+        return (pred->data_ - target->data_).squaredNorm();
+    }
+
+};
+
+struct Pass {
+    Opp op = NOP;
+    g_ptr<tensor> param = nullptr;
+};
+
+
+float train_step(
+    g_ptr<tensor> output,
+    g_ptr<tensor> target,
+    list<g_ptr<tensor>>& params,
+    float learning_rate,
+    LossType loss_type
+) {
+
+    float loss_value = 0.0f;
+    switch(loss_type) {
+        case MSE:
+            loss_value = (output->data_ - target->data_).squaredNorm();
+            output->grad_ = 2.0f * (output->data_ - target->data_);
+            break;
+        case CROSS_ENTROPY: {
+            // Assumes output has already gone through softmax
+            // loss = -sum(target * log(output))
+            loss_value = -(target->data_.array() * output->data_.array().log()).sum();
+            // Gradient: output - target (when combined with softmax)
+            output->grad_ = output->data_ - target->data_;
+            break;
+        }
+        default:
+            print("WARNING: invalid loss_type in train_step: ",loss_type);
+            break;
     }
     
-    hashes hashRun(const std::string& key) {
-        return hashes(
-            hash1(key) % num_bits,
-            hash2(key) % num_bits,
-            hash3(key) % num_bits
-        );
+    output->backward();
+    
+    for(auto& param : params) {
+        param->data_ -= learning_rate * param->grad_;
     }
     
-    void add(const std::string& key) {
-        hashes h = hashRun(key);
-        for(int i=0;i<3;i++) {
-            set_bit(h.h[i]);
+    for(auto& param : params) {
+        param->grad_.setZero();
+    }
+    
+    return loss_value;
+}
+
+g_ptr<tensor> weight(int rows, int cols, float scalar = 0.01f) {
+    return make<tensor>(MatrixXf::Random(rows, cols)*scalar);
+}
+
+g_ptr<tensor> bias(int cols) {
+    return make<tensor>(MatrixXf::Zero(1, cols));
+}
+
+
+void train_network(
+    g_ptr<tensor> inputs,
+    g_ptr<tensor> targets,
+    list<Pass> network,
+    list<g_ptr<tensor>> params,
+    LossType loss_type,
+    int epochs,
+    float learning_rate,
+    int log_interval = 500
+) {
+    g_ptr<tensor> output;
+    float loss_value = 0;
+    
+    for(int epoch = 0; epoch < epochs; epoch++) {
+        // Forward pass
+        output = inputs;
+        for(auto p : network) {
+            output = output->forward(p.op, p.param);
+        }
+        
+        // Backward pass + update
+        loss_value = train_step(output, targets, params, learning_rate, loss_type);
+        
+        // Logging
+        if(epoch % log_interval == 0) {
+            float loss = (output->data_ - targets->data_).squaredNorm();
+            print("Epoch ",epoch," Loss: ",loss);
+        }
+
+        if(std::isnan(loss_value) || std::isinf(loss_value)) {
+            print("Exploded at epoch ", epoch);
+            print("w1 max: ", params[0]->data_.maxCoeff());
+            print("w1 min: ", params[0]->data_.minCoeff());
+            break;
         }
     }
     
-    bool query(const std::string& key) {
-        hashes h = hashRun(key);
-        bool result = true;
-        for(int i=0;i<3;i++) {
-            if(!get_bit(h.h[i])) {
-                result=false;
+    // Final results
+    print("\nFinal predictions:\n",output->data_);
+    print("Target:\n",targets->data_);
+}
+
+//Fold into train_network for cleaner API
+void train_network_batched(
+    g_ptr<tensor> inputs,
+    g_ptr<tensor> targets,
+    list<Pass> network,
+    list<g_ptr<tensor>> params,
+    LossType loss_type,
+    int epochs,
+    int batch_size,
+    float learning_rate,
+    int log_interval = 500
+) {
+    int num_samples = inputs->data_.rows();
+    g_ptr<tensor> output;
+    for(int epoch = 0; epoch < epochs; epoch++) {
+        float epoch_loss = 0.0f;
+        int num_batches = 0;
+        
+        for(int i = 0; i < num_samples; i += batch_size) {
+            auto input_batch = inputs->get_batch(i, batch_size);
+            auto target_batch = targets->get_batch(i, batch_size);
+
+            // if(epoch == 0 && i == 0) {
+            //     print("First batch input:\n", input_batch->data_);
+            //     print("First batch target:\n", target_batch->data_);
+            // }
+            
+
+            output = input_batch;
+            for(auto p : network) {
+                output = output->forward(p.op, p.param);
+            }
+            
+
+            float loss = train_step(output, target_batch, params, learning_rate, CROSS_ENTROPY);
+            epoch_loss += loss;
+            num_batches++;
+
+            if(std::isnan(loss) || std::isinf(loss)) {
+                print("Exploded at epoch ", epoch);
+                print("w1 max: ", params[0]->data_.maxCoeff());
+                print("w1 min: ", params[0]->data_.minCoeff());
                 break;
             }
         }
-        return result;
-    }
-};
-
-class mphs {
-public:
-    int num_buckets;
-    int num_keys;
-    list<uint32_t> seeds;
-    list<list<uint64_t>> fingerprints;
-
-    mphs() {}
-
-    mphs(list<std::string> keys) {        
-        build(keys);
-    }
-
-    void build(list<std::string> keys) {
-        //Try to ensure there aren't duplicates, I won't add duplicate culling here because preformance, but I could
-        num_keys = keys.length();
-        num_buckets = std::max(1,num_keys/10);
-        list<list<std::string>> buckets;
-        seeds = list<uint32_t>(num_buckets,0);
-        fingerprints.clear();
-        for(int i=0;i<num_keys;i++) {
-            fingerprints << list<uint64_t>{};
-        }
-        for(int i=0;i<num_buckets;i++) {
-            list<std::string> lst;
-            buckets << lst;
-        }
-        for(auto key : keys) {
-            int idx = hash1(key)%num_buckets;
-            buckets[idx] << key;
-        }
-        for(int b=0;b<num_buckets;b++) {
-            for(int i=0;i<1000;i++) {
-                bool valid = true;
-                list<uint32_t> used_indexes;
-                for(auto key : buckets[b]) {
-                    uint32_t index = seedHash(key,i)%num_keys;
-                    if(used_indexes.has(index)) {
-                        valid = false;
-                        break;
-                    } else {
-                        used_indexes << index;
-                    }
-                }
-                if(valid) {
-                    seeds[b] = i;
-                    break;
-                }
+        
+        if(log_interval>0) {
+            if(epoch % log_interval == 0) {
+                print("Epoch ", epoch, " Loss: ", epoch_loss / num_batches);
             }
         }
-
-        for(auto key : keys) {
-            uint32_t seed = seeds[hash1(key) % num_buckets];
-            uint32_t index = seedHash(key, seed) % num_keys;
-            uint64_t fp = fingerprint(key);
-
-            fingerprints[index] << fp;
-        }
     }
 
-    uint32_t hash_secondary(const std::string& key) {
-        return hash1(key) ^ hash3(key);
+    auto final_output = inputs;
+    for(auto p : network) {
+        final_output = final_output->forward(p.op, p.param);
     }
 
-    uint32_t seedHash(const std::string& key, int seed) {
-        return hash2(key) + seed * hash3(key);
+    if(log_interval>0) {
+        print("\nFinal predictions:\n", final_output->data_);
+        print("Target:\n", targets->data_);
     }
-
-    uint64_t fingerprint(const std::string& key) {
-        return ((uint64_t)hash1(key) << 32) | hash2(key);
-    }
-
-    bool contains(const std::string& key) {
-        uint32_t first = hash1(key);
-        uint32_t second = hash2(key);
-        uint32_t seed = seeds[first % num_buckets];
-        uint32_t index = (second + seed * hash3(key)) % num_keys;
-        uint64_t fp = ((uint64_t)first << 32) | second;
-        
-        return fingerprints[index].has(fp);
-    }
-};
-
-
-//More hash-table-y idea
-class mpht {
-public:
-    int num_buckets;
-    int num_keys;
-    list<uint32_t> seeds;
-    list<uint64_t> fingerprints;
-    list<uint32_t> values;
-
-    mpht() {}
-
-    mpht(list<entry<std::string,uint32_t>> entries) {        
-        build(entries);
-    }
-
-    void build(list<entry<std::string,uint32_t>> entries) {
-        //Try to ensure there aren't duplicates, I won't add duplicate culling here because preformance, but I could
-        num_keys = entries.length();
-        num_buckets = std::max(1,num_keys/10);
-        list<list<std::string>> buckets;
-        seeds = list<uint32_t>(num_buckets);
-        values = list<uint32_t>(num_keys);
-        fingerprints = list<uint64_t>(num_keys);
-        for(int i=0;i<num_buckets;i++) {
-            list<std::string> lst;
-            buckets << lst;
-        }
-        for(auto e : entries) {
-            int idx = hash1(e.key)%num_buckets;
-            buckets[idx] << e.key;
-        }
-        for(int b=0;b<num_buckets;b++) {
-            for(int i=0;i<1000;i++) {
-                bool valid = true;
-                list<uint32_t> used_indexes;
-                for(auto key : buckets[b]) {
-                    uint32_t index = seedHash(key,i)%num_keys;
-                    if(used_indexes.has(index)) {
-                        valid = false;
-                        break;
-                    } else {
-                        used_indexes << index;
-                    }
-                }
-                if(valid) {
-                    seeds[b] = i;
-                    break;
-                }
-            }
-        } 
-        for(auto e : entries) {
-            uint32_t seed = seeds[hash1(e.key) % num_buckets];
-            uint32_t index = seedHash(e.key, seed) % num_keys;
-            fingerprints[index] = fingerprint(e.key);
-            values[index] = e.value;
-        }
-    }
-
-    uint32_t seedHash(const std::string& key, int seed) {
-        return hash2(key) + seed * hash3(key);
-    }
-
-    uint64_t fingerprint(const std::string& key) {
-        return ((uint64_t)hash1(key) << 32) | hash2(key);
-    }
-
-    uint32_t getIndex(const std::string& key) {
-        uint32_t first = hash1(key);
-        uint32_t second = hash2(key);
-        uint32_t seed = seeds[first % num_buckets];
-        uint32_t index = (second + seed * hash3(key)) % num_keys;
-        uint64_t fp = ((uint64_t)first << 32) | second;
-        
-        if(fingerprints[index] == fp) {
-            //print("INDEX: ",index," KEY: ",key," VALUE: ",values[index]);
-            return values[index]; 
-        }
-        //print("EXRETURN, INDEX: ",index," KEY: ",key);
-        return -1;
-    }
-};
-
-int main() {
-    int bloom_size = 200000;
-    bloom_filter bloom(bloom_size); 
-    mphs hs;
-
-    int a_len = 20000;
-
-    //int duplicates = 0;
-    list<std::string> added;
-    for(int i=0;i<a_len;i++) {
-        std::string name = sgen::randsgen(sgen::RANDOM);
-        //if(added.has(name)) duplicates++;
-        added << name;
-    }
-    //print("DUPLICATE NAMES: ",duplicates);
-
-    list<std::string> n_added;
-    for(int i = 0; i < a_len; i++) {
-        n_added << "notinset"+std::to_string(i);
-    }
-
-    log::rig r;
-    r.add_process("bloom_clean",[&](int i){
-        if(i==0)
-            bloom.rebuild(bloom_size);
-    });
-    r.add_process("bloom_add",[&](int i){
-        bloom.add(added[i]);
-    });
-    int hits = 0;
-    r.add_process("bloom_query",[&](int i){
-        if(bloom.query(added[i])) hits++;
-    });
-
-    r.add_process("mphs_build",[&](int i){
-        if(i==0)
-            hs.build(added);
-    },1);
-    r.add_process("mphs_query",[&](int i){
-        hs.contains(added[i]);
-    },1);
-
-    map<std::string,uint32_t> nm;
-    r.add_process("map_add",[&](int i){
-            nm.put(added[i],i);
-    },2);
-    r.add_process("map_get",[&](int i){
-        volatile uint32_t a = nm.get(added[i]);
-    },2);
-
-    mpht ht;
-    list<entry<std::string,uint32_t>> entries;
-    for(int i = 0;i<added.length();i++) {
-        entries << entry<std::string,uint32_t>{added[i],i};
-    }
-
-    // ht.build(entries);
-    // print(ht.getIndex(added[50]));
-
-    r.add_process("mpht_build",[&](int i){
-        if(i==0)
-            ht.build(entries);
-    },3);
-    int fails = 0;
-    r.add_process("mpht_retrive",[&](int i){
-       volatile uint32_t a = ht.getIndex(added[i]);
-       if(a == -1) fails++;
-    },3);
-
-    r.run(100,false,a_len);
-
-    int bloom_fn = 0;
-    int mpht_fn = 0;
-    for(auto key : added) {
-        if(!bloom.query(key)) bloom_fn++;
-        if(!hs.contains(key)) mpht_fn++;
-    }
-    
-    int bloom_fp = 0;
-    int mpht_fp = 0;
-    for(auto key : n_added) {
-        if(bloom.query(key)) bloom_fp++;
-        if(hs.contains(key)) mpht_fp++;
-    }
-
-    print("MPHT Failed queries: ",fails," / ",a_len,
-        " (", (fails / (double)a_len) * 100, "%)");
-    
-    print("=== FALSE NEGATIVES ===");
-    print("Bloom: ", bloom_fn, " / ", a_len);
-    print("MPHS:  ", mpht_fn, " / ", a_len);
-    
-    print("\n=== FALSE POSITIVES ===");
-    print("Bloom: ", bloom_fp, " / ", a_len, 
-          " (", (bloom_fp / (double)a_len) * 100, "%)");
-    print("MPHS:  ", mpht_fp, " / ", a_len,
-          " (", (mpht_fp / (double)a_len) * 100, "%)");
-    return 0;
 }
 
 
 
+
+
+// Utility to read big-endian integers
+int32_t read_int(std::ifstream& file) {
+    unsigned char bytes[4];
+    file.read((char*)bytes, 4);
+    return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+}
+
+std::pair<g_ptr<tensor>, g_ptr<tensor>> load_mnist(
+    const std::string& image_file,
+    const std::string& label_file,
+    int max_samples = -1  // -1 = load all
+) {
+    // Load images
+    std::ifstream img_stream(image_file, std::ios::binary);
+    if(!img_stream) throw std::runtime_error("Can't open " + image_file);
+    
+    int magic = read_int(img_stream);
+    int num_images = read_int(img_stream);
+    int rows = read_int(img_stream);
+    int cols = read_int(img_stream);
+    
+    if(max_samples > 0) num_images = std::min(num_images, max_samples);
+    
+    auto images = make<tensor>(MatrixXf(num_images, rows * cols));
+    
+    for(int i = 0; i < num_images; i++) {
+        for(int j = 0; j < rows * cols; j++) {
+            unsigned char pixel;
+            img_stream.read((char*)&pixel, 1);
+            images->data_(i, j) = pixel / 255.0f;  // normalize to [0,1]
+        }
+    }
+    
+    // Load labels
+    std::ifstream lbl_stream(label_file, std::ios::binary);
+    if(!lbl_stream) throw std::runtime_error("Can't open " + label_file);
+    
+    magic = read_int(lbl_stream);
+    int num_labels = read_int(lbl_stream);
+    
+    if(max_samples > 0) num_labels = std::min(num_labels, max_samples);
+    
+    auto labels = make<tensor>(MatrixXf::Zero(num_labels, 10));
+    
+    for(int i = 0; i < num_labels; i++) {
+        unsigned char label;
+        lbl_stream.read((char*)&label, 1);
+        labels->data_(i, label) = 1.0f;  // one-hot encoding
+    }
+    
+    return {images, labels};
+}
+
+unsigned int mnist_to_texture(g_ptr<tensor> images, int img_index) {
+    // Extract one 28x28 image
+    int w = 28, h = 28;
+    unsigned char* data = new unsigned char[w * h * 4];  // RGBA
+    
+    for(int i = 0; i < h; i++) {
+        for(int j = 0; j < w; j++) {
+            // Flip vertically: read from bottom to top
+            int flipped_i = (h - 1) - i;
+            float val = images->data_(img_index, flipped_i * w + j);
+            unsigned char pixel = (unsigned char)(val * 255.0f);
+            
+            int idx = (i * w + j) * 4;
+            data[idx + 0] = pixel;
+            data[idx + 1] = pixel;
+            data[idx + 2] = pixel;
+            data[idx + 3] = 255;
+        }
+    }
+    
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);  // Nearest for pixel art look
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+    delete[] data;
+    return tex;
+}
+
+int main() {
+    //1280, 768
+    Window window = Window(450,200, "FirML 0.0.2");
+    auto scene = make<Scene>(window,2);
+    scene->camera.toIso();
+    scene->tickEnvironment(0);
+    Data d = helper::make_config(scene,K);
+    auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
+
+    int amt = 100;
+
+    auto [train_imgs, train_labels] = load_mnist(
+        root()+"/Projects/Learning/assets/images/train-images-idx3-ubyte", 
+        root()+"/Projects/Learning/assets/images/train-labels-idx1-ubyte", 
+        amt
+    );
+    auto [test_imgs, test_labels] = load_mnist(
+        root()+"/Projects/Learning/assets/images/t10k-images-idx3-ubyte", 
+        root()+"/Projects/Learning/assets/images/t10k-labels-idx1-ubyte", 
+        amt
+    );
+    print("Loaded ", train_imgs->data_.rows(), " images");
+
+    // g_ptr<Quad> q = make<Quad>();
+    // scene->add(q);
+    // q->setTexture(mnist_to_texture(train_imgs, 0), 0);
+    // q->scale(vec2(28 * 10, 28 * 10));  // Scale up 10x so you can see it
+
+
+
+    auto w1 = weight(784, 128, 0.1f);
+    auto b1 = bias(128);
+    auto w2 = weight(128, 10, 0.1f);
+    auto b2 = bias(10);
+
+    list<Pass> network = {
+        {MATMUL, w1}, {ADD_BIAS, b1}, {RELU},
+        {MATMUL, w2}, {ADD_BIAS, b2}, {SOFTMAX}
+    };
+    list<g_ptr<tensor>> params = {w1, b1, w2, b2};
+
+    log::Line l;
+    l.start();
+
+    train_network_batched(train_imgs, train_labels, network, params, CROSS_ENTROPY, 10, 64, 0.01f, 0);
+
+    double time = l.end();
+    print("Took ",time/1000000,"ms");
+
+    // Run forward pass on test data
+    auto test_output = test_imgs;
+    for(auto p : network) {
+        test_output = test_output->forward(p.op, p.param);
+    }
+
+    // Calculate accuracy
+    int correct = 0;
+    for(int i = 0; i < test_output->data_.rows(); i++) {
+        // Find predicted class (max value in row)
+        int pred_class = 0;
+        float max_val = test_output->data_(i, 0);
+        for(int j = 1; j < 10; j++) {
+            if(test_output->data_(i, j) > max_val) {
+                max_val = test_output->data_(i, j);
+                pred_class = j;
+            }
+        }
+        
+        // Find true class (which column is 1 in one-hot encoding)
+        int true_class = 0;
+        for(int j = 0; j < 10; j++) {
+            if(test_labels->data_(i, j) == 1.0f) {
+                true_class = j;
+                break;
+            }
+        }
+        
+        if(pred_class == true_class) correct++;
+    }
+
+    float accuracy = 100.0f * correct / test_output->data_.rows();
+    print("Test Accuracy: ", accuracy, "%");
+    
+    list<int> indices = {randi(0, test_imgs->data_.rows() - 1), randi(0, test_imgs->data_.rows() - 1), randi(0, test_imgs->data_.rows() - 1)};
+  
+
+    for(int i = 0; i < 3; i++) {
+        int idx = indices[i];
+        
+        // Display the image
+        g_ptr<Quad> q = make<Quad>();
+        scene->add(q);
+        q->setTexture(mnist_to_texture(test_imgs, idx), 0);
+        q->setPosition({(float)(i * 300.0f), 0});  // Space them out
+        q->scale(vec2(280, 280));
+        
+        // Get prediction
+        auto single_img = test_imgs->get_batch(idx, 1);
+        auto output = single_img;
+        for(auto p : network) {
+            output = output->forward(p.op, p.param);
+        }
+        
+        // Find predicted class (max output)
+        int predicted = 0;
+        for(int j = 1; j < 10; j++) {
+            if(output->data_(0, j) > output->data_(0, predicted)) {
+                predicted = j;
+            }
+        }
+        
+        // Display text showing prediction
+        print("Image ", i, ": Predicted ", predicted);
+        text::makeText(std::to_string(predicted),source_code,scene,{100.0f+(float)(i * 300.0f), 350},1);
+    }
+
+    start::run(window,d,[&]{
+
+    });
+
+// // 3-class problem: predict which quadrant a point is in
+// // 12 examples, 2 features (x, y), 3 classes
+// auto inputs = make<tensor>(MatrixXf(12, 2));
+// inputs->data_ << 
+//     -1, -1,  // class 0 (bottom-left)
+//     -1, -0.5,
+//     -0.5, -1,
+//     -0.5, -0.5,
+//     1, 1,    // class 1 (top-right)
+//     1, 0.5,
+//     0.5, 1,
+//     0.5, 0.5,
+//     -1, 1,   // class 2 (top-left)
+//     -1, 0.5,
+//     -0.5, 1,
+//     -0.5, 0.5;
+
+// auto targets = make<tensor>(MatrixXf(12, 3));
+// // One-hot encoding: [1,0,0] for class 0, [0,1,0] for class 1, etc.
+// targets->data_ << 
+//     1, 0, 0,
+//     1, 0, 0,
+//     1, 0, 0,
+//     1, 0, 0,
+//     0, 1, 0,
+//     0, 1, 0,
+//     0, 1, 0,
+//     0, 1, 0,
+//     0, 0, 1,
+//     0, 0, 1,
+//     0, 0, 1,
+//     0, 0, 1;
+
+// // Network: 2 inputs → 8 hidden → 3 outputs
+// auto w1 = weight(2, 8);
+// auto b1 = bias(8);
+// auto w2 = weight(8, 3);
+// auto b2 = bias(3);
+
+// list<Pass> network = {{MATMUL, w1}, {ADD_BIAS, b1}, {RELU}, {MATMUL, w2}, {ADD_BIAS, b2}, {SOFTMAX}};
+// list<g_ptr<tensor>> params = {w1, b1, w2, b2};
+
+// //train_network(inputs,targets,network,params,MSE,2000,0.01f);
+// train_network_batched(inputs, targets, network, params, CROSS_ENTROPY, 2000, 4, 0.01f, 500);
+
+
+    return 0;
+}

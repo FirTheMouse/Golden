@@ -161,7 +161,7 @@ int main()
     // addProjectToCMake(name);
 
     //Launch projects here, set to the name of the project
-    std::string p1 = "Lab";
+    std::string p1 = "Learning";
     std::string p2 = "Testing";
     std::string p3 = "GDSL";
     std::string p4 = "FirChess";

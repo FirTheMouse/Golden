@@ -24,6 +24,11 @@ target_include_directories(nlohmann_json INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/json/include
 )
 
+add_library(eigen INTERFACE)
+target_include_directories(eigen INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen-5.0.0
+)
+
 add_library(tinygltf INTERFACE)
 target_include_directories(tinygltf INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/tinygltf
@@ -35,6 +40,7 @@ target_link_libraries(GoldenEngine PUBLIC
     stb
     nlohmann_json
     tinygltf
+    eigen
 )
 
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" )
