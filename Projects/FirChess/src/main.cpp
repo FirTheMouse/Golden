@@ -6,16 +6,17 @@
 #include<util/logger.hpp>
 
 using namespace Golden;
-using namespace log;
+using namespace Log;
 
 #define EVALUATE 0
 #define LOG 1
-static int max_depth = 4;
+static int max_depth = 6;
 #define ENABLE_AB 1
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
 #define ENABLE_TACTEXT 1
 #define ENABLE_BOOK 1
+#define ENABLE_BOARDSPLIT 0
 
 bool debug_move = false;
 bool free_camera = true;
@@ -1405,6 +1406,7 @@ void process_moves(int depth,int color) {
 };
 
 g_ptr<Board> global;
+g_ptr<Thread> global_thread;
 
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
@@ -1519,78 +1521,109 @@ Move findBestMove(int depth,int color) {
     }
     #endif
 
-    list<list<Move>> board_moves;
-    for(int i = 0;i<board_count;i++) {
-        board_moves << list<Move>{};
-    }
-    for(int i = 0;i<moves.length();i++) {
-        board_moves[i%board_count] << moves[i];
-    }
+    int total_calcs = 0;
+    list<Move> eval;
 
-    int complete = 0;
-    bool completed[board_count];
-    bool stolen[board_count];
-    for(int i = 0;i<board_count;i++) {
-        completed[i] = false;
-        stolen[i] = false;
-        threads[i]->queueTask([&,i](){
-            boards[i]->to_process = board_moves[i];
-            Move new_move;
-            new_move.id = -1;
-            new_move.score = color == 0 ? -9999 : 9999;
-            boards[i]->best = new_move;
-            boards[i]->calcs = 0;
-            boards[i]->progress=0;
-            boards[i]->process_moves(max_depth,color);
-            complete++;
-            completed[i] = true;
-            while(complete!=board_count) {
-                for(int j=0;j<board_count;j++) {
-                    if(j==i) continue;
-                    if(!completed[j]&&!stolen[j]) {
-                        //print(i," stealing from ",j);
-                        stolen[j] = true;
-                        completed[i] = false;
-                        complete--;
-                        int l = boards[j]->to_process.length();
-                        int halfway = (l-boards[j]->progress)/2;
-                        for(int k=l;k>=(l-halfway);k--) {
-                            boards[i]->to_process.push(boards[j]->to_process.pop());
+    #if ENABLE_BOARDSPLIT
+        list<list<Move>> board_moves;
+        for(int i = 0;i<board_count;i++) {
+            board_moves << list<Move>{};
+        }
+        for(int i = 0;i<moves.length();i++) {
+            board_moves[i%board_count] << moves[i];
+        }
+
+        int complete = 0;
+        bool completed[board_count];
+        bool stolen[board_count];
+        for(int i = 0;i<board_count;i++) {
+            completed[i] = false;
+            stolen[i] = false;
+            threads[i]->queueTask([&,i](){
+                boards[i]->to_process = board_moves[i];
+                Move new_move;
+                new_move.id = -1;
+                new_move.score = color == 0 ? -9999 : 9999;
+                boards[i]->best = new_move;
+                boards[i]->calcs = 0;
+                boards[i]->progress=0;
+                boards[i]->process_moves(max_depth,color);
+                complete++;
+                completed[i] = true;
+                while(complete!=board_count) {
+                    for(int j=0;j<board_count;j++) {
+                        if(j==i) continue;
+                        if(!completed[j]&&!stolen[j]) {
+                            //print(i," stealing from ",j);
+                            stolen[j] = true;
+                            completed[i] = false;
+                            complete--;
+                            int l = boards[j]->to_process.length();
+                            int halfway = (l-boards[j]->progress)/2;
+                            for(int k=l;k>=(l-halfway);k--) {
+                                boards[i]->to_process.push(boards[j]->to_process.pop());
+                            }
+                            boards[i]->process_moves(max_depth,color);
+                            //print(i," finished ",halfway," from ",j);
+                            complete++;
+                            completed[i] = true;
+                            break;
                         }
-                        boards[i]->process_moves(max_depth,color);
-                        //print(i," finished ",halfway," from ",j);
-                        complete++;
-                        completed[i] = true;
-                        break;
                     }
                 }
-            }
-        });
-    }
-
-    auto lastTime = std::chrono::high_resolution_clock::now();
-    while(complete!=board_count) {
-        auto currentTime = std::chrono::steady_clock::now();
-        float delta = std::chrono::duration<float>(currentTime - lastTime).count();
-        if(delta>=0.3) {
-            for(int i=0;i<board_count;i++) {
-                print(i," calcs: ",boards[i]->calcs,stolen[i]?" STOLEN ":"",completed[i]?" DONE ":"");
-            }
-            lastTime=std::chrono::high_resolution_clock::now();
+            });
         }
-       
-    }
 
-    int total_calcs = 0;
-    for(int i=0;i<board_count;i++) {
-        total_calcs+=boards[i]->calcs;
-    }
+        auto lastTime = std::chrono::high_resolution_clock::now();
+        while(complete!=board_count) {
+            auto currentTime = std::chrono::steady_clock::now();
+            float delta = std::chrono::duration<float>(currentTime - lastTime).count();
+            if(delta>=0.3) {
+                for(int i=0;i<board_count;i++) {
+                    print(i," calcs: ",boards[i]->calcs,stolen[i]?" STOLEN ":"",completed[i]?" DONE ":"");
+                }
+                lastTime=std::chrono::high_resolution_clock::now();
+            }
+        
+        }
 
-    list<Move> eval;
-    for(int i = 0;i<board_count;i++) {
-        eval << boards[i]->best;
-    }
+        for(int i=0;i<board_count;i++) {
+            total_calcs+=boards[i]->calcs;
+        }
+        for(int i = 0;i<board_count;i++) {
+            eval << boards[i]->best;
+        }
+    #else
+        global->to_process = moves;
+        Move new_move;
+        new_move.id = -1;
+        new_move.score = color == 0 ? -9999 : 9999;
+        global->best = new_move;
+        global->calcs = 0;
+        global->progress=0;
+        bool complete = false;
 
+        global_thread->queueTask([&](){
+            global->process_moves(max_depth,color);
+            complete = true;
+        });
+
+        auto lastTime = std::chrono::high_resolution_clock::now();
+        while(!complete) {
+            auto currentTime = std::chrono::steady_clock::now();
+            float delta = std::chrono::duration<float>(currentTime - lastTime).count();
+            if(delta>=0.3) {
+                print(" calcs: ",global->calcs," (",global->progress," out of ",global->to_process.length(),") at max_depth ",max_depth);
+                lastTime=std::chrono::high_resolution_clock::now();
+            }
+        
+        }
+
+        total_calcs = global->calcs; 
+        eval << global->best;
+    #endif
+
+    
     for(auto& move : eval) {
         bool isBetter = color == 0 ? (move.score > bestScore) : (move.score < bestScore);
         if(isBetter) {
@@ -2089,15 +2122,23 @@ int main() {
         print("No opening book found, playing without book");
     }
 
-    for(int i = 0;i<board_count;i++) {
-        threads[i] = make<Thread>();
-        threads[i]->run([&,i](ScriptContext& ctx){
-            threads[i]->flushTasks();
+    #if ENABLE_BOARDSPLIT
+        for(int i = 0;i<board_count;i++) {
+            threads[i] = make<Thread>();
+            threads[i]->run([&,i](ScriptContext& ctx){
+                threads[i]->flushTasks();
+            },0.01f);
+            threads[i]->start();
+            boards[i] = make<Board>();
+            boards[i]->sync_with(global);
+        }
+    #else
+        global_thread = make<Thread>();
+        global_thread->run([&](ScriptContext& ctx){
+           global_thread->flushTasks();
         },0.01f);
-        threads[i]->start();
-        boards[i] = make<Board>();
-        boards[i]->sync_with(global);
-    }
+        global_thread->start();
+    #endif
 
     //load_game("auto");
 
@@ -2123,9 +2164,11 @@ int main() {
         if(turn_color==bot_color) {
             bot_turn = true;
             save_game("auto");
-            for(int i = 0;i<board_count;i++) {
-                boards[i]->sync_with(global);
-            }
+            #if ENABLE_BOARDSPLIT
+                for(int i = 0;i<board_count;i++) {
+                    boards[i]->sync_with(global);
+                }
+            #endif
             Move m = findBestMove(max_depth,turn_color);
             if(m.id!=-1) {
                 global->makeMove(m);
@@ -2150,7 +2193,7 @@ int main() {
     if(auto_turn) bot->start();
     int last_col = 1-turn_color;
 
-    // load_game("auto");
+    load_game("auto");
 
     start::run(window,d,[&]{
         vec3 mousePos = scene->getMousePos(0);

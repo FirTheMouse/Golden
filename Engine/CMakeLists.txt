@@ -1,8 +1,10 @@
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/*.mm
 )
 
 add_library(GoldenEngine STATIC ${ENGINE_SOURCES})
+
 target_compile_definitions(GoldenEngine PUBLIC GLFW_INCLUDE_NONE)
 
 target_include_directories(GoldenEngine PUBLIC
@@ -66,7 +68,9 @@ if(APPLE)
         "-framework CoreVideo"
         "-framework QuartzCore"
         "-framework Metal"
+        "-framework MetalPerformanceShaders"
     )
+    set(CMAKE_OSX_ARCHITECTURES "arm64") 
 elseif(WIN32)
     target_link_libraries(GoldenEngine PUBLIC opengl32)
 elseif(UNIX)

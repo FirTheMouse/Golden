@@ -78,11 +78,11 @@ int main() {
         parse_nodes(root);
         discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
-        //execute_r_nodes(frame); 
+        execute_r_nodes(frame); 
         //Streaming
-        stream_r_nodes(frame);
-        print("==EXECUTING STREAM==");
-        execute_stream(frame);
+        // stream_r_nodes(frame);
+        // print("==EXECUTING STREAM==");
+        // execute_stream(frame);
 
         // list<list<std::function<void(int)>>> f_table;
         // list<list<std::string>> s_table;
@@ -147,7 +147,7 @@ int main() {
         discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
 
-        log::rig r;
+        Log::rig r;
         // r.add_process("clean",[&](int i){
            
         // });

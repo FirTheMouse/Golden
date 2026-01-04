@@ -423,7 +423,7 @@ int main() {
     };
     list<g_ptr<tensor>> params = {w1, b1, w2, b2};
 
-    log::Line l;
+    Log::Line l;
     l.start();
 
     train_network_batched(train_imgs, train_labels, network, params, CROSS_ENTROPY, 10, 64, 0.01f, 1);

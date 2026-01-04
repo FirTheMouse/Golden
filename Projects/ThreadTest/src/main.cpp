@@ -1,404 +1,126 @@
-#include <chrono>
-#include <vector>
-#include <string>
-#include <random>
-#include <thread>
-#include <iostream>
-#include <atomic>
-#include <mutex>
-#include <test_q_list.hpp>
+#include<core/gpuType.hpp>
+#include<test_gpu_computer.hpp>
 
-template<typename... Args>
-void print(Args&&... args) {
-  (std::cout << ... << args) << std::endl;
-}
 
-class Timer {
-public:
-    Timer() : start_time(std::chrono::high_resolution_clock::now()) {}
-    
-    void reset() {
-        start_time = std::chrono::high_resolution_clock::now();
-    }
-    
-    double elapsed_ms() const {
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-        return duration.count() / 1000.0;
-    }
-    
-private:
-    std::chrono::high_resolution_clock::time_point start_time;
-};
+using namespace Golden;
 
-void benchmark_raw_ops_per_second() {
-    print("=== Raw q_list Operations Per Second ===");
+void test_gpu_type() {
+    auto type = make<gpuType>();
     
-    q_list<int> test_list;
-    const int operations = 1000000;
+    print("=== GPU Type Sanity Check ===");
     
-    // Pure insertion test
-    Timer timer;
-    for (int i = 0; i < operations; ++i) {
-        test_list.push(i);
+    // Test 1: Verify allocator exists
+    if (!type->allocator) {
+        print("FAIL: No GPU allocator created!");
+        return;
     }
-    double insert_time = timer.elapsed_ms();
+    print("✓ Allocator created");
     
-    print("Insertions: ", operations, " ops in ", insert_time, "ms");
-    print("Insert rate: ", operations / (insert_time / 1000.0), " ops/sec");
-    
-    // Pure read test
-    timer.reset();
-    volatile int sum = 0; // volatile to prevent optimization
-    for (int i = 0; i < operations; ++i) {
-        sum += test_list.get(i % test_list.length());
+    // Test 2: Add data to CPU columns
+    print("\nAdding 100 floats to CPU column...");
+    for (int i = 0; i < 100; i++) {
+        type->push<float>(float(i), 0);
     }
-    double read_time = timer.elapsed_ms();
     
-    print("Reads: ", operations, " ops in ", read_time, "ms");
-    print("Read rate: ", operations / (read_time / 1000.0), " ops/sec");
+    size_t num_floats = type->row_length(0, 4);
+    print("✓ CPU column has ", num_floats, " floats");
     
-    // Mixed operations (90% read, 10% write)
-    timer.reset();
-    for (int i = 0; i < operations; ++i) {
-        if (i % 10 == 0) {
-            test_list.push(i);
-        } else {
-            volatile int val = test_list.get(i % test_list.length());
+    // Test 3: Allocate GPU buffer
+    print("\nAllocating GPU buffer for ", num_floats * sizeof(float), " bytes...");
+    void* gpu_buffer = type->allocator->allocate(num_floats * sizeof(float));
+    
+    if (!gpu_buffer) {
+        print("FAIL: GPU allocation returned nullptr!");
+        return;
+    }
+    print("✓ GPU buffer allocated at address: ", gpu_buffer);
+    type->byte4_gpu_columns.push(gpu_buffer);
+    
+    // Test 4: Copy to GPU
+    print("\nCopying CPU data to GPU...");
+    void* cpu_data = &type->byte4_columns[0][0];
+    print("  CPU data starts at: ", cpu_data);
+    print("  GPU buffer at: ", gpu_buffer);
+    
+    // These should be DIFFERENT addresses if one is CPU and one is GPU
+    if (cpu_data == gpu_buffer) {
+        print("WARNING: CPU and GPU pointers are identical!");
+        print("This might mean we're not actually using GPU memory");
+    }
+    
+    type->allocator->copy_to_gpu(gpu_buffer, cpu_data, num_floats * sizeof(float));
+    print("✓ Copy to GPU completed");
+    
+    // Test 5: Corrupt CPU data to ensure we're reading from GPU
+    print("\nCorrupting CPU data to verify GPU independence...");
+    for (int i = 0; i < num_floats; i++) {
+        type->byte4_columns[0][i] = 0xDEADBEEF;  // Garbage value
+    }
+    print("✓ CPU data corrupted with 0xDEADBEEF");
+    
+    // Test 6: Read back from GPU
+    print("\nReading back from GPU...");
+    std::vector<float> readback(num_floats);
+    type->allocator->copy_to_cpu(readback.data(), gpu_buffer, num_floats * sizeof(float));
+    print("✓ Copy from GPU completed");
+    
+    // Test 7: Verify data is correct original values, not corrupted CPU values
+    print("\nVerifying data integrity...");
+    bool all_match = true;
+    int first_error = -1;
+    
+    for (int i = 0; i < num_floats; i++) {
+        float expected = float(i);
+        float actual = readback[i];
+        
+        if (expected != actual) {
+            if (first_error == -1) first_error = i;
+            all_match = false;
+        }
+        
+        // Check a few samples
+        if (i < 5 || i >= 95) {
+            print("  Index ", i, ": expected ", expected, ", got ", actual);
         }
     }
-    double mixed_time = timer.elapsed_ms();
     
-    print("Mixed (90% read): ", operations, " ops in ", mixed_time, "ms");
-    print("Mixed rate: ", operations / (mixed_time / 1000.0), " ops/sec");
-    
-    // Removal stress test
-    timer.reset();
-    int removals = 0;
-    while (test_list.length() > 1000) {
-        test_list.remove(test_list.length() / 2);
-        removals++;
+    if (!all_match) {
+        print("\nFAIL: Data mismatch! First error at index ", first_error);
+        print("Expected: ", float(first_error));
+        print("Got: ", readback[first_error]);
+        return;
     }
-    double remove_time = timer.elapsed_ms();
     
-    print("Removals: ", removals, " ops in ", remove_time, "ms");
-    print("Remove rate: ", removals / (remove_time / 1000.0), " ops/sec");
-    print("");
+    print("\n✓ All ", num_floats, " values match original data");
+    print("✓ GPU memory is independent of CPU memory");
+    
+    // Test 8: Verify CPU data is still corrupted
+    print("\nVerifying CPU corruption persisted...");
+    uint32_t corrupted_value = *reinterpret_cast<uint32_t*>(&type->byte4_columns[0][0]);
+    if (corrupted_value == 0xDEADBEEF) {
+        print("✓ CPU data is still corrupted (0xDEADBEEF)");
+        print("✓ GPU data survived CPU corruption - memory spaces are separate!");
+    } else {
+        print("WARNING: CPU data was somehow restored?");
+        print("Got: 0x", std::hex, corrupted_value);
+    }
+    
+    // Test 9: Free GPU memory
+    print("\nFreeing GPU buffer...");
+    type->allocator->free(gpu_buffer);
+    print("✓ GPU memory freed without crash");
+    
+    print("\n=== ALL TESTS PASSED ===");
+    print("GPU memory allocation, transfer, and isolation verified!");
 }
 
-// Threading test globals
-std::atomic<bool> stress_running{true};
-std::atomic<long> total_reads{0};
-std::atomic<long> total_writes{0};
-std::atomic<long> total_removes{0};
-std::atomic<long> errors{0};
 
-void heavy_reader(q_list<int>& list, int reader_id) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    while (stress_running.load()) {
-        try {
-            size_t len = list.length();
-            if (len > 0) {
-                std::uniform_int_distribution<> dis(0, len - 1);
-                size_t idx = dis(gen);
-                volatile int val = list.get(idx);
-                total_reads.fetch_add(1);
-            }
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-    }
-}
-
-void heavy_writer(q_list<int>& list, int writer_id) {
-    int counter = 0;
-    while (stress_running.load()) {
-        try {
-            list.push(writer_id * 1000000 + counter++);
-            total_writes.fetch_add(1);
-            
-            // Occasionally sleep to let readers work
-            if (counter % 100 == 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
-            }
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-    }
-}
-
-void heavy_remover(q_list<int>& list) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    while (stress_running.load()) {
-        try {
-            size_t len = list.length();
-            if (len > 1000) { // Keep some elements
-                std::uniform_int_distribution<> dis(0, len - 1);
-                size_t idx = dis(gen);
-                list.remove(idx);
-                total_removes.fetch_add(1);
-            }
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-    }
-}
-
-void benchmark_threading_stress() {
-    print("=== q_list Threading Stress Test ===");
-    
-    q_list<int> stress_list;
-    
-    // Pre-populate
-    for (int i = 0; i < 1000; ++i) {
-        stress_list.push(i);
-    }
-    
-    // Reset counters
-    total_reads.store(0);
-    total_writes.store(0);
-    total_removes.store(0);
-    errors.store(0);
-    stress_running.store(true);
-    
-    Timer timer;
-    
-    // Start multiple readers (simulating game systems reading data)
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 6; ++i) {
-        readers.emplace_back(heavy_reader, std::ref(stress_list), i);
-    }
-    
-    // Start multiple writers (simulating spawning objects)
-    std::vector<std::thread> writers;
-    for (int i = 0; i < 2; ++i) {
-        writers.emplace_back(heavy_writer, std::ref(stress_list), i);
-    }
-    
-    // Start remover (simulating cleanup)
-    std::thread remover(heavy_remover, std::ref(stress_list));
-    
-    // Let it run for a few seconds
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-    
-    stress_running.store(false);
-    
-    for (auto& r : readers) r.join();
-    for (auto& w : writers) w.join();
-    remover.join();
-    
-    double total_time = timer.elapsed_ms();
-    long total_ops = total_reads.load() + total_writes.load() + total_removes.load();
-    
-    print("Stress test results (3 seconds, 9 threads):");
-    print("Total reads: ", total_reads.load());
-    print("Total writes: ", total_writes.load());
-    print("Total removes: ", total_removes.load());
-    print("Total operations: ", total_ops);
-    print("Errors: ", errors.load());
-    print("Final list size: ", stress_list.length());
-    print("Overall ops/sec: ", total_ops / (total_time / 1000.0));
-    print("Read ops/sec: ", total_reads.load() / (total_time / 1000.0));
-    print("");
-}
-
-// std::vector + mutex comparison
-std::mutex vec_mutex;
-std::vector<int> stress_vector;
-
-void mutex_reader(int reader_id) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    while (stress_running.load()) {
-        try {
-            std::lock_guard<std::mutex> lock(vec_mutex);
-            if (!stress_vector.empty()) {
-                std::uniform_int_distribution<> dis(0, stress_vector.size() - 1);
-                size_t idx = dis(gen);
-                volatile int val = stress_vector[idx];
-                total_reads.fetch_add(1);
-            }
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-    }
-}
-
-void mutex_writer(int writer_id) {
-    int counter = 0;
-    while (stress_running.load()) {
-        try {
-            std::lock_guard<std::mutex> lock(vec_mutex);
-            stress_vector.push_back(writer_id * 1000000 + counter++);
-            total_writes.fetch_add(1);
-            
-            if (counter % 100 == 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
-            }
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-    }
-}
-
-void mutex_remover() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    
-    while (stress_running.load()) {
-        try {
-            std::lock_guard<std::mutex> lock(vec_mutex);
-            if (stress_vector.size() > 1000) {
-                std::uniform_int_distribution<> dis(0, stress_vector.size() - 1);
-                size_t idx = dis(gen);
-                stress_vector.erase(stress_vector.begin() + idx);
-                total_removes.fetch_add(1);
-            }
-        } catch (...) {
-            errors.fetch_add(1);
-        }
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-    }
-}
-
-void benchmark_mutex_comparison() {
-    print("=== std::vector + mutex comparison ===");
-    
-    stress_vector.clear();
-    for (int i = 0; i < 1000; ++i) {
-        stress_vector.push_back(i);
-    }
-    
-    // Reset counters
-    total_reads.store(0);
-    total_writes.store(0);
-    total_removes.store(0);
-    errors.store(0);
-    stress_running.store(true);
-    
-    Timer timer;
-    
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 6; ++i) {
-        readers.emplace_back(mutex_reader, i);
-    }
-    
-    std::vector<std::thread> writers;
-    for (int i = 0; i < 2; ++i) {
-        writers.emplace_back(mutex_writer, i);
-    }
-    
-    std::thread remover(mutex_remover);
-    
-    std::this_thread::sleep_for(std::chrono::seconds(3));
-    
-    stress_running.store(false);
-    
-    for (auto& r : readers) r.join();
-    for (auto& w : writers) w.join();
-    remover.join();
-    
-    double total_time = timer.elapsed_ms();
-    long total_ops = total_reads.load() + total_writes.load() + total_removes.load();
-    
-    print("Mutex stress test results (3 seconds, 9 threads):");
-    print("Total reads: ", total_reads.load());
-    print("Total writes: ", total_writes.load());
-    print("Total removes: ", total_removes.load());
-    print("Total operations: ", total_ops);
-    print("Errors: ", errors.load());
-    print("Final vector size: ", stress_vector.size());
-    print("Overall ops/sec: ", total_ops / (total_time / 1000.0));
-    print("Read ops/sec: ", total_reads.load() / (total_time / 1000.0));
-    print("");
-}
-
-void benchmark_contention_scenarios() {
-    print("=== High Contention Scenarios ===");
-    
-    // Test 1: Heavy removal during reads
-    print("Test 1: Heavy removal contention");
-    q_list<int> contention_list;
-    for (int i = 0; i < 10000; ++i) {
-        contention_list.push(i);
-    }
-    
-    total_reads.store(0);
-    total_removes.store(0);
-    errors.store(0);
-    stress_running.store(true);
-    
-    Timer timer;
-    
-    // 8 readers hammering the list
-    std::vector<std::thread> readers;
-    for (int i = 0; i < 8; ++i) {
-        readers.emplace_back([&contention_list]() {
-            while (stress_running.load()) {
-                try {
-                    size_t len = contention_list.length();
-                    if (len > 0) {
-                        for (size_t i = 0; i < std::min(len, size_t(10)); ++i) {
-                            volatile int val = contention_list.get(i);
-                        }
-                        total_reads.fetch_add(10);
-                    }
-                } catch (...) {
-                    errors.fetch_add(1);
-                }
-            }
-        });
-    }
-    
-    // 2 threads constantly removing
-    std::vector<std::thread> removers;
-    for (int i = 0; i < 2; ++i) {
-        removers.emplace_back([&contention_list]() {
-            while (stress_running.load()) {
-                try {
-                    if (contention_list.length() > 100) {
-                        contention_list.remove(contention_list.length() / 2);
-                        total_removes.fetch_add(1);
-                    }
-                } catch (...) {
-                    errors.fetch_add(1);
-                }
-            }
-        });
-    }
-    
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    stress_running.store(false);
-    
-    for (auto& r : readers) r.join();
-    for (auto& rem : removers) rem.join();
-    
-    double test_time = timer.elapsed_ms();
-    
-    print("High contention results:");
-    print("Reads: ", total_reads.load(), " (", total_reads.load() / (test_time / 1000.0), " reads/sec)");
-    print("Removes: ", total_removes.load());
-    print("Errors: ", errors.load());
-    print("Surviving elements: ", contention_list.length());
-    print("");
-}
 
 int main() {
-    print("q_list Performance Stress Tests");
-    print("===============================");
-    print("");
-    
-    benchmark_raw_ops_per_second();
-    benchmark_threading_stress();
-    benchmark_mutex_comparison();
-    benchmark_contention_scenarios();
-    
-    print("All stress tests complete!");
+
+    print("Hello world!");
+    //test_gpu_type();
+    test_gpu_compute();
+
     return 0;
 }
