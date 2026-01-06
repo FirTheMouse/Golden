@@ -121,19 +121,21 @@ unsigned int mnist_to_texture(g_ptr<tensor> images, int img_index) {
         Log::Line l;
         l.start();
 
+        g_ptr<t_config> ctx = make<t_config>();
+        ctx->epochs = epochs;
+        ctx->learning_rate = 0.64f;
+        ctx->grad_clip = 1.0f;
+        ctx->reduction = MEAN;
+        ctx->batch_size = 64;
+    
         train_network(
             train_imgs, //Starting points
             train_labels, //Targets for the network
             network, //Nodes
             params, //Tensors
             SOFTMAX_CE, //Loss type
-            epochs, //How many epochs to run 
-            0.64f, //The learning rate
-            64, //Batch size (if 0, turns off batching)
-            1, //Logging interval (if 0, turns off logging)
-            false, //Show final result?
-            0.0f, //Disable grad clipping
-            MEAN //Type of reduction to use
+            ctx,
+            1 //Logging interval (if 0, turns off logging)
         );
 
         double time = l.end();

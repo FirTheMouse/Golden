@@ -9,7 +9,7 @@ enum Opp {
     SIGMOID_BCE, TANH, EMBED, CONCAT,
     MSE, CROSS_ENTROPY, //Loss types
     RNN_STEP, BATCH_NORM,  //Stateful
-    ATTENTION, QKV_PROJ, RESHAPE, LAST_POSITION
+    ATTENTION, QKV_PROJ, RESHAPE, LAST_POSITION, DROPOUT
 };
 
 enum Reduction { NONE, MEAN, SUM };
@@ -18,10 +18,23 @@ inline bool opp_is_fused(const Opp& op) {
     return (op==SOFTMAX_CE||op==SIGMOID_BCE);
 }
 
-enum Device {
-    CPU,
-    GPU
-};
+list<int> create_shuffle_indices(int n) {
+    list<int> indices;
+    for(int i = 0; i < n; i++) indices.push(i);
+    
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    for(int i = n-1; i > 0; i--) {
+        std::uniform_int_distribution<> dis(0, i);
+        int j = dis(gen);
+        std::swap(indices[i], indices[j]);
+    }
+    return indices;
+}
+
+enum Device { CPU, GPU };
+
+enum Mode { TRAIN, EVAL };
  
 namespace Eigen {
 
@@ -31,6 +44,9 @@ namespace Eigen {
         Opp op = NOP;
         g_ptr<tensor> param = nullptr;
         g_ptr<tensor> state = nullptr;
+
+        //All these extra paramaters are here to add flexiblity to the operations, so we can accomdate
+        //everything with minimal changes in the future
         
         // Integer slots - operations define their own semantics
         int i1 = 0;
@@ -53,12 +69,14 @@ namespace Eigen {
         
         // Common reduction type for losses and reductions
         Reduction reduction = MEAN;
+        Mode mode = TRAIN;
     };
 
  class tensor : public Object {
  public:
      MatrixXf data_;
      MatrixXf grad_;
+     map<std::string, MatrixXf> cache_;
 
      void* gpu_data_ = nullptr;
      void* gpu_grad_ = nullptr;
@@ -85,6 +103,24 @@ namespace Eigen {
         if (gpu_grad_ && gpu_allocator) {
             gpu_allocator->free(gpu_grad_);
         }
+
+        detach();
+    }
+
+    void detach() {
+        inputs_.clear();
+        op_ = NOP;
+        cache_.clear();
+    }
+    
+    static void clear_graph(g_ptr<tensor> root) {
+        // Recursively clear computational graph
+        if(!root || root->inputs_.empty()) return;
+        
+        for(auto& input : root->inputs_) {
+            clear_graph(input);
+        }
+        root->detach();
     }
 
     void to_gpu() {
@@ -133,8 +169,15 @@ namespace Eigen {
          return batch;
      }
 
+     g_ptr<tensor> get_batch_by_indices(const list<int>& indices) {
+        auto result = make<tensor>(MatrixXf(indices.length(), data_.cols()));
+        for(int i = 0; i < indices.length(); i++) {
+            result->data_.row(i) = data_.row(indices[i]);
+        }
+        return result;
+    }
 
-     g_ptr<tensor> operate(bool is_forward, Pass& pass) {
+    g_ptr<tensor> operate(bool is_forward, Pass& pass) {
         
         g_ptr<tensor> result = nullptr;
         Opp op = op_;
@@ -649,7 +692,29 @@ namespace Eigen {
                 }
             break;
         }
-            default:
+            case DROPOUT: {
+                if(is_forward) {
+                    float dropout_rate = pass.f1;
+                    if(pass.mode == TRAIN) {
+                        float keep_prob = 1.0f - dropout_rate;
+                        MatrixXf mask = (MatrixXf::Random(data_.rows(), data_.cols()).array() > 
+                                        -1.0f + 2.0f * keep_prob).cast<float>() / keep_prob;
+                        result->data_ = data_.cwiseProduct(mask);
+                        result->cache_["mask"] = mask; 
+                    } else {
+                        result->data_ = data_;
+                    }
+                } else {
+                    if(cache_.hasKey("mask")) {
+                        inputs_[0]->grad_ += grad_.cwiseProduct(cache_["mask"]);
+                    } else {
+                        inputs_[0]->grad_ += grad_;
+                    }
+                    inputs_[0]->operate(false, pass);
+                }
+                break;
+            }    
+        default:
                 print("WARNING: invalid op_ in forward: ",op_);
                 break;
         }
@@ -675,7 +740,8 @@ namespace Eigen {
         operate(false,dummy);
         return;
     }
- };
+
+};
  
  
  
