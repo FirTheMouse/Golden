@@ -2193,7 +2193,7 @@ int main() {
     if(auto_turn) bot->start();
     int last_col = 1-turn_color;
 
-    load_game("auto");
+    //load_game("auto");
 
     start::run(window,d,[&]{
         vec3 mousePos = scene->getMousePos(0);

@@ -96,13 +96,13 @@ unsigned int mnist_to_texture(g_ptr<tensor> images, int img_index) {
         auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
 
         auto [train_imgs, train_labels] = load_mnist(
-            root()+"/Projects/Learning/assets/images/train-images-idx3-ubyte", 
-            root()+"/Projects/Learning/assets/images/train-labels-idx1-ubyte", 
+            root()+"/Projects/FirML/assets/images/train-images-idx3-ubyte", 
+            root()+"/Projects/FirML/assets/images/train-labels-idx1-ubyte", 
             amt
         );
         auto [test_imgs, test_labels] = load_mnist(
-            root()+"/Projects/Learning/assets/images/t10k-images-idx3-ubyte", 
-            root()+"/Projects/Learning/assets/images/t10k-labels-idx1-ubyte", 
+            root()+"/Projects/FirML/assets/images/t10k-images-idx3-ubyte", 
+            root()+"/Projects/FirML/assets/images/t10k-labels-idx1-ubyte", 
             amt
         );
         print("Loaded ", train_imgs->data_.rows(), " images");
@@ -132,6 +132,7 @@ unsigned int mnist_to_texture(g_ptr<tensor> images, int img_index) {
             64, //Batch size (if 0, turns off batching)
             1, //Logging interval (if 0, turns off logging)
             false, //Show final result?
+            0.0f, //Disable grad clipping
             MEAN //Type of reduction to use
         );
 
