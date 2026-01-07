@@ -277,6 +277,9 @@ std::string run_char_lm_attention(const std::string& text, int epochs, float lea
 //Serilization improvments
 //Pooling
 
+//Opps for regression testing the MNIST:
+//MATMUL, RELU, ADD_BIAS, SOFTMAX_CE
+
 
 int main() {
 
@@ -289,13 +292,12 @@ int main() {
     #endif
 
     #ifdef __APPLE__
-        Eigen::tensor::gpu_allocator = Golden::create_metal_allocator();
-        print("Metal GPU allocator initialized");
-    #else
-        print("No GPU support on this platform");
+        n_tensor::gpu_allocator = Golden::create_metal_allocator();
+    #elif defined(__CUDA__)
+        n_tensor::gpu_allocator = Golden::create_cuda_allocator();
     #endif
 
-    Window window = Window(win_size_x, win_size_y, "FirML 0.0.2");
+    Window window = Window(win_size_x, win_size_y, "FirML 0.0.5");
     auto scene = make<Scene>(window,2);
     scene->camera.toIso();
     scene->tickEnvironment(0);
@@ -304,11 +306,12 @@ int main() {
     Log::Line l;
     l.start();
 
-    //test_xor_cpu();
-   //test_gpu_xor_training();
-    //test_gpu_matmul();
-    
-    run_mnist(scene,4);
+    //run_mnist(scene,4);
+
+    auto t = make<n_tensor>(list<int>{2, 3, 4});
+    t->at({1, 2, 3}) = 99.0f;
+    print("Direct access: ", t->at({1, 2, 3}));  // Should be 99
+    print("Flat access: ", t->flat(23));  
 
     // std::string training_text = 
     // "the quick brown fox jumps over the lazy dog. "

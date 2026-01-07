@@ -425,6 +425,17 @@ public:
     }
 
     template<typename TT>
+    /// @brief Compares two lists and returns true if they are equivalent.
+    bool operator==(const list<TT>& other) const {
+        if(other.size_!=size_) return false;
+        for(size_t i=0;i<size_;i++)
+        {
+           if(other[i]!=ptr[i]) return false;
+        }
+        return true;
+    }
+
+    template<typename TT>
     /// @brief Compares two lists and returns false if they are equivalent.
     bool operator!=(list<TT>& other) {
         return !(*this == other);
