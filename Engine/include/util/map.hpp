@@ -233,9 +233,7 @@ public:
        return buckets.get(hashT(key)%capacity,"map::getAll::210").getAll(key);
      }
 
-    V& operator[](const K& key) {
-        return get(key);
-    }
+
 
     template<typename VV>
     V& getOrDefault(const K& key,VV&& fallback)
@@ -260,6 +258,10 @@ public:
             put(key,func());
         }
         return get(key);
+    }
+
+    V& operator[](const K& key) {
+        return getOrPut(key,V());
     }
 
     list<K> keySet() {  

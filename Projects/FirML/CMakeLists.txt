@@ -20,6 +20,13 @@ target_compile_options(FirML PRIVATE
     -march=native  # Use the current machine's architecture
 )
 
+if(APPLE)
+    target_compile_definitions(FirML PRIVATE 
+        ACCELERATE_NEW_LAPACK
+        ACCELERATE_LAPACK_ILP64)
+    target_link_libraries(FirML PRIVATE "-framework Accelerate")
+endif()
+
 
 
 target_link_libraries(FirML PRIVATE GoldenEngine)

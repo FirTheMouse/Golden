@@ -1,16 +1,8 @@
 #pragma once
 
-#include<ml_util.hpp>
+#include<archive_tensor.hpp>
 
 namespace Eigen {
-
-    float time_1 = 0;
-    float time_2 = 0;
-    float time_3 = 0;
-    float time_4 = 0;
-    float time_5 = 0;
-    map<Opp,float> time_map;
-
 
     using LRScheduleFn = std::function<float(int epoch, float base_lr)>;
 
@@ -34,18 +26,11 @@ namespace Eigen {
         }
 
     g_ptr<tensor> weight(int rows, int cols, float scalar = 0.01f) {
-        auto t = make<tensor>(list<int>{rows, cols});
-        // Initialize with random values
-        for(int i = 0; i < t->numel(); i++) {
-            t->flat(i) = randf(-1.0f, 1.0f) * scalar;
-        }
-        return t;
+        return make<tensor>(MatrixXf::Random(rows, cols)*scalar);
     }
-    
+
     g_ptr<tensor> bias(int cols) {
-        auto t = make<tensor>(list<int>{1, cols});
-        t->fill(0.0f);
-        return t;
+        return make<tensor>(MatrixXf::Zero(1, cols));
     }
 
     list<Pass> classification_head(g_ptr<tensor> w, g_ptr<tensor> b, g_ptr<tensor> targets) {
@@ -81,22 +66,16 @@ namespace Eigen {
 
  
     void save_checkpoint(const list<g_ptr<tensor>>& params, const std::string& filepath) {
+        //MAKE REAL IO
         std::ofstream file(filepath, std::ios::binary);
         
         for(auto& p : params) {
-            int ndim = p->ndim();
-            file.write((char*)&ndim, sizeof(int));
+            int rows = p->data_.rows();
+            int cols = p->data_.cols();
             
-            for(int i = 0; i < ndim; i++) {
-                int dim = p->shape_[i];
-                file.write((char*)&dim, sizeof(int));
-            }
-            
-            int numel = p->numel();
-            for(int i = 0; i < numel; i++) {
-                float val = p->flat(i);
-                file.write((char*)&val, sizeof(float));
-            }
+            file.write((char*)&rows, sizeof(int));
+            file.write((char*)&cols, sizeof(int));
+            file.write((char*)p->data_.data(), rows * cols * sizeof(float));
         }
         
         file.close();
@@ -106,26 +85,12 @@ namespace Eigen {
         std::ifstream file(filepath, std::ios::binary);
         
         for(auto& p : params) {
-            int ndim;
-            file.read((char*)&ndim, sizeof(int));
+            int rows, cols;
+            file.read((char*)&rows, sizeof(int));
+            file.read((char*)&cols, sizeof(int));
             
-            list<int> shape;
-            for(int i = 0; i < ndim; i++) {
-                int dim;
-                file.read((char*)&dim, sizeof(int));
-                shape.push(dim);
-            }
-            
-            if(p->shape_ != shape) {
-                print("WARNING: Loaded shape doesn't match param shape");
-            }
-            
-            int numel = p->numel();
-            for(int i = 0; i < numel; i++) {
-                float val;
-                file.read((char*)&val, sizeof(float));
-                p->flat(i) = val;
-            }
+            p->data_.resize(rows, cols);
+            file.read((char*)p->data_.data(), rows * cols * sizeof(float));
         }
         
         file.close();
@@ -133,23 +98,20 @@ namespace Eigen {
 
     //Fold this into operate in tensor eventually if we start needing to maintain these
     float compute_loss(g_ptr<tensor> output, g_ptr<tensor> target, Opp type) {
-        int bs = output->shape_[0];
+        int bs = output->data_.rows();
         
         switch(type) {
-            case MSE: {
-                auto out_mat = output->as_matrix();
-                auto tgt_mat = target->as_matrix();
-                return (out_mat - tgt_mat).squaredNorm() / float(bs);
-            }
+            case MSE: 
+                return (output->data_ - target->data_).squaredNorm() / float(bs);
             case CROSS_ENTROPY: {
+                // Assumes output is probabilities (from separate SOFTMAX)
                 constexpr float eps = 1e-8f;
-                auto out_mat = output->as_matrix();
-                auto tgt_mat = target->as_matrix();
-                auto probs = out_mat.array().max(eps);
-                return -(tgt_mat.array() * probs.log()).sum() / float(bs);
+                auto probs = output->data_.array().max(eps);
+                return -(target->data_.array() * probs.log()).sum() / float(bs);
             }
             case SOFTMAX_CE: {
-                auto x = output->as_matrix();
+                // Assumes output is logits (no SOFTMAX applied)
+                MatrixXf x = output->data_;
                 
                 VectorXf m = x.rowwise().maxCoeff();
                 x = x.colwise() - m;
@@ -157,12 +119,13 @@ namespace Eigen {
                 VectorXf sumex = ex.rowwise().sum();
                 VectorXf lse = sumex.array().log() + m.array();
                 
-                MatrixXf log_softmax = output->as_matrix().colwise() - lse;
-                return -(target->as_matrix().array() * log_softmax.array()).sum() / float(bs);
+                MatrixXf log_softmax = output->data_.colwise() - lse;
+                return -(target->data_.array() * log_softmax.array()).sum() / float(bs);
             }
             case SIGMOID_BCE: {
-                auto x = output->as_matrix();
-                auto y = target->as_matrix();
+                // Assumes output is logits (no SIGMOID applied)
+                MatrixXf x = output->data_;
+                MatrixXf y = target->data_;
                 
                 MatrixXf max_val = x.cwiseMax(0.0f);
                 MatrixXf stable_bce = (max_val.array() - x.array() * y.array() + 
@@ -181,22 +144,20 @@ namespace Eigen {
         switch(loss_type) {
             case SOFTMAX_CE:
             case CROSS_ENTROPY: {
+                // Classification accuracy
                 int correct = 0;
-                int total = predictions->shape_[0];
-                
-                auto pred_mat = predictions->as_matrix();
-                auto tgt_mat = targets->as_matrix();
-                
+                int total = predictions->data_.rows();
                 for(int i = 0; i < total; i++) {
                     int pred_class, true_class;
-                    pred_mat.row(i).maxCoeff(&pred_class);
-                    tgt_mat.row(i).maxCoeff(&true_class);
+                    predictions->data_.row(i).maxCoeff(&pred_class);
+                    targets->data_.row(i).maxCoeff(&true_class);
                     if(pred_class == true_class) correct++;
                 }
                 return float(correct) / float(total);
             }
             case MSE:
             case SIGMOID_BCE: {
+                // For regression/binary, return negative loss (higher = better)
                 return -compute_loss(predictions, targets, loss_type);
             }
             default:
@@ -206,30 +167,12 @@ namespace Eigen {
 
     void seed_gradient(g_ptr<tensor> output, g_ptr<tensor> target, Opp type) {
         switch(type) {
-            case MSE: {
-                auto out_mat = output->as_matrix();
-                auto tgt_mat = target->as_matrix();
-                auto diff = 2.0f * (out_mat - tgt_mat);
-                
-                for(int i = 0; i < output->shape_[0]; i++) {
-                    for(int j = 0; j < output->shape_[1]; j++) {
-                        output->grad_[i * output->shape_[1] + j] = diff(i, j);
-                    }
-                }
+            case MSE: 
+                output->grad_ = 2.0f * (output->data_ - target->data_);
                 break;
-            }
-            case CROSS_ENTROPY: {
-                auto out_mat = output->as_matrix();
-                auto tgt_mat = target->as_matrix();
-                auto diff = out_mat - tgt_mat;
-                
-                for(int i = 0; i < output->shape_[0]; i++) {
-                    for(int j = 0; j < output->shape_[1]; j++) {
-                        output->grad_[i * output->shape_[1] + j] = diff(i, j);
-                    }
-                }
+            case CROSS_ENTROPY:
+                output->grad_ = output->data_ - target->data_;
                 break;
-            }
             case SOFTMAX_CE: case SIGMOID_BCE:
                 print("WARNING: Don't use seed_gradient with fused ops!");
                 break;
@@ -242,27 +185,25 @@ namespace Eigen {
     void reset_state(list<Pass>& network) {
         for(auto& pass : network) {
             if(pass.state != nullptr) {
-                pass.state->fill(0.0f);
-                pass.state->zero_grad();
+                pass.state->data_.setZero();
+                pass.state->grad_.setZero();
             }
         }
     }
 
     void clip_gradients(list<g_ptr<tensor>>& params, float max_norm) {
+        // Compute total gradient norm
         float total_norm = 0.0f;
         for(auto& param : params) {
-            for(int i = 0; i < param->grad_.length(); i++) {
-                total_norm += param->grad_[i] * param->grad_[i];
-            }
+            total_norm += param->grad_.squaredNorm();
         }
         total_norm = std::sqrt(total_norm);
         
+        // If norm exceeds max_norm, scale all gradients down
         if(total_norm > max_norm) {
             float scale = max_norm / total_norm;
             for(auto& param : params) {
-                for(int i = 0; i < param->grad_.length(); i++) {
-                    param->grad_[i] *= scale;
-                }
+                param->grad_ *= scale;
             }
         }
     }
@@ -304,23 +245,22 @@ namespace Eigen {
         
         void step(int accumulation_steps = 1) override {
             for(auto& param : params_) {
-                for(int i = 0; i < param->numel(); i++) {
-                    param->flat(i) -= learning_rate_ * param->grad_[i];
-                }
+                param->data_ -= learning_rate_ * param->grad_;
             }
         }
         
         void zero_grad() override {
-            for(auto& p : params_) p->zero_grad();
+            for(auto& p : params_) p->grad_.setZero();
         }
     };
 
     class optm_adam : public optimizer {
         float beta1_, beta2_, epsilon_;
-        int t_;
+        int t_;  // Timestep counter
         
-        map<g_ptr<tensor>, list<float>> m_;
-        map<g_ptr<tensor>, list<float>> v_;
+        // Per-parameter state
+        map<g_ptr<tensor>, MatrixXf> m_;  // First moment
+        map<g_ptr<tensor>, MatrixXf> v_;  // Second moment
         
     public:
         optm_adam(list<g_ptr<tensor>>& params, float learning_rate, 
@@ -328,42 +268,39 @@ namespace Eigen {
             : optimizer(params, learning_rate), 
               beta1_(beta1), beta2_(beta2), epsilon_(epsilon), t_(0) {
             
+            // Initialize moments for each parameter
             for(auto& p : params_) {
-                m_[p].resize(p->numel());
-                v_[p].resize(p->numel());
-                for(int i = 0; i < p->numel(); i++) {
-                    m_[p][i] = 0.0f;
-                    v_[p][i] = 0.0f;
-                }
+                m_[p] = MatrixXf::Zero(p->data_.rows(), p->data_.cols());
+                v_[p] = MatrixXf::Zero(p->data_.rows(), p->data_.cols());
             }
         }
         
         void step(int accumulation_steps = 1) override {
-            t_++;
+            t_++;  // Increment timestep
             
             for(auto& p : params_) {
-                float bias_correction1 = 1.0f - std::pow(beta1_, t_);
-                float bias_correction2 = 1.0f - std::pow(beta2_, t_);
+                // Update moments
+                m_[p] = beta1_ * m_[p] + (1.0f - beta1_) * p->grad_;
+                v_[p] = beta2_ * v_[p] + (1.0f - beta2_) * p->grad_.array().square().matrix();
                 
-                for(int i = 0; i < p->numel(); i++) {
-                    m_[p][i] = beta1_ * m_[p][i] + (1.0f - beta1_) * p->grad_[i];
-                    v_[p][i] = beta2_ * v_[p][i] + (1.0f - beta2_) * p->grad_[i] * p->grad_[i];
-                    
-                    float m_hat = m_[p][i] / bias_correction1;
-                    float v_hat = v_[p][i] / bias_correction2;
-                    
-                    p->flat(i) -= learning_rate_ * m_hat / (std::sqrt(v_hat) + epsilon_);
-                }
+                // Bias correction
+                MatrixXf m_hat = m_[p] / (1.0f - std::pow(beta1_, t_));
+                MatrixXf v_hat = v_[p] / (1.0f - std::pow(beta2_, t_));
+                
+                // Update (convert Array back to Matrix)
+                MatrixXf update = (learning_rate_ * m_hat.array() / (v_hat.array().sqrt() + epsilon_)).matrix();
+                p->data_ -= update;
             }
         }
         
         void zero_grad() override {
             for(auto& p : params_) {
-                p->zero_grad();
+                p->grad_.setZero();
             }
         }
     };
 
+    //Configuration object for network training
     class t_config : public Object {
         public:
             t_config() {}
@@ -414,6 +351,7 @@ namespace Eigen {
 
     };
 
+    //DTO for network traning
     class t_metric : public Object {
     public:
         list<float> train_losses;
@@ -441,95 +379,72 @@ namespace Eigen {
     };
     
     DataSplit split_data(g_ptr<tensor> inputs, g_ptr<tensor> targets, float val_split) {
-        int num_samples = inputs->shape_[0];
+        int num_samples = inputs->data_.rows();
         int val_size = static_cast<int>(num_samples * val_split);
         int train_size = num_samples - val_size;
         
         DataSplit split;
-        split.train_inputs = make<tensor>(list<int>{train_size, inputs->shape_[1]});
-        split.train_targets = make<tensor>(list<int>{train_size, targets->shape_[1]});
-        
-        for(int i = 0; i < train_size; i++) {
-            for(int j = 0; j < inputs->shape_[1]; j++) {
-                split.train_inputs->at({i, j}) = inputs->at({i, j});
-            }
-            for(int j = 0; j < targets->shape_[1]; j++) {
-                split.train_targets->at({i, j}) = targets->at({i, j});
-            }
-        }
-        
-        split.val_inputs = make<tensor>(list<int>{val_size, inputs->shape_[1]});
-        split.val_targets = make<tensor>(list<int>{val_size, targets->shape_[1]});
-        
-        for(int i = 0; i < val_size; i++) {
-            for(int j = 0; j < inputs->shape_[1]; j++) {
-                split.val_inputs->at({i, j}) = inputs->at({train_size + i, j});
-            }
-            for(int j = 0; j < targets->shape_[1]; j++) {
-                split.val_targets->at({i, j}) = targets->at({train_size + i, j});
-            }
-        }
+        split.train_inputs = make<tensor>(inputs->data_.topRows(train_size));
+        split.train_targets = make<tensor>(targets->data_.topRows(train_size));
+        split.val_inputs = make<tensor>(inputs->data_.bottomRows(val_size));
+        split.val_targets = make<tensor>(targets->data_.bottomRows(val_size));
         
         return split;
     }
 
     
+    //Training and evaluation
     float process_batch(g_ptr<tensor>& output, g_ptr<tensor> target, list<g_ptr<tensor>>& params, Opp loss_type, 
         Reduction reduction, g_ptr<optimizer> optim = nullptr, float grad_clip = 0.0f, int accumulation_steps = 1) 
     {
         float loss_value = 0.0f;
-        Log::Line l; l.start(); 
+
         if(opp_is_fused(loss_type)) {
             Pass loss_pass;
             loss_pass.op = loss_type;
             loss_pass.param = target;
             loss_pass.reduction = reduction;
 
-
             auto loss_node = output->forward(loss_pass);
-            loss_value = loss_node->flat(0);
-            time_2 += l.end(); l.start();
-            Opp old_op = loss_node->op_;
+            loss_value = loss_node->data_(0, 0);
+
+            // Only backward if training (optim != nullptr)
             if(optim) {
-                loss_node->grad_[0] = 1.0f;
+                loss_node->grad_ = MatrixXf::Ones(1, 1);
                 loss_node->backward();
             }
-            float end = l.end();
-            time_map.getOrPut(old_op,end)+=end;
-            time_3+= end;
         } else {
             loss_value = compute_loss(output, target, loss_type);
+            // Only backward if training
             if(optim) {
                 seed_gradient(output, target, loss_type);
                 output->backward();
                 }
         }
 
+        // Only update weights if training
         if(optim) {
+
             if(accumulation_steps > 1) {
                 for(auto& p : params) {
-                    for(int i = 0; i < p->grad_.length(); i++) {
-                        p->grad_[i] /= float(accumulation_steps);
-                    }
+                    p->grad_ /= float(accumulation_steps);
                 }
             }
 
-            l.start();
             if(grad_clip > 0.0f) {
                 clip_gradients(params, grad_clip);
             }
-            time_4+=l.end(); l.start();
 
             if(optim->should_step(accumulation_steps)) {
                 optim->step(accumulation_steps);
                 optim->zero_grad();
             }
-            time_5+=l.end(); l.start();
         }
 
         return loss_value;
     }
 
+    //Result of evaluation
     struct e_result {
         float loss;
         float accuracy;
@@ -540,7 +455,7 @@ namespace Eigen {
     {
         float total_loss = 0.0f;
         int total_correct = 0;
-        int num_samples = inputs->shape_[0];
+        int num_samples = inputs->data_.rows();
 
         set_network_mode(network, EVAL);
         
@@ -555,11 +470,10 @@ namespace Eigen {
             
             total_loss += process_batch(output, target, params, loss_type, reduction);
             
-            auto out_mat = output->as_matrix();
-            auto tgt_mat = target->as_matrix();
+            // Compute accuracy
             int pred_class, true_class;
-            out_mat.row(0).maxCoeff(&pred_class);
-            tgt_mat.row(0).maxCoeff(&true_class);
+            output->data_.row(0).maxCoeff(&pred_class);
+            target->data_.row(0).maxCoeff(&true_class);
             if(pred_class == true_class) total_correct++;
         }
 
@@ -572,20 +486,20 @@ namespace Eigen {
     float train_step(g_ptr<tensor>& output, g_ptr<tensor> target, list<g_ptr<tensor>>& params, Opp loss_type, 
                      Reduction reduction, g_ptr<optimizer> optim, float grad_clip = 0.0f, int accumulation_steps = 1) 
     {
-        Log::Line m; m.start();
         float loss = process_batch(output, target, params, loss_type, reduction, optim, grad_clip);
-        time_1 += m.end();
+        //This will be replaced later once I integrate the pool
         tensor::clear_graph(output);
         return loss;
     }
 
 
+    //This is just a helper! Decompose into more customizable steps later for more user control
     void train_network(g_ptr<tensor> inputs, g_ptr<tensor> targets, list<Pass>& network, list<g_ptr<tensor>> params,  Opp loss_type, 
         g_ptr<t_config>& ctx, int log_interval = 500
         ) {
             g_ptr<tensor> output;
             float loss_value = 0;
-            int num_samples = inputs->shape_[0];
+            int num_samples = inputs->data_.rows();
 
             if(!ctx->validate()) {
                 print("train_network::invalid t_config");
@@ -603,13 +517,11 @@ namespace Eigen {
             int accumulation_steps = ctx->gradient_accumulation_steps;
             g_ptr<optimizer> optim = create_optimizer(optim_type,params,ctx);
 
-            g_ptr<tensor> w1 = network[0].param;
-            g_ptr<tensor> b1 = network[1].param;
-
             float best_val_loss = INFINITY;
             int patience_counter = 0;
 
             
+            // Check if we're in sequence mode
             bool is_sequence = false;
             int seq_length = 0;
             for(const auto& p : network) {
@@ -625,11 +537,12 @@ namespace Eigen {
                 split = split_data(inputs, targets, ctx->validation_split);
                 inputs = split.train_inputs;
                 targets = split.train_targets;
-                num_samples = inputs->shape_[0];
+                num_samples = inputs->data_.rows();  // Update sample count
             }
 
             set_network_mode(network, TRAIN);
 
+            
             for(int epoch = 0; epoch < epochs; epoch++) {
                 float epoch_loss = 0.0f;
                 int num_batches = 0;
@@ -640,6 +553,7 @@ namespace Eigen {
                 }
 
                 if(is_sequence) {
+                    // SEQUENCE PROCESSING MODE
                     if(batch_size > 0) {
                         for(int i = 0; i < num_samples; i += batch_size) {
                             auto input_batch = inputs->get_batch(i, batch_size);
@@ -651,10 +565,9 @@ namespace Eigen {
                             list<g_ptr<tensor>> timestep_outputs;
                             
                             for(int t = 0; t < seq_length; t++) {
-                                auto input_t = make<tensor>(list<int>{input_batch->shape_[0], 1});
-                                for(int row = 0; row < input_batch->shape_[0]; row++) {
-                                    input_t->at({row, 0}) = input_batch->at({row, t});
-                                }
+                                // Extract timestep t
+                                auto input_t = make<tensor>(MatrixXf(input_batch->data_.rows(), 1));
+                                input_t->data_ = input_batch->data_.col(t);
                                 
                                 output = input_t;
                                 for(auto& p : network) {
@@ -662,13 +575,10 @@ namespace Eigen {
                                 }
                                 timestep_outputs.push(output);
                                 
-                                int target_dim = targets->shape_[1] / seq_length;
-                                auto target_t = make<tensor>(list<int>{target_batch->shape_[0], target_dim});
-                                for(int row = 0; row < target_batch->shape_[0]; row++) {
-                                    for(int col = 0; col < target_dim; col++) {
-                                        target_t->at({row, col}) = target_batch->at({row, t * target_dim + col});
-                                    }
-                                }
+                                // Get target for this timestep
+                                int target_dim = targets->data_.cols() / seq_length;
+                                auto target_t = make<tensor>(MatrixXf(target_batch->data_.rows(), target_dim));
+                                target_t->data_ = target_batch->data_.block(0, t * target_dim, target_batch->data_.rows(), target_dim);
                                 
                                 loss_value = train_step(output, target_t, params, loss_type, reduction, optim, grad_clip, accumulation_steps);
                                 batch_loss += loss_value;
@@ -683,8 +593,8 @@ namespace Eigen {
                             float seq_loss = 0.0f;
                             
                             for(int t = 0; t < seq_length; t++) {
-                                auto input_t = make<tensor>(list<int>{1, 1});
-                                input_t->at({0, 0}) = inputs->at({i, t});
+                                auto input_t = make<tensor>(MatrixXf(1, 1));
+                                input_t->data_(0, 0) = inputs->data_(i, t);
                                 
                                 output = input_t;
                                 for(auto& p : network) {
@@ -692,11 +602,9 @@ namespace Eigen {
                                     output = output->forward(p);
                                 }
                                 
-                                int target_dim = targets->shape_[1] / seq_length;
-                                auto target_t = make<tensor>(list<int>{1, target_dim});
-                                for(int col = 0; col < target_dim; col++) {
-                                    target_t->at({0, col}) = targets->at({i, t * target_dim + col});
-                                }
+                                int target_dim = targets->data_.cols() / seq_length;
+                                auto target_t = make<tensor>(MatrixXf(1, target_dim));
+                                target_t->data_ = targets->data_.block(i, t * target_dim, 1, target_dim);
                                 
                                 loss_value = train_step(output, target_t, params, loss_type, reduction, optim, grad_clip, accumulation_steps);
                                 seq_loss += loss_value;
@@ -750,22 +658,10 @@ namespace Eigen {
                     }
                 }
 
-                print("Time 1: ",time_1/1000000,"ms");
-                print("Time 2: ",time_2/1000000,"ms");
-                print("Time 3: ",time_3/1000000,"ms");
-                print("Time 4: ",time_4/1000000,"ms");
-                print("Time 5: ",time_5/1000000,"ms");
-                for(auto e : time_map.entrySet()) {
-                    print(" OPP: ",e.key,": ",e.value/1000000,"ms");
-                }
-
-                time_1 = 0; time_2 = 0; time_3 = 0; time_4 = 0; time_5 = 0;
-                time_map.clear();
-
                 if(std::isnan(loss_value) || std::isinf(loss_value)) {
                     print("Exploded at epoch ", epoch);
-                    print("w1 max: ", params[0]->as_matrix().maxCoeff());
-                    print("w1 min: ", params[0]->as_matrix().minCoeff());
+                    print("w1 max: ", params[0]->data_.maxCoeff());
+                    print("w1 min: ", params[0]->data_.minCoeff());
                     break;
                 }
 
@@ -802,3 +698,4 @@ namespace Eigen {
             
         }
 }
+

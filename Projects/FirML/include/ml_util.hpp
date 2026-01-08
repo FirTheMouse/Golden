@@ -9,6 +9,18 @@
 
 #include <Eigen/Dense>
 
+#include<core/gpuType.hpp>
+#include<methods.hpp>
+
+#ifdef __APPLE__
+    #include <Accelerate/Accelerate.h>
+#else
+    extern "C" {
+        #include <cblas.h>  // OpenBLAS or generic
+    }
+#endif
+
+#define TIMERS 0
 
 enum Opp {
     NOP, ADD, MATMUL, RELU, ADD_BIAS, SIGMOID, SOFTMAX, SOFTMAX_CE,
@@ -50,10 +62,12 @@ list<int> create_shuffle_indices(int n) {
     return indices;
 }
 
+class tensor;
+
 struct Pass {
     Opp op = NOP;
-    g_ptr<n_tensor> param = nullptr;
-    g_ptr<n_tensor> state = nullptr;
+    g_ptr<tensor> param = nullptr;
+    g_ptr<tensor> state = nullptr;
 
     //All these extra paramaters are here to add flexiblity to the operations, so we can accomdate
     //everything with minimal changes in the future
@@ -98,7 +112,7 @@ struct Storage : public q_object {
     Storage(list<float>&& d) : data(std::move(d)) {}
 };
 
-class n_tensor : public q_object {
+class tensor : public q_object {
 public:
     list<float> grad_; 
     list<int> shape_;
@@ -108,15 +122,15 @@ public:
     int storage_offset_ = 0;
     
     map<std::string, list<float>> cache_;
-    map<std::string, g_ptr<n_tensor>> cache_tensors_;
+    map<std::string, g_ptr<tensor>> cache_tensors_;
 
     Device device_ = CPU;
     void* gpu_data_ = nullptr;
     void* gpu_grad_ = nullptr;
-    static Golden::u_allocator* gpu_allocator;
+    inline static Golden::u_allocator* gpu_allocator;
     
     Opp op_ = NOP;
-    list<g_ptr<n_tensor>> inputs_;
+    list<g_ptr<tensor>> inputs_;
     Reduction reduction_ = MEAN;
     TType t_type_ = TType::FLOAT32; 
     bool requires_grad_ = true;
@@ -142,10 +156,10 @@ public:
     }
 
     // Default constructor
-    n_tensor() {}
+    tensor() {}
 
     // Create tensor with shape
-    n_tensor(const list<int>& shape) : shape_(shape) {
+    tensor(const list<int>& shape) : shape_(shape) {
         strides_ = derive_strides(shape);
         int total = numel();
         
@@ -158,7 +172,7 @@ public:
     }
     
     // Create tensor with shape and data
-    n_tensor(const list<int>& shape, const list<float>& data) : shape_(shape) {
+    tensor(const list<int>& shape, const list<float>& data) : shape_(shape) {
         strides_ = derive_strides(shape);
         
         storage_ = make<Storage>();
@@ -171,7 +185,7 @@ public:
     }
     
     // Copy constructor: share storage
-    n_tensor(const n_tensor& other) 
+    tensor(const tensor& other) 
         : storage_(other.storage_),  // g_ptr handles refcount automatically!
             shape_(other.shape_),
             strides_(other.strides_),
@@ -191,7 +205,7 @@ public:
     }
     
     // Destructor - g_ptr handles storage cleanup automatically!
-    ~n_tensor() {
+    ~tensor() {
         if(gpu_data_ && gpu_allocator) {
             gpu_allocator->free(gpu_data_);
             gpu_allocator->free(gpu_grad_);
@@ -205,7 +219,7 @@ public:
         cache_.clear();
     }
     
-    static void clear_graph(g_ptr<n_tensor> root) {
+    static void clear_graph(g_ptr<tensor> root) {
         // Recursively clear computational graph
         if(!root || root->inputs_.empty()) return;
         
@@ -215,14 +229,14 @@ public:
         root->detach();
     }
 
-    g_ptr<n_tensor> get_batch(int start, int batch_size) {
+    g_ptr<tensor> get_batch(int start, int batch_size) {
         if(ndim() < 2) {
             print("tensor::get_batch: requires at least 2D tensor!");
             return nullptr;
         }
         
         int rows = std::min(batch_size, shape_[0] - start);
-        auto result = make<n_tensor>(list<int>{rows, shape_[1]});
+        auto result = make<tensor>(list<int>{rows, shape_[1]});
         
         for(int i = 0; i < rows; i++) {
             for(int j = 0; j < shape_[1]; j++) {
@@ -233,17 +247,27 @@ public:
         return result;
     }
 
-    g_ptr<n_tensor> get_batch_by_indices(const list<int>& indices) {
+    g_ptr<tensor> get_batch_by_indices(const list<int>& indices) {
         if(ndim() < 2) {
             print("tensor::get_batch_by_indices: requires at least 2D tensor!");
             return nullptr;
         }
         
-        auto result = make<n_tensor>(list<int>{(int)indices.length(), shape_[1]});
+        auto result = make<tensor>(list<int>{(int)indices.length(), shape_[1]});
         
-        for(int i = 0; i < indices.length(); i++) {
-            for(int j = 0; j < shape_[1]; j++) {
-                result->at({i, j}) = at({indices[i], j});
+        if(is_contiguous()) {
+            int row_size = shape_[1];
+            for(int i = 0; i < indices.length(); i++) {
+                float* src = storage_->data.data() + storage_offset_ + indices[i] * row_size;
+                float* dst = result->storage_->data.data() + i * row_size;
+                std::memcpy(dst, src, row_size * sizeof(float));
+            }
+        } else {
+            // Fallback to element-wise
+            for(int i = 0; i < indices.length(); i++) {
+                for(int j = 0; j < shape_[1]; j++) {
+                    result->at({i, j}) = at({indices[i], j});
+                }
             }
         }
         
@@ -285,8 +309,8 @@ public:
         storage_offset_ = 0;
     }
     
-    g_ptr<n_tensor> clone() const {
-        auto result = make<n_tensor>(shape_);
+    g_ptr<tensor> clone() const {
+        auto result = make<tensor>(shape_);
         
         for(int i = 0; i < numel(); i++) {
             result->flat(i) = flat(i);
@@ -300,7 +324,7 @@ public:
         return result;
     }
     
-    g_ptr<n_tensor> reshape(const list<int>& new_shape) {
+    g_ptr<tensor> reshape(const list<int>& new_shape) {
         // Handle -1 (infer dimension)
         int infer_idx = -1;
         int known_size = 1;
@@ -328,7 +352,7 @@ public:
             return nullptr;
         }
         
-        auto result = make<n_tensor>();
+        auto result = make<tensor>();
         result->storage_ = storage_;  
         result->shape_ = final_shape;
         result->strides_ = derive_strides(final_shape);
@@ -344,11 +368,11 @@ public:
         return result;
     }
     
-    g_ptr<n_tensor> transpose(int dim0, int dim1) {
+    g_ptr<tensor> transpose(int dim0, int dim1) {
         if(dim0 < 0) dim0 += ndim();
         if(dim1 < 0) dim1 += ndim();
         
-        auto result = make<n_tensor>();
+        auto result = make<tensor>();
         result->storage_ = storage_;  
         result->storage_offset_ = storage_offset_;
         result->shape_ = shape_;
@@ -477,22 +501,26 @@ public:
         int rows = shape_[ndim() - 2];
         int cols = shape_[ndim() - 1];
         
-        return Eigen::MatrixXf::Map(
+        // Map as ROW-MAJOR since our storage is row-major!
+        return Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
             const_cast<float*>(storage_->data.data() + storage_offset_), 
             rows, cols
         );
     }
     
-    static g_ptr<n_tensor> from_matrix(const Eigen::MatrixXf& mat) {
+    static g_ptr<tensor> from_matrix(const Eigen::MatrixXf& mat) {
         list<int> shape = {(int)mat.rows(), (int)mat.cols()};
         list<float> data;
         data.resize(mat.size());
         
-        for(int i = 0; i < mat.size(); i++) {
-            data[i] = mat.data()[i];
+        // Copy row-by-row to handle column-major to row-major conversion
+        for(int i = 0; i < mat.rows(); i++) {
+            for(int j = 0; j < mat.cols(); j++) {
+                data[i * mat.cols() + j] = mat(i, j);
+            }
         }
         
-        return make<n_tensor>(shape, data);
+        return make<tensor>(shape, data);
     }
     
     
@@ -505,7 +533,7 @@ public:
         print("] (", numel(), " elements)");
     }
 
-    static g_ptr<n_tensor> ensure_shape(g_ptr<n_tensor> t, const list<int>& target_shape) {
+    static g_ptr<tensor> ensure_shape(g_ptr<tensor> t, const list<int>& target_shape) {
         if(t->shape_ == target_shape) return t;
         return t->broadcast_to(target_shape);
     }
@@ -543,20 +571,20 @@ public:
         return result;
     }
 
-    g_ptr<n_tensor> broadcast_to(const list<int>& target_shape) {
+    g_ptr<tensor> broadcast_to(const list<int>& target_shape) {
         if(!can_broadcast(shape_, target_shape)) {
             print("ERROR: Cannot broadcast shape to target");
             return nullptr;
         }
         
-        auto result = make<n_tensor>(target_shape);
+        auto result = make<tensor>(target_shape);
         
         broadcast_copy(result, this, target_shape, shape_);
         
         return result;
     }
 
-    static void broadcast_copy(g_ptr<n_tensor> dest, g_ptr<n_tensor> src,
+    static void broadcast_copy(g_ptr<tensor> dest, g_ptr<tensor> src,
                             const list<int>& dest_shape, const list<int>& src_shape) {
         int total = dest->numel();
         
@@ -593,7 +621,7 @@ public:
         return indices;
     }
 
-    static void unbroadcast_grad(g_ptr<n_tensor> target, const list<float>& grad_data,
+    static void unbroadcast_grad(g_ptr<tensor> target, const list<float>& grad_data,
          const list<int>& grad_shape, const list<int>& target_shape) {
         if(grad_shape == target_shape) {
             // No broadcasting happened, simple accumulation
@@ -608,7 +636,7 @@ public:
         for(int s : grad_shape) grad_numel *= s;
         
         for(int i = 0; i < grad_numel; i++) {
-            list<int> grad_idx = n_tensor::unravel_index(i, grad_shape);
+            list<int> grad_idx = tensor::unravel_index(i, grad_shape);
             
             list<int> target_idx;
             int dim_offset = grad_shape.length() - target_shape.length();
@@ -628,16 +656,18 @@ public:
         }
     }
 
-    g_ptr<n_tensor> operate(bool is_forward, Pass& pass) {
+
+    
+    g_ptr<tensor> operate(bool is_forward, Pass& pass) {
         
-        g_ptr<n_tensor> result = nullptr;
+        g_ptr<tensor> result = nullptr;
         Opp op = op_;
-        g_ptr<n_tensor> other = nullptr;
+        g_ptr<tensor> other = nullptr;
 
         //Unifying the forward and backward pass to make opp maintance and addition 
         //easier by having the forward and backward passs next to each other
         if(is_forward) {
-            result = make<n_tensor>();
+            result = make<tensor>();
             op = pass.op;
             other = pass.param;
 
@@ -653,69 +683,327 @@ public:
                 return result;
             case ADD: {
                 if(is_forward) {
-
-                } 
-                else {
-
+                    bool is_bias = (shape_[0] != other->shape_[0]) && 
+                    (shape_[0] > 1 && other->shape_[0] == 1 ||
+                     other->shape_[0] > 1 && shape_[0] == 1);
+     
+                    if(is_bias && shape_.length() == 2 && other->shape_.length() == 2) {
+                        // Fast path for bias addition
+                        result->shape_ = (shape_[0] > other->shape_[0]) ? shape_ : other->shape_;
+                        result->strides_ = derive_strides(result->shape_);
+                        result->storage_ = make<Storage>(result->numel());
+                        
+                        // Direct loop - no broadcasting needed
+                        int rows = result->shape_[0];
+                        int cols = result->shape_[1];
+                        g_ptr<tensor> data_t = (shape_[0] > 1) ? this : other;
+                        g_ptr<tensor> bias_t = (shape_[0] == 1) ? this : other;
+                        
+                        for(int i = 0; i < rows; i++) {
+                            for(int j = 0; j < cols; j++) {
+                                result->at({i, j}) = data_t->at({i, j}) + bias_t->at({0, j});
+                            }
+                        }
+                    }
+                    else {
+                        // Determine broadcast shape
+                        list<int> result_shape = tensor::broadcast_shape(shape_, other->shape_);
+                        if(result_shape.empty()) {
+                            print("ADD: Cannot broadcast shapes");
+                            return nullptr;
+                        }
+                        
+                        result->shape_ = result_shape;
+                        result->strides_ = derive_strides(result_shape);
+                        result->storage_ = make<Storage>(result->numel());
+                        result->grad_.resize(result->numel());
+                        for(int i = 0; i < result->numel(); i++) {
+                            result->grad_[i] = 0.0f;
+                        }
+                        
+                        // Broadcast both inputs if needed
+                        auto a_broadcast = (shape_ == result_shape) ? 
+                            g_ptr<tensor>(this) : broadcast_to(result_shape);
+                        auto b_broadcast = (other->shape_ == result_shape) ? 
+                            other : other->broadcast_to(result_shape);
+                        
+                        // Element-wise addition
+                        for(int i = 0; i < result->numel(); i++) {
+                            result->flat(i) = a_broadcast->flat(i) + b_broadcast->flat(i);
+                        }
+                        result->device_ = CPU;
+                    }
                 }
-                break; 
+                else {// Backward: gradient flows to both inputs with unbroadcasting
+
+                    bool is_bias = (inputs_[0]->shape_[0] > 1 && inputs_[1]->shape_[0] == 1);
+                    #if TIMERS
+                    Log::Line l; l.start();
+                    #endif
+                    if(is_bias) {
+                        // Fast path: sum over batch dimension
+                        int rows = inputs_[0]->shape_[0];
+                        int cols = inputs_[0]->shape_[1];
+                        
+                        // Gradient to data (first input) - direct copy
+                        for(int i = 0; i < grad_.length(); i++) {
+                            inputs_[0]->grad_[i] += grad_[i];
+                        }
+                        
+                        // Gradient to bias (second input) - sum over rows
+                        for(int j = 0; j < cols; j++) {
+                            float sum = 0.0f;
+                            for(int i = 0; i < rows; i++) {
+                                sum += grad_[i * cols + j];
+                            }
+                            inputs_[1]->grad_[j] += sum;
+                        }
+                    } else {
+                        list<float> grad_data;
+                        grad_data.resize(grad_.length());
+                        for(int i = 0; i < grad_.length(); i++) {
+                            grad_data[i] = grad_[i];
+                        }
+                        tensor::unbroadcast_grad(inputs_[0], grad_data, shape_, inputs_[0]->shape_);
+                        tensor::unbroadcast_grad(inputs_[1], grad_data, shape_, inputs_[1]->shape_);
+                    }
+                        
+                    #if TIMERS
+                    print("     ADD - Unbroadcast time: ",l.end()/1000000,"ms"); l.start();
+                    print("         ADD - Going backwards of type: ",inputs_[0]->op_); 
+                    #endif
+                    inputs_[0]->backward();
+                    #if TIMERS
+                    print("         ADD - Time: ",l.end()/1000000,"ms"); l.start();
+                    print("         ADD - Going backwards of type: ",inputs_[1]->op_);
+                    #endif
+                    inputs_[1]->backward();
+                    #if TIMERS
+                    print("         ADD - Time: ",l.end()/1000000,"ms");
+                    #endif
+                }
+                break;
             }
             case MATMUL: {
                 if(is_forward) {
+                    if(ndim() < 2 || other->ndim() < 2) {
+                        print("MATMUL: requires at least 2D tensors");
+                        return nullptr;
+                    }
+                    
+                    int m = shape_[ndim() - 2];  // rows of A
+                    int k = shape_[ndim() - 1];  // cols of A / rows of B
+                    int n = other->shape_[other->ndim() - 1];  // cols of B
+                    
+                    if(k != other->shape_[other->ndim() - 2]) {
+                        print("MATMUL: inner dimensions don't match");
+                        return nullptr;
+                    }
+                    
+                    // Result shape
+                    result->shape_ = shape_;
+                    result->shape_[ndim() - 1] = n;
+                    result->strides_ = derive_strides(result->shape_);
+                    result->storage_ = make<Storage>(result->numel());
+                    result->grad_.resize(result->numel());
+                    for(int i = 0; i < result->numel(); i++) {
+                        result->grad_[i] = 0.0f;
+                    }
+                    
+                    // Ensure contiguous for Eigen
+                    auto a_contig = is_contiguous() ? g_ptr<tensor>(this) : clone();
+                    auto b_contig = other->is_contiguous() ? other : other->clone();
+                    
+                    if(!a_contig->is_contiguous()) a_contig->make_contiguous();
+                    if(!b_contig->is_contiguous()) b_contig->make_contiguous();
+                    
+                    // Use Eigen with row-major specification
+                    auto a_mat = a_contig->as_matrix();  // as_matrix() already handles row-major
+                    auto b_mat = b_contig->as_matrix();
+                    Eigen::MatrixXf c_mat = a_mat * b_mat;
+                    
+                    // Copy result - iterate to handle column-major to row-major
+                    for(int i = 0; i < c_mat.rows(); i++) {
+                        for(int j = 0; j < c_mat.cols(); j++) {
+                            result->at({i, j}) = c_mat(i, j);
+                        }
+                    }
+                    
+                    result->device_ = CPU;
+                }
+                else { // Backward: grad_A = grad_C @ B^T, grad_B = A^T @ grad_C
+                    #if TIMERS
+                    Log::Line l; l.start();
+                    #endif
+                    // Map our row-major gradient to Eigen row-major matrix
+                    int grad_rows = shape_[ndim() - 2];
+                    int grad_cols = shape_[ndim() - 1];
+                    auto grad_mat = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+                        grad_.data(), grad_rows, grad_cols);
+                    
+                    auto a_mat = inputs_[0]->as_matrix();
+                    auto b_mat = inputs_[1]->as_matrix();
+                    #if TIMERS
+                    print("             MATMUL - duration of as_matrix: ",l.end()/1000000,"ms"); l.start();
+                    #endif
+                    
+                    // Compute gradients
+                    Eigen::MatrixXf grad_a = grad_mat * b_mat.transpose();
+                    Eigen::MatrixXf grad_b = a_mat.transpose() * grad_mat;
+                    #if TIMERS
+                    print("             MATMUL - duration of transpose: ",l.end()/1000000,"ms"); l.start();
+                    #endif
+                    
+                    // Accumulate gradients with proper row-major iteration
+                    for(int i = 0; i < grad_a.rows(); i++) {
+                        for(int j = 0; j < grad_a.cols(); j++) {
+                            inputs_[0]->grad_[i * grad_a.cols() + j] += grad_a(i, j);
+                        }
+                    }
+                    
+                    for(int i = 0; i < grad_b.rows(); i++) {
+                        for(int j = 0; j < grad_b.cols(); j++) {
+                            inputs_[1]->grad_[i * grad_b.cols() + j] += grad_b(i, j);
+                        }
+                    }
+                    #if TIMERS
+                    print("             MATMUL - duration of accumulate: ",l.end()/1000000,"ms"); l.start();
 
-                } 
-                else {
-
+                    print("             MATMUL - Going backwards of type: ",inputs_[0]->op_);
+                    #endif
+                    inputs_[0]->backward();
+                    #if TIMERS
+                    print("             MATMUL - Time: ",l.end()/1000000,"ms"); l.start();
+                    print("             MATMUL - Going backwards of type: ",inputs_[1]->op_);
+                    #endif
+                    inputs_[1]->backward();
+                    #if TIMERS
+                    print("             MATMUL - Time: ",l.end()/1000000,"ms");
+                    #endif
                 }
                 break;
             }
             case RELU: {
                 if(is_forward) {
-
+                    result->shape_ = shape_;
+                    result->strides_ = strides_;
+                    result->storage_ = make<Storage>(numel());
+                    result->grad_.resize(numel());
+                    for(int i = 0; i < numel(); i++) {
+                        result->grad_[i] = 0.0f;
+                    }
+                    
+                    // Apply ReLU
+                    for(int i = 0; i < numel(); i++) {
+                        result->flat(i) = std::max(0.0f, flat(i));
+                    }
+                    result->device_ = CPU;
                 }
-                else {
-
-                }
-                break;
-            }
-            case SIGMOID: {
-                if(is_forward) {
-
-                }
-                else {
-
-                }
-                break;
-            }
-            case ADD_BIAS: {
-                if(is_forward) {
-
-                } 
-                else {
-
-                }
-                break;
-            }
-            case SOFTMAX: {
-                if(is_forward) {
-
-                }
-                else {
-
+                else { // Backward: gradient passes through where input > 0
+                    #if TIMERS
+                    Log::Line l; l.start();
+                    #endif
+                    for(int i = 0; i < inputs_[0]->numel(); i++) {
+                        float mask = (inputs_[0]->flat(i) > 0.0f) ? 1.0f : 0.0f;
+                        inputs_[0]->grad_[i] += grad_[i] * mask;
+                    }
+                    #if TIMERS
+                    print("                RELU - duration: ",l.end()/1000000,"ms"); l.start();
+                    
+                    print("                RELU - Going backwards of type: ",inputs_[0]->op_);
+                    #endif
+                    inputs_[0]->backward();
+                    #if TIMERS
+                    print("                RELU - Time: ",l.end()/1000000,"ms");
+                    #endif
                 }
                 break;
             }
             case SOFTMAX_CE: {
                 if(is_forward) {
-
+                    int batch_size = shape_[0];
+                    int num_classes = shape_[1];
+                    
+                    if(other->shape_[0] != batch_size || other->shape_[1] != num_classes) {
+                        print("SOFTMAX_CE: shape mismatch");
+                        return nullptr;
+                    }
+                    
+                    // Result is a scalar
+                    result->shape_ = {1, 1};
+                    result->strides_ = derive_strides(result->shape_);
+                    result->storage_ = make<Storage>(1);
+                    result->grad_.resize(1);
+                    result->grad_[0] = 0.0f;
+                    
+                    // Compute with Eigen for numerical stability
+                    auto logits_mat = as_matrix();
+                    auto targets_mat = other->as_matrix();
+                    
+                    // Log-softmax: x - max(x) - log(sum(exp(x - max(x))))
+                    Eigen::VectorXf max_vals = logits_mat.rowwise().maxCoeff();
+                    Eigen::MatrixXf shifted = logits_mat.colwise() - max_vals;
+                    Eigen::MatrixXf exp_shifted = shifted.array().exp();
+                    Eigen::VectorXf sum_exp = exp_shifted.rowwise().sum();
+                    Eigen::VectorXf log_sum_exp = sum_exp.array().log() + max_vals.array();
+                    
+                    Eigen::MatrixXf log_softmax = logits_mat.colwise() - log_sum_exp;
+                    
+                    // Cross entropy
+                    float loss_sum = -(targets_mat.array() * log_softmax.array()).sum();
+                    float loss = (pass.reduction == MEAN) ? loss_sum / float(batch_size) : loss_sum;
+                    
+                    result->flat(0) = loss;
+                    result->device_ = CPU;
+                    
+                    // Cache softmax for backward (gradient is just softmax - targets)
+                    Eigen::MatrixXf softmax = exp_shifted.array().colwise() / sum_exp.array();
+                    result->cache_.put("softmax_rows", list<float>{(float)batch_size});
+                    result->cache_.put("softmax_cols", list<float>{(float)num_classes});
+                    result->cache_tensors_.put("softmax", tensor::from_matrix(softmax));
                 }
-                else {
+                else { // Backward: gradient = (softmax - targets) / batch_size
+                    if(op_ != SOFTMAX_CE) return result;
+                    
+                    int batch_size = (int)cache_.get("softmax_rows")[0];
+                    int num_classes = (int)cache_.get("softmax_cols")[0];
+                    
+                    auto softmax_tensor = cache_tensors_.get("softmax");
+                    auto softmax_mat = softmax_tensor->as_matrix();
+                    auto targets_mat = inputs_[1]->as_matrix();
+                    
+                    // Compute gradient
+                    Eigen::MatrixXf grad_logits = softmax_mat - targets_mat;
+                    
+                    if(reduction_ == MEAN) {
+                        grad_logits /= float(batch_size);
+                    }
+                    
+                    // Note: upstream gradient (grad_[0]) is always 1.0 for loss
+                    // No need to multiply by it
+                    
+                    // Accumulate to input gradients
+                    for(int i = 0; i < grad_logits.rows(); i++) {
+                        for(int j = 0; j < grad_logits.cols(); j++) {
+                            inputs_[0]->grad_[i * grad_logits.cols() + j] += grad_logits(i, j);
+                        }
+                    }
 
+                     // Don't backprop through targets
+                    #if TIMERS
+                    Log::Line l; l.start();
+                    print("SOFTMAX_CE - Going backwards of type: ",inputs_[0]->op_);
+                    #endif
+                    inputs_[0]->backward();
+                    #if TIMERS
+                    print("SOFTMAX_CE - Backwards time ",l.end()/1000000,"ms");
+                    #endif
                 }
                 break;
             }
-        default:
-                print("WARNING: invalid op_ in opperate: ",op_);
+            
+            default:
+                print("WARNING: invalid op in operate: ", op);
                 break;
         }
 
@@ -732,10 +1020,11 @@ public:
                 gpu_allocator->memset_gpu(result->gpu_grad_, 0, grad_bytes);
             }
         }
+
         return result;
     }
 
-    g_ptr<n_tensor> forward(Pass& pass) {
+    g_ptr<tensor> forward(Pass& pass) {
         return operate(true,pass);
     }
 
@@ -750,14 +1039,14 @@ public:
 };
 
 
-static g_ptr<n_tensor> empty_like(g_ptr<n_tensor> t, const list<int>& shape) {
-    auto result = make<n_tensor>(shape);
+static g_ptr<tensor> empty_like(g_ptr<tensor> t, const list<int>& shape) {
+    auto result = make<tensor>(shape);
     result->device_ = t->device_;
     result->t_type_ = t->t_type_;
     return result;
 }
 
-static void prepare_result_device(g_ptr<n_tensor> result) {
+static void prepare_result_device(g_ptr<tensor> result) {
     if(result->device_ == GPU && result->gpu_allocator) {
         size_t bytes = result->numel() * sizeof(float);
         result->gpu_data_ = result->gpu_allocator->allocate(bytes);
