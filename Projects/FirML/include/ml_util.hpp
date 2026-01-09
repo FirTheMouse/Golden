@@ -14,7 +14,21 @@
 
 #ifdef __APPLE__
     #include <Accelerate/Accelerate.h>
+    #ifndef CBLAS_INT
+        #ifdef ACCELERATE_LAPACK_ILP64
+            using CBLAS_INT = long long;
+        #else
+            using CBLAS_INT = int;
+        #endif
+    #endif
+    
+    using blas_int = CBLAS_INT;
+#elif defined(__CUDA__) || defined(__CUDACC__)
+    #include <cublas_v2.h>
+    extern cublasHandle_t cublas_handle;
+    using blas_int = int;
 #else
+    using blas_int = int;
     extern "C" {
         #include <cblas.h>  // OpenBLAS or generic
     }
@@ -60,6 +74,53 @@ list<int> create_shuffle_indices(int n) {
         std::swap(indices[i], indices[j]);
     }
     return indices;
+}
+
+inline float blas_norm(int n, const float* x) {
+    #if defined(__APPLE__)
+        return cblas_snrm2(n, x, 1);
+    #elif defined(__CUDA__) || defined(__CUDACC__)
+        float result;
+        cublasSnrm2(cublas_handle, n, x, 1, &result);
+        return result;
+    #else
+        return cblas_snrm2(n, x, 1);
+    #endif
+}
+
+// Vector scale: x = alpha * x
+inline void blas_scale(int n, float alpha, float* x) {
+    #if defined(__APPLE__)
+        cblas_sscal(n, alpha, x, 1);
+    #elif defined(__CUDA__) || defined(__CUDACC__)
+        cublasSscal(cublas_handle, n, &alpha, x, 1);
+    #else
+        cblas_sscal(n, alpha, x, 1);
+    #endif
+}
+
+// Vector add: y = alpha*x + y
+inline void blas_axpy(int n, float alpha, const float* x, float* y) {
+    #if defined(__APPLE__)
+        cblas_saxpy(n, alpha, x, 1, y, 1);
+    #elif defined(__CUDA__) || defined(__CUDACC__)
+        cublasSaxpy(cublas_handle, n, &alpha, x, 1, y, 1);
+    #else
+        cblas_saxpy(n, alpha, x, 1, y, 1);
+    #endif
+}
+
+// Vector dot product: x^T * y
+inline float blas_dot(int n, const float* x, const float* y) {
+    #if defined(__APPLE__)
+        return cblas_sdot(n, x, 1, y, 1);
+    #elif defined(__CUDA__) || defined(__CUDACC__)
+        float result;
+        cublasSdot(cublas_handle, n, x, 1, y, 1, &result);
+        return result;
+    #else
+        return cblas_sdot(n, x, 1, y, 1);
+    #endif
 }
 
 class tensor;
@@ -790,96 +851,74 @@ public:
                         print("MATMUL: requires at least 2D tensors");
                         return nullptr;
                     }
+
+                    blas_int m = shape_[ndim() - 2];
+                    blas_int k = shape_[ndim() - 1];
+                    blas_int n = other->shape_[other->ndim() - 1];
                     
-                    int m = shape_[ndim() - 2];  // rows of A
-                    int k = shape_[ndim() - 1];  // cols of A / rows of B
-                    int n = other->shape_[other->ndim() - 1];  // cols of B
-                    
-                    if(k != other->shape_[other->ndim() - 2]) {
-                        print("MATMUL: inner dimensions don't match");
-                        return nullptr;
-                    }
-                    
-                    // Result shape
                     result->shape_ = shape_;
                     result->shape_[ndim() - 1] = n;
                     result->strides_ = derive_strides(result->shape_);
                     result->storage_ = make<Storage>(result->numel());
-                    result->grad_.resize(result->numel());
-                    for(int i = 0; i < result->numel(); i++) {
-                        result->grad_[i] = 0.0f;
-                    }
                     
-                    // Ensure contiguous for Eigen
-                    auto a_contig = is_contiguous() ? g_ptr<tensor>(this) : clone();
+                    auto a_contig = is_contiguous() ? this : clone();
                     auto b_contig = other->is_contiguous() ? other : other->clone();
                     
-                    if(!a_contig->is_contiguous()) a_contig->make_contiguous();
-                    if(!b_contig->is_contiguous()) b_contig->make_contiguous();
-                    
-                    // Use Eigen with row-major specification
-                    auto a_mat = a_contig->as_matrix();  // as_matrix() already handles row-major
-                    auto b_mat = b_contig->as_matrix();
-                    Eigen::MatrixXf c_mat = a_mat * b_mat;
-                    
-                    // Copy result - iterate to handle column-major to row-major
-                    for(int i = 0; i < c_mat.rows(); i++) {
-                        for(int j = 0; j < c_mat.cols(); j++) {
-                            result->at({i, j}) = c_mat(i, j);
-                        }
+                    if(device_ == CPU) {
+                        #ifdef __APPLE__
+                            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                                       m, n, k,
+                                       1.0f,
+                                       a_contig->storage_->data.data(), k,
+                                       b_contig->storage_->data.data(), n,
+                                       0.0f,
+                                       result->storage_->data.data(), n);
+                        #else
+                            // OpenBLAS or fallback
+                            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                                       m, n, k,
+                                       1.0f,
+                                       a_contig->storage_->data.data(), k,
+                                       b_contig->storage_->data.data(), n,
+                                       0.0f,
+                                       result->storage_->data.data(), n);
+                        #endif
+                    }
+                    else { // Implment GPU code later
+
                     }
                     
-                    result->device_ = CPU;
+                    result->device_ = device_;
                 }
                 else { // Backward: grad_A = grad_C @ B^T, grad_B = A^T @ grad_C
-                    #if TIMERS
-                    Log::Line l; l.start();
-                    #endif
-                    // Map our row-major gradient to Eigen row-major matrix
-                    int grad_rows = shape_[ndim() - 2];
-                    int grad_cols = shape_[ndim() - 1];
-                    auto grad_mat = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
-                        grad_.data(), grad_rows, grad_cols);
+                    blas_int grad_rows = shape_[ndim() - 2];
+                    blas_int grad_cols = shape_[ndim() - 1];
+                    blas_int a_rows = inputs_[0]->shape_[inputs_[0]->ndim() - 2];
+                    blas_int a_cols = inputs_[0]->shape_[inputs_[0]->ndim() - 1];
+                    blas_int b_cols = inputs_[1]->shape_[inputs_[1]->ndim() - 1];
                     
-                    auto a_mat = inputs_[0]->as_matrix();
-                    auto b_mat = inputs_[1]->as_matrix();
-                    #if TIMERS
-                    print("             MATMUL - duration of as_matrix: ",l.end()/1000000,"ms"); l.start();
-                    #endif
-                    
-                    // Compute gradients
-                    Eigen::MatrixXf grad_a = grad_mat * b_mat.transpose();
-                    Eigen::MatrixXf grad_b = a_mat.transpose() * grad_mat;
-                    #if TIMERS
-                    print("             MATMUL - duration of transpose: ",l.end()/1000000,"ms"); l.start();
-                    #endif
-                    
-                    // Accumulate gradients with proper row-major iteration
-                    for(int i = 0; i < grad_a.rows(); i++) {
-                        for(int j = 0; j < grad_a.cols(); j++) {
-                            inputs_[0]->grad_[i * grad_a.cols() + j] += grad_a(i, j);
-                        }
+                    if(device_ == CPU) {
+                        // grad_A = grad_C @ B^T (with accumulation!)
+                        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                                   grad_rows, a_cols, grad_cols,
+                                   1.0f,
+                                   grad_.data(), grad_cols,
+                                   inputs_[1]->storage_->data.data(), b_cols,
+                                   1.0f, 
+                                   inputs_[0]->grad_.data(), a_cols);
+                        
+                        // grad_B = A^T @ grad_C (with accumulation!)
+                        cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                                   a_cols, b_cols, a_rows,
+                                   1.0f,
+                                   inputs_[0]->storage_->data.data(), a_cols,
+                                   grad_.data(), grad_cols,
+                                   1.0f,  
+                                   inputs_[1]->grad_.data(), b_cols);
                     }
                     
-                    for(int i = 0; i < grad_b.rows(); i++) {
-                        for(int j = 0; j < grad_b.cols(); j++) {
-                            inputs_[1]->grad_[i * grad_b.cols() + j] += grad_b(i, j);
-                        }
-                    }
-                    #if TIMERS
-                    print("             MATMUL - duration of accumulate: ",l.end()/1000000,"ms"); l.start();
-
-                    print("             MATMUL - Going backwards of type: ",inputs_[0]->op_);
-                    #endif
                     inputs_[0]->backward();
-                    #if TIMERS
-                    print("             MATMUL - Time: ",l.end()/1000000,"ms"); l.start();
-                    print("             MATMUL - Going backwards of type: ",inputs_[1]->op_);
-                    #endif
                     inputs_[1]->backward();
-                    #if TIMERS
-                    print("             MATMUL - Time: ",l.end()/1000000,"ms");
-                    #endif
                 }
                 break;
             }
@@ -1055,3 +1094,96 @@ static void prepare_result_device(g_ptr<tensor> result) {
     }
 }
 
+
+//Eigen MATMUL forward:
+    
+    // int m = shape_[ndim() - 2];  // rows of A
+    // int k = shape_[ndim() - 1];  // cols of A / rows of B
+    // int n = other->shape_[other->ndim() - 1];  // cols of B
+
+    // if(k != other->shape_[other->ndim() - 2]) {
+    //     print("MATMUL: inner dimensions don't match");
+    //     return nullptr;
+    // }
+
+    // // Result shape
+    // result->shape_ = shape_;
+    // result->shape_[ndim() - 1] = n;
+    // result->strides_ = derive_strides(result->shape_);
+    // result->storage_ = make<Storage>(result->numel());
+    // result->grad_.resize(result->numel());
+    // for(int i = 0; i < result->numel(); i++) {
+    //     result->grad_[i] = 0.0f;
+    // }
+
+    // // Ensure contiguous for Eigen
+    // auto a_contig = is_contiguous() ? g_ptr<tensor>(this) : clone();
+    // auto b_contig = other->is_contiguous() ? other : other->clone();
+
+    // if(!a_contig->is_contiguous()) a_contig->make_contiguous();
+    // if(!b_contig->is_contiguous()) b_contig->make_contiguous();
+
+    // // Use Eigen with row-major specification
+    // auto a_mat = a_contig->as_matrix();  // as_matrix() already handles row-major
+    // auto b_mat = b_contig->as_matrix();
+    // Eigen::MatrixXf c_mat = a_mat * b_mat;
+
+    // // Copy result - iterate to handle column-major to row-major
+    // for(int i = 0; i < c_mat.rows(); i++) {
+    //     for(int j = 0; j < c_mat.cols(); j++) {
+    //         result->at({i, j}) = c_mat(i, j);
+    //     }
+    // }
+
+    // result->device_ = CPU;
+
+//Eigen MATMUL back:
+
+    // #if TIMERS
+    // Log::Line l; l.start();
+    // #endif
+    // // Map our row-major gradient to Eigen row-major matrix
+    // int grad_rows = shape_[ndim() - 2];
+    // int grad_cols = shape_[ndim() - 1];
+    // auto grad_mat = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+    //     grad_.data(), grad_rows, grad_cols);
+
+    // auto a_mat = inputs_[0]->as_matrix();
+    // auto b_mat = inputs_[1]->as_matrix();
+    // #if TIMERS
+    // print("             MATMUL - duration of as_matrix: ",l.end()/1000000,"ms"); l.start();
+    // #endif
+
+    // // Compute gradients
+    // Eigen::MatrixXf grad_a = grad_mat * b_mat.transpose();
+    // Eigen::MatrixXf grad_b = a_mat.transpose() * grad_mat;
+    // #if TIMERS
+    // print("             MATMUL - duration of transpose: ",l.end()/1000000,"ms"); l.start();
+    // #endif
+
+    // // Accumulate gradients with proper row-major iteration
+    // for(int i = 0; i < grad_a.rows(); i++) {
+    //     for(int j = 0; j < grad_a.cols(); j++) {
+    //         inputs_[0]->grad_[i * grad_a.cols() + j] += grad_a(i, j);
+    //     }
+    // }
+
+    // for(int i = 0; i < grad_b.rows(); i++) {
+    //     for(int j = 0; j < grad_b.cols(); j++) {
+    //         inputs_[1]->grad_[i * grad_b.cols() + j] += grad_b(i, j);
+    //     }
+    // }
+    // #if TIMERS
+    // print("             MATMUL - duration of accumulate: ",l.end()/1000000,"ms"); l.start();
+
+    // print("             MATMUL - Going backwards of type: ",inputs_[0]->op_);
+    // #endif
+    // inputs_[0]->backward();
+    // #if TIMERS
+    // print("             MATMUL - Time: ",l.end()/1000000,"ms"); l.start();
+    // print("             MATMUL - Going backwards of type: ",inputs_[1]->op_);
+    // #endif
+    // inputs_[1]->backward();
+    // #if TIMERS
+    // print("             MATMUL - Time: ",l.end()/1000000,"ms");
+    // #endif

@@ -9,7 +9,9 @@ namespace Eigen {
     float time_3 = 0;
     float time_4 = 0;
     float time_5 = 0;
+    float time_6 = 0;
     map<Opp,float> time_map;
+    map<Opp,float> f_time_map;
 
 
     using LRScheduleFn = std::function<float(int epoch, float base_lr)>;
@@ -249,20 +251,52 @@ namespace Eigen {
     }
 
     void clip_gradients(list<g_ptr<tensor>>& params, float max_norm) {
-        float total_norm = 0.0f;
-        for(auto& param : params) {
-            for(int i = 0; i < param->grad_.length(); i++) {
-                total_norm += param->grad_[i] * param->grad_[i];
-            }
-        }
-        total_norm = std::sqrt(total_norm);
+        // Compute total gradient norm across all parameters
+        float total_norm_sq = 0.0f;
         
+        for(auto& param : params) {
+            if(param->grad_.length() == 0) continue;
+            
+            #if defined(__APPLE__) || !defined(__CUDA__)
+                // CPU path - use BLAS norm
+                float param_norm = blas_norm(param->grad_.length(), 
+                                            param->grad_.data());
+                total_norm_sq += param_norm * param_norm;
+            #else
+                // CUDA path - gradients might be on GPU
+                if(param->device_ == GPU && param->gpu_grad_) {
+                    float param_norm = blas_norm(param->grad_.length(), 
+                                                (float*)param->gpu_grad_);
+                    total_norm_sq += param_norm * param_norm;
+                } else {
+                    // Fallback to CPU
+                    float param_norm = blas_norm(param->grad_.length(), 
+                                                param->grad_.data());
+                    total_norm_sq += param_norm * param_norm;
+                }
+            #endif
+        }
+        
+        float total_norm = std::sqrt(total_norm_sq);
+        
+        // Only clip if norm exceeds threshold
         if(total_norm > max_norm) {
             float scale = max_norm / total_norm;
+            
             for(auto& param : params) {
-                for(int i = 0; i < param->grad_.length(); i++) {
-                    param->grad_[i] *= scale;
-                }
+                if(param->grad_.length() == 0) continue;
+                
+                #if defined(__APPLE__) || !defined(__CUDA__)
+                    // CPU path - use BLAS scale
+                    blas_scale(param->grad_.length(), scale, param->grad_.data());
+                #else
+                    // CUDA path
+                    if(param->device_ == GPU && param->gpu_grad_) {
+                        blas_scale(param->grad_.length(), scale, (float*)param->gpu_grad_);
+                    } else {
+                        blas_scale(param->grad_.length(), scale, param->grad_.data());
+                    }
+                #endif
             }
         }
     }
@@ -298,71 +332,135 @@ namespace Eigen {
         };
 
     class optm_sgd : public optimizer {
-    public:
-        optm_sgd(list<g_ptr<tensor>>& params, float learning_rate) 
-            : optimizer(params, learning_rate) {}
-        
-        void step(int accumulation_steps = 1) override {
-            for(auto& param : params_) {
-                for(int i = 0; i < param->numel(); i++) {
-                    param->flat(i) -= learning_rate_ * param->grad_[i];
+        public:
+            optm_sgd(list<g_ptr<tensor>>& params, float learning_rate) 
+                : optimizer(params, learning_rate) {}
+            
+            void step(int accumulation_steps = 1) override {
+                for(auto& param : params_) {
+                    if(param->numel() == 0) continue;
+                    
+                    #if defined(__APPLE__) || !defined(__CUDA__)
+                        // CPU path: param = param - lr * grad
+                        // Use saxpy: y = alpha*x + y
+                        blas_axpy(param->numel(), 
+                                    -learning_rate_,                    // alpha (negative!)
+                                    param->grad_.data(),                // x (gradient)
+                                    param->storage_->data.data());      // y (parameters)
+                    #else
+                        // CUDA path
+                        if(param->device_ == GPU && param->gpu_data_ && param->gpu_grad_) {
+                            blas_axpy(param->numel(),
+                                        -learning_rate_,
+                                        (float*)param->gpu_grad_,
+                                        (float*)param->gpu_data_);
+                        } else {
+                            // CPU fallback
+                            blas_axpy(param->numel(),
+                                        -learning_rate_,
+                                        param->grad_.data(),
+                                        param->storage_->data.data());
+                        }
+                    #endif
                 }
             }
-        }
-        
-        void zero_grad() override {
-            for(auto& p : params_) p->zero_grad();
-        }
-    };
+            
+            void zero_grad() override {
+                for(auto& p : params_) p->zero_grad();
+            }
+        };
 
-    class optm_adam : public optimizer {
-        float beta1_, beta2_, epsilon_;
-        int t_;
-        
-        map<g_ptr<tensor>, list<float>> m_;
-        map<g_ptr<tensor>, list<float>> v_;
-        
-    public:
-        optm_adam(list<g_ptr<tensor>>& params, float learning_rate, 
-                  float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f)
-            : optimizer(params, learning_rate), 
-              beta1_(beta1), beta2_(beta2), epsilon_(epsilon), t_(0) {
+        class optm_adam : public optimizer {
+            float beta1_, beta2_, epsilon_;
+            int t_;
             
-            for(auto& p : params_) {
-                m_[p].resize(p->numel());
-                v_[p].resize(p->numel());
-                for(int i = 0; i < p->numel(); i++) {
-                    m_[p][i] = 0.0f;
-                    v_[p][i] = 0.0f;
+            map<g_ptr<tensor>, list<float>> m_;
+            map<g_ptr<tensor>, list<float>> v_;
+            
+        public:
+            optm_adam(list<g_ptr<tensor>>& params, float learning_rate, 
+                      float beta1 = 0.9f, float beta2 = 0.999f, float epsilon = 1e-8f)
+                : optimizer(params, learning_rate), 
+                  beta1_(beta1), beta2_(beta2), epsilon_(epsilon), t_(0) {
+                
+                for(auto& p : params_) {
+                    m_[p].resize(p->numel());
+                    v_[p].resize(p->numel());
+                    for(int i = 0; i < p->numel(); i++) {
+                        m_[p][i] = 0.0f;
+                        v_[p][i] = 0.0f;
+                    }
                 }
             }
-        }
-        
-        void step(int accumulation_steps = 1) override {
-            t_++;
             
-            for(auto& p : params_) {
+            void step(int accumulation_steps = 1) override {
+                t_++;
+                
                 float bias_correction1 = 1.0f - std::pow(beta1_, t_);
                 float bias_correction2 = 1.0f - std::pow(beta2_, t_);
                 
-                for(int i = 0; i < p->numel(); i++) {
-                    m_[p][i] = beta1_ * m_[p][i] + (1.0f - beta1_) * p->grad_[i];
-                    v_[p][i] = beta2_ * v_[p][i] + (1.0f - beta2_) * p->grad_[i] * p->grad_[i];
+                for(auto& p : params_) {
+                    int n = p->numel();
+                    if(n == 0) continue;
                     
-                    float m_hat = m_[p][i] / bias_correction1;
-                    float v_hat = v_[p][i] / bias_correction2;
+                    float* grad_ptr = p->grad_.data();
+                    float* param_ptr = p->storage_->data.data();
+                    float* m_ptr = m_[p].data();
+                    float* v_ptr = v_[p].data();
                     
-                    p->flat(i) -= learning_rate_ * m_hat / (std::sqrt(v_hat) + epsilon_);
+                    blas_scale(n, beta1_, m_ptr);
+                    blas_axpy(n, (1.0f - beta1_), grad_ptr, m_ptr);
+                    blas_scale(n, beta2_, v_ptr);
+
+                    #ifdef __APPLE__
+                        float one_minus_beta2 = 1.0f - beta2_;
+                        list<float> grad_sq(n);
+                        vDSP_vsq(grad_ptr, 1, grad_sq.data(), 1, n);  
+                        blas_axpy(n, one_minus_beta2, grad_sq.data(), v_ptr); 
+                    #else
+                        float one_minus_beta2 = 1.0f - beta2_;
+                        for(int i = 0; i < n; i++) {
+                            v_ptr[i] += one_minus_beta2 * grad_ptr[i] * grad_ptr[i];
+                        }
+                    #endif
+                    
+                    float alpha = learning_rate_ / bias_correction1;
+                    float sqrt_bias_correction = std::sqrt(bias_correction2);
+                    
+                    #ifdef __APPLE__
+                        list<float> v_corrected(n);
+                        list<float> v_sqrt(n);
+                        list<float> denominator(n);
+                        list<float> update(n);
+                        
+                        float inv_bias2 = 1.0f / bias_correction2;
+                        vDSP_vsmul(v_ptr, 1, &inv_bias2, v_corrected.data(), 1, n);
+ 
+                        int n_int = n;
+                        vvsqrtf(v_sqrt.data(), v_corrected.data(), &n_int);
+                        vDSP_vsadd(v_sqrt.data(), 1, &epsilon_, denominator.data(), 1, n);
+                        
+                        vvdivf(update.data(), m_ptr, denominator.data(), &n_int);
+                        
+                        blas_axpy(n, -alpha, update.data(), param_ptr);
+                    #else
+                        // Fallback: optimized manual loop
+                        for(int i = 0; i < n; i++) {
+                            float m_hat = m_ptr[i];
+                            float v_hat = v_ptr[i] / bias_correction2;
+                            float denom = std::sqrt(v_hat) + epsilon_;
+                            param_ptr[i] -= alpha * m_hat / denom;
+                        }
+                    #endif
                 }
             }
-        }
-        
-        void zero_grad() override {
-            for(auto& p : params_) {
-                p->zero_grad();
+            
+            void zero_grad() override {
+                for(auto& p : params_) {
+                    p->zero_grad();
+                }
             }
-        }
-    };
+        };
 
     class t_config : public Object {
         public:
@@ -721,12 +819,11 @@ namespace Eigen {
                                 
                                 auto input_batch = inputs->get_batch_by_indices(batch_indices);
                                 auto target_batch = targets->get_batch_by_indices(batch_indices);
-                
+                                
                                 output = input_batch;
                                 for(auto p : network) {
                                     output = output->forward(p);
                                 }
-
 
                                 loss_value = train_step(output, target_batch, params, loss_type, reduction, optim, grad_clip, accumulation_steps);
                                 epoch_loss += loss_value;
@@ -755,12 +852,18 @@ namespace Eigen {
                 print("Time 3: ",time_3/1000000,"ms");
                 print("Time 4: ",time_4/1000000,"ms");
                 print("Time 5: ",time_5/1000000,"ms");
+                print("Time 6: ",time_6/1000000,"ms");
+                print("Backpass times:");
                 for(auto e : time_map.entrySet()) {
                     print(" OPP: ",e.key,": ",e.value/1000000,"ms");
                 }
+                // print("Forwardpass times:");
+                // for(auto e : f_time_map.entrySet()) {
+                //     print(" OPP: ",e.key,": ",e.value/1000000,"ms");
+                // }
 
-                time_1 = 0; time_2 = 0; time_3 = 0; time_4 = 0; time_5 = 0;
-                time_map.clear();
+                time_1 = 0; time_2 = 0; time_3 = 0; time_4 = 0; time_5 = 0; time_6 = 0;
+                time_map.clear(); f_time_map.clear();
 
                 if(std::isnan(loss_value) || std::isinf(loss_value)) {
                     print("Exploded at epoch ", epoch);

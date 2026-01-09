@@ -293,7 +293,7 @@ int main() {
         tensor::gpu_allocator = Golden::create_cuda_allocator();
     #endif
 
-    Window window = Window(win_size_x, win_size_y, "FirML 0.0.5");
+    Window window = Window(win_size_x, win_size_y, "FirML 0.0.7");
     auto scene = make<Scene>(window,2);
     scene->camera.toIso();
     scene->tickEnvironment(0);
