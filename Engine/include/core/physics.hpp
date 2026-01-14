@@ -420,6 +420,23 @@ public:
         handle2dCollision(p.first,p.mtv);
     }
 
+    bool enableCollisons = true;
+    float dragCof = 0.99f;
+    float gravity = -4.8f;
+
+    bool enableQuadCollisons = true;
+    bool enableQuadDrag = true;
+    bool enableQuadGravity = true;
+
+    enum SINGLE_SAMPLE_METHOD {
+        NAIVE, AABB //GRID <- Add this later!
+    };
+    enum QUAD_SAMPLE_METHOD {
+        NAIVE //AABB, GRID <- Add these later!
+    };
+
+    SINGLE_SAMPLE_METHOD collisonMethod = SINGLE_SAMPLE_METHOD::AABB;
+    QUAD_SAMPLE_METHOD quadCollisonMethod = QUAD_SAMPLE_METHOD::NAIVE;
 
     void updatePhysics()
     {       
@@ -431,8 +448,12 @@ public:
             Velocity& velocity = scene->velocities.get(i,"physics::142");
             if(p!=P_State::NONE&&p!=P_State::DETERMINISTIC&&p!=P_State::PASSIVE)
             {
-                velocity.position.addY(-4.8*0.016f); //Gravity
-                velocity.position = velocity.position*0.99; //Drag
+                if(gravity!=0) {
+                    velocity.position.addY(gravity*thread->getSpeed()); //Somtimes always multiply by 0.016f as a constant: experiment with it.
+                }
+                if(dragCof!=0) {
+                    velocity.position = velocity.position*dragCof;
+                }
             }
         }
 

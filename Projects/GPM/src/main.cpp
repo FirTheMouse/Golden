@@ -162,8 +162,8 @@ int main()
 
     //Launch projects here, set to the name of the project
     std::string p1 = "FirML";
-    std::string p2 = "ThreadTest";
-    std::string p3 = "GDSL";
+    std::string p2 = "Testing";
+    std::string p3 = "Fshgame";
     std::string p4 = "FirChess";
     
     bool runningProject = false;

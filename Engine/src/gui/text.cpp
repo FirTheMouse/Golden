@@ -121,7 +121,7 @@ namespace Golden
             nl->set<float>("advance", 0.f);
             nl->set<vec2>("bearing", vec2(0,0));
             nl->scale(vec2(0,0));  
-            nl->setTexture(0,0);  
+            nl->setTexture(0);  
             nl->set<char>("char",c);
             nl->set<vec2>("size",vec2(0,0));
             nl->setColor(glm::vec4(0));
@@ -133,7 +133,7 @@ namespace Golden
             nl->set<float>("advance", 0.f);
             nl->set<vec2>("bearing", vec2(0,0));
             nl->scale(vec2(0,0));  
-            nl->setTexture(0,0);  
+            nl->setTexture(0);  
             nl->set<char>("char",c);
             nl->set<vec2>("size",vec2(0,0));
             nl->setColor(glm::vec4(0));
@@ -145,10 +145,9 @@ namespace Golden
         if(c=='|') g.advance = 5.0f;
 
         auto q = scene->create<Quad>("_text_char");
-        q->setTexture(font->atlasTexID,0);
+        q->setTexture(font->atlasTexID);
         q->scale(g.size);
-        q->uvRect = glm::vec4(g.uvPos.x(), g.uvPos.y(), g.uvSize.x(), g.uvSize.y());
-        q->color = glm::vec4(1);
+        q->setData(vec4(g.uvPos.x(), g.uvPos.y(), g.uvSize.x(), g.uvSize.y()));
         q->set<char>("char",c);
         q->set<float>("advance",g.advance);
         q->set<vec2>("bearing",g.bearing);

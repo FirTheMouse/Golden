@@ -91,49 +91,49 @@ namespace Golden
         scene->quads.get(ID,"Quad::remove::43")->ID = ID;
     }
 
-    void Quad::setupQuad()
-    {
-        float quadVertices[] = {
-            // pos     // uv
-            0.0f, 1.0f, 0.0f, 0.0f, // Top-left
-            1.0f, 1.0f, 1.0f, 0.0f, // Top-right
-            1.0f, 0.0f, 1.0f, 1.0f, // Bottom-right
-            0.0f, 0.0f, 0.0f, 1.0f  // Bottom-left
-        };
+    // void Quad::setupQuad()
+    // {
+    //     float quadVertices[] = {
+    //         // pos     // uv
+    //         0.0f, 1.0f, 0.0f, 0.0f, // Top-left
+    //         1.0f, 1.0f, 1.0f, 0.0f, // Top-right
+    //         1.0f, 0.0f, 1.0f, 1.0f, // Bottom-right
+    //         0.0f, 0.0f, 0.0f, 1.0f  // Bottom-left
+    //     };
         
-        unsigned int indices[] = {
-            0, 1, 2,
-            2, 3, 0
-        };
+    //     unsigned int indices[] = {
+    //         0, 1, 2,
+    //         2, 3, 0
+    //     };
 
         
-        glGenVertexArrays(1, &VAO);
-        glGenBuffers(1, &VBO);
-        glGenBuffers(1, &EBO);
+    //     glGenVertexArrays(1, &VAO);
+    //     glGenBuffers(1, &VBO);
+    //     glGenBuffers(1, &EBO);
 
-        glBindVertexArray(VAO);
+    //     glBindVertexArray(VAO);
 
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+    //     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    //     glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    //     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    //     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
-        glEnableVertexAttribArray(0); // pos
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    //     glEnableVertexAttribArray(0); // pos
+    //     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
 
-        glEnableVertexAttribArray(1); // uv
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    //     glEnableVertexAttribArray(1); // uv
+    //     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
-        glBindVertexArray(0);
-    }
+    //     glBindVertexArray(0);
+    // }
 
-    void Quad::draw()
-    {
-        glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
-    }
+    // void Quad::draw()
+    // {
+    //     glBindVertexArray(VAO);
+    //     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    //     glBindVertexArray(0);
+    // }
 
     void Quad::hide() {
         if(lockToParent)
@@ -181,6 +181,9 @@ namespace Golden
     }
     bool Quad::culled() {return scene->quadCulled.get(ID);}
 
+    g_ptr<Geom> Quad::getGeom() {
+        return GET(scene->geoms,ID);
+    }
     glm::mat4& Quad::getTransform() {
         if(checkGet(0)) {
             return GET(scene->guiTransforms,ID);
@@ -275,6 +278,13 @@ namespace Golden
         }
     }
 
+    vec4 Quad::getData() {
+        return GET(scene->guiData,ID);
+    }
+    unsigned int Quad::getTexture() {
+        return getGeom()->texture;
+    }
+
     CollisionLayer& Quad::getLayer() {
         if(checkGet(11)) {
             return GET(scene->quadCollisonLayers,ID);
@@ -282,6 +292,15 @@ namespace Golden
             static CollisionLayer dummy;
             return dummy;
         }
+    }
+
+    Quad& Quad::setData(const vec4& d) {
+        scene->guiData[ID] = d;
+        return *this;
+    }
+    Quad& Quad::setTexture(const unsigned int& t) {
+        getGeom()->texture = t;
+        return *this;
     }
 
     Quad& Quad::setPhysicsState(P_State p)
@@ -393,7 +412,7 @@ namespace Golden
                     {
                         c->position = pos+c->ogt.pos;
                         c->updateTransform();
-                    }
+                    } 
                 }
             }
             else if(c->lockToParent&&!c->callingChild)

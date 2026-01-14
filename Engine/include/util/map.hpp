@@ -80,6 +80,14 @@ public:
         for(entry<K,V>& e : *this) result << e.key;
         return result;
     }
+
+    list<entry<K,V>> entrySet() {
+        list<entry<K,V>> result;
+        for(entry<K,V>& e : *this) {
+            result << e;
+        }
+        return result;
+    }
     
     template<typename KK, typename VV>
     bool set(KK& key, VV&& value){
@@ -196,12 +204,16 @@ public:
             }
             for(keylist<K,V>& old : buckets)
             {
-                old([&](const entry<K,V>& e){newBuckets.get(hashT(e.key)%capacity,"map::put::176").put(e.key,e.value);});
+                // for(const auto& e : old.entrySet()) {
+                //     newBuckets[(hashT(e.key)%capacity)].put(e.key,e.value);
+                // }
+                //For some reason the lambda is faster in testing
+                old([&](const entry<K,V>& e){newBuckets[(hashT(e.key)%capacity)].put(e.key,e.value);});
             }
             buckets = std::move(newBuckets);
 
         }
-        buckets.get(hashT(key)%capacity,"map::put::181").put(key,value);
+        buckets[hashT(key)%capacity].put(key,value);
         size_++;
     }
     

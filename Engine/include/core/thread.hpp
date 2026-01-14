@@ -37,7 +37,7 @@ private:
     std::thread impl;
     std::atomic<bool> shouldStopThread;
     float sliceTime = 0;
-    std::atomic<float> sliceSpeed{0.3f};
+    std::atomic<float> sliceSpeed{0.016f};
 
 std::function<void(ScriptContext&)> onRun = nullptr;
 
@@ -112,7 +112,7 @@ void end() {
 
 void setSpeed(float speed)
 {
-    if(speed<=0.0f) {runningTurn = false; speed = 0.0f;}
+    if(speed<=0.0f) {runningTurn = false; sliceSpeed.store(0);}
     else {sliceSpeed.store(speed); runningTurn = true;}
 }
 

@@ -70,7 +70,7 @@ struct Q_Fab {
     void encodeQuad(const g_ptr<Quad> g) {
         pos = g->getPosition();
         scale = g->getScale();
-        color = g->color;
+        color = g->getData().toGlm();
         slots = g->getSlots();
         type = "none";
         if(g->has("image")){ 
@@ -219,6 +219,8 @@ public:
     q_list<bool> quadActive;
     q_list<bool> quadCulled;
     q_list<g_ptr<Quad>> quads;
+    list<g_ptr<Geom>> geoms;
+    q_list<vec4> guiData;
     q_list<glm::mat4> guiTransforms;
     q_list<glm::mat4> guiEndTransforms;
     q_list<P_State> quadPhysicsStates;
@@ -237,6 +239,10 @@ public:
     //Could optimize this into a map<g_ptr<Model>,list<glm::mat4>> later, when it isn't 11am on Christmas.
     list<g_ptr<Model>> instancedModels;
 
+    list<list<glm::mat4>> guiInstancedTransforms;
+    list<list<vec4>> guiInstancedData;
+    list<g_ptr<Geom>> instancedGeoms;
+
 
     //Misc Arrays:
     std::vector<g_ptr<Light>> lights;
@@ -248,14 +254,18 @@ public:
     void enableInstancing() {
         instancingEnabled = true;
         map<g_ptr<Model>,int> count;
-        for(int i=0;i<models.length();i++) {
-            count.getOrPut(models[i],-1)++;
-        }
-        for(auto e : count.entrySet()) {
-            if(e.value>0) e.key->enableInstanced();
-        }
+        for(int i=0;i<models.length();i++) { count.getOrPut(models[i],-1)++; }
+        for(auto e : count.entrySet()) { if(e.value>0) e.key->enableInstanced(); }
+
+        map<g_ptr<Geom>,int> gCount;
+        for(int i=0;i<geoms.length();i++) { gCount.getOrPut(geoms[i],-1)++; }
+        for(auto e : gCount.entrySet()) { if(e.value>0) e.key->enableInstanced(); }
     }
-    void disableInstancing() {instancingEnabled = false;}
+    void disableInstancing() {
+        instancingEnabled = false;
+        for(int i=0;i<models.length();i++) { models[i]->disableInstanced(); }
+        for(int i=0;i<geoms.length();i++) { geoms[i]->disableInstanced(); }
+    }
     bool isInstancingEnabled() {return instancingEnabled;}
 
     glm::vec3 sunDir = glm::normalize(glm::vec3(-0.2f, -0.5f,-0.5f));
@@ -270,6 +280,7 @@ public:
     Shader instanceShader;
     Shader instanceDepthShader;
     Shader guiShader;
+    Shader guiInstanceShader;
 
     float sceneTime = 0.0f;
 
@@ -277,9 +288,9 @@ public:
     unsigned int depthMap;
 
     Scene(Window& win,const Camera& cam,const Shader& singleShad,const Shader& instanceShad,
-    const Shader& depthShad,const Shader& depthShadI,const Shader& guiShad) 
+    const Shader& depthShad,const Shader& depthShadI,const Shader& guiShad, const Shader& guiShadI) 
     : window(win), camera(cam), singleShader(singleShad), instanceShader(instanceShad), 
-depthShader(depthShad), instanceDepthShader(depthShadI), guiShader(guiShad) {};
+    depthShader(depthShad), instanceDepthShader(depthShadI), guiShader(guiShad), guiInstanceShader(guiShadI) {};
 
     Scene(Window& _window,int _type)
     : window(_window),
@@ -303,6 +314,10 @@ depthShader(depthShad), instanceDepthShader(depthShadI), guiShader(guiShad) {};
         Shader(readFile(root()+"/Engine/shaders/gui_vert.glsl").c_str(),
                readFile(root()+"/Engine/shaders/gui_frag.glsl").c_str())
       ),
+      guiInstanceShader(
+        Shader(readFile(root()+"/Engine/shaders/gui_verti.glsl").c_str(),
+               readFile(root()+"/Engine/shaders/gui_fragi.glsl").c_str())
+      ),    
       camera(45.0f, 1280.0f/768.0f, 0.1f, 1000.0f, 1)
     {
         if(_type==1)
@@ -770,13 +785,13 @@ public:
         if(fab.type=="none"||fab.type=="image")
         {
             auto q = make<Quad>();
-            q->color = fab.color;
+            q->setColor(fab.color);
             add(q);
 
             if(fab.type=="image")
             {
             int w,h;
-            q->setTexture(loadTexture2D(fab.filePath,true,w,h),0);
+            q->setTexture(loadTexture2D(fab.filePath,true,w,h));
             }
 
             q->setPosition(fab.pos);
@@ -933,7 +948,7 @@ public:
         q->set<std::string>("image",path);
         add(q);
         int w,h;
-        q->setTexture(loadTexture2D(path,true,w,h),0);
+        q->setTexture(loadTexture2D(path,true,w,h));
         q->scale(vec2(w*scalar,h*scalar));
         return q;
     }

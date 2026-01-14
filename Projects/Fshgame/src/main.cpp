@@ -1,237 +1,130 @@
-#include <iostream>
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <rendering/renderer.hpp>
-#include <rendering/scene.hpp>
-#include <rendering/model.hpp>
-#include <rendering/single.hpp>
-#include <core/scriptable.hpp>
-#include <extension/simulation.hpp>
-#include <util/util.hpp>
-#include <fstream>
-#include <string>
-#include <fsh/fsh_scene.hpp>
-#include <fsh/f_object.hpp>
+#include<rendering/scene.hpp>
+#include<core/helper.hpp>
+#include<util/color.hpp>
+#include<util/string_generator.hpp>
+#include<util/logger.hpp>
+#include<core/physics.hpp>
 
 using namespace Golden;
 
-vec3 input2D()
-{
-    float x = 0.0f;
-    float y = 0.0f;
-    Input& input = Input::get();
+g_ptr<Scene> scene;
+g_ptr<Font> font;
+ivec2 win(2560,1536);
 
-    if(input.keyPressed(UP)) y-=0.3f;
-    if(input.keyPressed(DOWN)) y+=0.3f;
-    if(input.keyPressed(D)) x+=0.3f;
-    if(input.keyPressed(A)) x-=0.3f;
-    return vec3(x,0,0);
-}
+int main()  {
+    using namespace helper;
 
-glm::vec3 getWorldMousePosition(g_ptr<Scene> scene) {
-    Window& window = scene->window;
-    Camera& camera = scene->camera;
-    int windowWidth = window.width;
-    int windowHeight = window.height;
-    double xpos, ypos;
-    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+    std::string MROOT = root()+"/Projects/Fshgame/assets/models/";
+    std::string IROOT = root()+"/Projects/Fshgame/assets/images/";
+    Window window = Window(win.x()/2, win.y()/2, "GUI Testing");
+    scene = make<Scene>(window,2);
+    Data d = make_config(scene,K);
+    scene->tickEnvironment(0);
+    font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
+    list<g_ptr<Quad>> boxes;
 
-    // Flip y for OpenGL
-    float glY = windowHeight - float(ypos);
+    scene->disableInstancing();
+    Physics phys(scene);
 
-    // Get view/proj
-    glm::mat4 view = camera.getViewMatrix();
-    glm::mat4 projection = camera.getProjectionMatrix();
-    glm::ivec4 viewport(0, 0, windowWidth, windowHeight);
-
-    // Unproject near/far points
-    glm::vec3 winNear(float(xpos), glY, 0.0f);   // depth = 0
-    glm::vec3 winFar(float(xpos), glY, 1.0f);    // depth = 1
-    
-
-    glm::vec3 worldNear = glm::unProject(winNear, view, projection, viewport);
-    glm::vec3 worldFar  = glm::unProject(winFar,  view, projection, viewport);
-
-    // Ray from near to far
-    glm::vec3 rayOrigin = worldNear;
-    glm::vec3 rayDir = glm::normalize(worldFar - worldNear);
-
-     // Intersect with Z = -5 plane (Z-up)
-    float targetZ = 0.0f;
-    if (fabs(rayDir.z) < 1e-6f) return glm::vec3(0); // Ray is parallel to plane
-
-    float t = (targetZ - rayOrigin.z) / rayDir.z;
-    return rayOrigin + rayDir * t;
-}
-
-glm::vec2 mousePos(g_ptr<Scene> scene)
-{
-    Window& window = scene->window;
-    int windowWidth = window.width;
-    int windowHeight = window.height;
-    double xpos, ypos;
-    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
-    return glm::vec2(xpos,ypos);
-}
-
-
-int main() {
-    std::string ROOT = "../Projects/Fshgame/storage/";
-
-    int width = 1280;
-    int height = 768;
-
-    Window window = Window(width, height, "Fshgame 0.0.1");
-    glfwSwapInterval(1); //Vsync 1=on 0=off
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
-        return 0;
-    }
-    glEnable(GL_DEPTH_TEST);
-
-    glm::vec4 BLUE = glm::vec4(0,0,1,1);
-    glm::vec4 RED = glm::vec4(1,0,0,1);
-    glm::vec4 BLACK = glm::vec4(0,0,0,1);
-
-    Input& input = Input::get();
-
-    g_ptr<fsh_scene> scene = make<fsh_scene>(window,2);
-    scene->camera = Camera(60.0f, 1280.0f/768.0f, 0.1f, 1000.0f, 4);
-    scene->camera.setPosition(glm::vec3(0.0f, 0.0f, 5.0f));
-    scene->relight(glm::vec3(0.0f,0.1f,0.9f),glm::vec4(1,1,1,1));
-    scene->setupShadows();
-
-    auto line = make<Quad>();
-    line->setupQuad();
-    scene->add(line);
-    line->setPosition(vec3(300, 450, 0));
-    line->scale(100,4,0);
-    line->color = glm::vec4(0.2f,0,0,1);
-
-    auto otherLine = make<Quad>();
-    otherLine->setupQuad();
-    scene->add(otherLine);
-    otherLine->setPosition(vec3(300, 450, 0));
-    otherLine->scale(100,3,1);
-    otherLine->color = glm::vec4(0.2f,0,0,1);
-
-    auto hook = make<Quad>();
-    hook->setupQuad();
-    scene->add(hook);
-    hook->scale(5);
-    hook->color = glm::vec4(0,0,0,1);
-    hook->setPosition(vec3(300,475,0));
-
-    auto man = make<Quad>();
-    man->setupQuad();
-    scene->add(man);
-    man->scale(25);
-    man->color = glm::vec4(0.8f,0.3f,0.3f,1);
-    man->setPosition(vec3(300,475,0));
-
-
-    list<g_ptr<Quad>> fshs;
-    for(int i=0;i<50;i++)
-    {
-        auto fsh = make<Quad>();
-        fsh->setupQuad();
-        fsh->data.set<float>("speed",randf(6,12));
-        scene->add(fsh);
-        float s = randf(15,25);
-        fsh->scale(s*randf(0.8f,1.8f),s,0);
-        fsh->color = glm::vec4(randf(0,1),randf(0,1),randf(0,1),1);
-        fsh->setPosition(vec3(randf(300,2800),randf(550,1600),0));
-        fshs << fsh;
-    }
-
-    auto q = make<Quad>();
-    q->setupQuad();
-    scene->add(q);
-    q->setPosition(vec3(0,500,0));
-    q->scale(3000,1200,0);
-    q->color = glm::vec4(0.3f,0.4f,0.6f,1);
-
-
-    float tpf = 0.1; float frametime = 0; int frame = 0;
-    auto last = std::chrono::high_resolution_clock::now();
-    bool flag = true;
-    float pause = 0.0f;
-
-    bool reeling = false;
-
-    while (!window.shouldClose()) {
-        if(Input::get().keyPressed(KeyCode::K)) break;
-        if(pause>0) pause -=tpf;
-
-        man->move(input2D()*30.0f);
-        fshs([scene,width](g_ptr<Quad> fsh){
-            fsh->move(-fsh->data.get<float>("speed"),0,0);
-            if(fsh->getPosition().x()<0) fsh->setPosition(vec3(
-                width*2,fsh->getPosition().y(),0
-            ));
-        });
-
-
-        double xpos, ypos;
-        glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
-        glm::vec2 dir(
-            xpos*2 - man->getPosition().x(),
-            ypos*2 - man->getPosition().y()
-        );
-        float length = glm::length(dir);
-        float angle = atan2(dir.y, dir.x);
-
-        line->setPosition(man->getPosition()-vec3(
-            xpos*2>man->getPosition().x()?-25:0,-2,0));
-
-        line->rotate(angle,vec3(0,0,1));
-
-        if(Input::get().keyPressed(SPACE)&&pause<=0.0f)
-        {
-            pause=0.3f;
-            reeling=!reeling;
-        }  
-
-        otherLine->setPosition(line->getPosition()+(vec3(cos(angle), sin(angle), 0.0f)*100));
-        
-        vec3 tip = line->getPosition() + vec3(cos(angle), sin(angle), 0.0f) * 100.0f;
-
-        vec3 toTip = tip - hook->getPosition();
-        float dist = toTip.length();
-
-        if (dist > 1.0f) {
-            vec3 dir = toTip.normalized();
-            float speed = glm::clamp(dist * 0.05f, 0.5f, 10.0f);
-            hook->move(dir * speed);
+    int TESTING = 1;
+    if(TESTING == 0) {
+        g_ptr<Quad> test = text::makeText(
+        "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        ,font,scene,vec2(50,40),0.8f);
+        boxes << test;
+    } else if (TESTING==1) {
+        g_ptr<Geom> geom = make<Geom>();
+        for(int i=0;i<10000;i++) {
+            g_ptr<Quad> box = make<Quad>(geom);
+            scene->add(box);
+            box->setColor(i%3==0?Color::RED:i%3==1?Color::BLUE:Color::GREEN);
+            box->scale({10,10});
+            box->setPosition({randf(0,win.x()),randf(0,win.y())});
+            boxes << box;
         }
-
-        if(reeling)
-        {
-            hook->move(0,0.8f,0);
+    } else if (TESTING==2) {
+        g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
+        box->setPosition({randf(0,win.x()),randf(0,win.y())});
+        boxes << box;
+    } else if (TESTING==3) {
+        g_ptr<Quad> base = scene->makeImageQuad(IROOT+"plank.png",10);
+        base->setPosition({randf(0,win.x()),randf(0,win.y())});
+        boxes << base;
+        for(int i=0;i<10;i++) {
+            g_ptr<Quad> box = make<Quad>(base->getGeom());
+            scene->add(box);
+            box->scale(base->getScale());
+            box->setData(base->getData());
+            box->setPosition({randf(0,win.x()),randf(0,win.y())});
+            boxes << box;
         }
-        else
-        {
-            hook->move(0,hook->getPosition().y()<475?0:-0.8f,0);
-        }
-
-        vec3 aD = line->getPosition().direction(hook->getPosition());
-        glm::vec2 aDir(aD.x(),aD.y());
-        float aLength = glm::length(aDir);
-        float aAngle = atan2(aDir.y, aDir.x);
-        otherLine->scale(hook->getPosition().distance(line->getPosition()),4,0);
-        otherLine->rotate(aAngle,vec3(0,0,1));
-
-        scene->updateScene(tpf);
-        auto end = std::chrono::high_resolution_clock::now();
-        auto delta = std::chrono::duration<float>(end - last);
-        tpf = delta.count(); last = end; frame++; 
-
-        window.swapBuffers();
-        window.pollEvents();
+    } else if(TESTING==4) {
+        g_ptr<Quad> box = make<Quad>();
+        scene->add(box);
+        box->scale({50,50});
+        box->setColor(Color::RED);
+        box->setPosition({500,500});
+        boxes << box;
     }
 
     
-    glfwTerminate();
+    S_Tool s_tool;
+    s_tool.log_fps = true;
+    double m = 0;
+    start::run(window,d,[&]{
+        // m = std::sin(s_tool.frame)*100;
+        // //test->setPosition(vec2(m,m));
+        //    box->move(vec2(m,m));
+        if(TESTING==2) {
+            phys.updatePhysics();
+        } 
+        else if(TESTING==1) {
+            for(auto b : boxes) {
+                vec2 mov(randf(-10,10),randf(-10,10));
+                vec2 n_pos = b->getCenter()+mov;
+                if(n_pos.x()>win.x()) mov.setX(-800);
+                if(n_pos.x()<=0) mov.setX(800);
+                if(n_pos.y()>win.y()) mov.setY(-800);
+                if(n_pos.y()<=0) mov.setY(800);
+                b->move(mov);
+            }
+        } 
+        else if(TESTING==4) {
+
+        }
+
+    if(held(MOUSE_LEFT)) {
+        if(TESTING==2) {
+            boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d())/10);
+        } 
+        else if(TESTING==4) {
+
+        } 
+        else {
+            boxes[0]->setCenter(scene->mousePos2d());
+        }
+    }
+       s_tool.tick();
+    });
+
     return 0;
 }

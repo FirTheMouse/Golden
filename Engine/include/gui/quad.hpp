@@ -1,6 +1,7 @@
 #pragma once
 
 #include<rendering/scene_object.hpp>
+#include<rendering/geom.hpp>
 
 namespace Golden
 {
@@ -33,24 +34,24 @@ public:
         //Temporary flag, change this later! 
         //Just for compatiability with GUIDE
         set<bool>("valid",true);
-        setupQuad();
     }
+    explicit Quad(g_ptr<Geom> geomPtr) : geom(geomPtr) {}
+
+
     void remove() override;
-    void recycle();
-    void setupQuad();
-    void draw();
+    // void recycle();
+    // void setupQuad();
+    // void draw();
 
-    unsigned int VAO = 0, VBO = 0, EBO = 0;
+    g_ptr<Geom> geom;
 
-    glm::vec4 color = glm::vec4(1.0f);
-    glm::vec4 uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f); 
-    unsigned int textureGL = 0;   // real GL texture id
-    uint8_t      textureSlot = 0; // which texture unit to bind on draw
     g_ptr<Quad> parent;
     vec2 t_vec = {0,0};
     list<g_ptr<Quad>> children;
     bool callingChild = false;
     Q_Snapshot ogt;
+
+    bool instanced = false;
 
     bool lockToParent = false;
      /// @todo Add methods later for removing children and detatching from parent
@@ -87,16 +88,17 @@ public:
          }
      }
  
-    void setTexture(unsigned int glTex, uint8_t slot = 0) {
-        textureGL   = glTex;
-        textureSlot = slot;
-    }
+    // void setTexture(unsigned int glTex, uint8_t slot = 0) {
+    //     textureGL   = glTex;
+    //     textureSlot = slot;
+    // }
 
     void hide();
     void show();
     bool culled();
 
 
+    g_ptr<Geom> getGeom();
     glm::mat4& getTransform();
     glm::mat4& getEndTransform();
     AnimState& getAnimState();
@@ -107,7 +109,20 @@ public:
     float getRotation();
     vec2 getCenter();
     vec2 getScale();
+    vec4 getData();
+    unsigned int getTexture();
     CollisionLayer& getLayer();
+
+    Quad& setData(const vec4& d);
+    Quad& setTexture(const unsigned int& t);
+    void setColor(vec4 _color) {setData(_color);}
+    void setColor(glm::vec4 _color) {setData(vec4(_color));}
+    void setUV(vec4 _uv) {setData(_uv);}
+    void setUV(glm::vec4 _uv) {setData(vec4(_uv));}
+    void setGeom(g_ptr<Geom> geomPtr) {
+        geom = std::move(geomPtr);
+    }
+
 
     Quad& startAnim(float duration);
     Quad& setPhysicsState(P_State p);
@@ -190,7 +205,6 @@ public:
         return direction(other->getCenter());
     }
 
-    void setColor(glm::vec4 _color) {color = _color;}
     list<std::string>& getSlots();
     Quad& addSlot(const std::string& slot);
 

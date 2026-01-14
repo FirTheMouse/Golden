@@ -915,6 +915,8 @@ public:
                                    grad_.data(), grad_cols,
                                    1.0f,  
                                    inputs_[1]->grad_.data(), b_cols);
+                    } else { //Implment GPU code later
+
                     }
                     
                     inputs_[0]->backward();

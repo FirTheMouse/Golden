@@ -10,97 +10,163 @@
 
 int main() {
 
-
- 
-    g_ptr<Type> t = make<Type>();
-    g_ptr<Object> obj = make<Object>();
-    int ITS = 100;
-    int MAX_RANGE = 4;
-    int STRAT = 2;
-    list<std::string> titles;
-    list<int> seq;
-    //std::pow(ITS,5)
-    for(int i=0;i<ITS;i++) {
-        titles << std::to_string(i);
-        seq << randi(1,MAX_RANGE);
-    }
-
+    std::vector<bool> b_vec;
+    list<bool> b_list;
     Log::rig r;
     r.add_process("clean",[&](int i){
         if(i==0) {
-            t = make<Type>();
-            obj = make<Object>();
+            b_vec.clear();
+            b_list.clear();
         }
     });
-    r.add_process("populate_type",[&](int i){
-        if(STRAT==0) { //DATA strategy
-            t->add<int>(titles[i],i);
-        } else if(STRAT==1) { //ARRAY strategy
-            t->push<int>(i);
-        } else if (STRAT==2) { //VARIED strategy
-            switch(seq[i]) {
-                case 1: t->add<float>(titles[i],randf(0,100.0f)); break;
-                case 2: t->add<std::string>(titles[i],titles[i]); break;
-                case 3: t->add<int>(titles[i],i); break;
-                case 4: t->add<bool>(titles[i],i%2); break;
-                default: t->add<int>(titles[i],i); break;
-            }
-        } else if (STRAT==3) { //Using the fallback
-            t->add<std::string>(titles[i],titles[i]);
-        }
+    r.add_process("pop_vec",[&](int i){
+        b_vec.push_back(false);
     });
-    r.add_process("populate_data",[&](int i){
-        if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
-            obj->add<int>(titles[i],i);
-        } else if (STRAT==2) { //VARIED strategy
-            switch(seq[i]) {
-                case 1: obj->add<float>(titles[i],randf(0,100.0f)); break;
-                case 2: obj->add<std::string>(titles[i],titles[i]); break;
-                case 3: obj->add<int>(titles[i],i); break;
-                case 4: obj->add<bool>(titles[i],i%2); break;
-                default: obj->add<int>(titles[i],i); break;
-            }
-        } else if (STRAT==3) { //Using the fallback
-            obj->add<std::string>(titles[i],titles[i]);
-        }
+    r.add_process("pop_list",[&](int i){
+        b_list.push(false);
     });
-    r.add_process("access_type",[&](int i){
-        if(STRAT==0) { //DATA strategy
-            volatile int a = t->get<int>(titles[i]);
-        } else if(STRAT==1) { //ARRAY strategy
-            volatile int a = t->get<int>(i);
-        } else if (STRAT==2) { //VARIED strategy
-            switch(seq[i]) {
-                case 1: { volatile float f = t->get<float>(titles[i]); } break;
-                case 2: { volatile std::string s = t->get<std::string>(titles[i]); } break;
-                case 3: { volatile int a = t->get<int>(titles[i]); } break;
-                case 4: { volatile bool b = t->get<bool>(titles[i]); } break;
-                default: { volatile int a = t->get<int>(titles[i]); } break;
-            }
-        } else if (STRAT==3) { //Using the fallback
-            volatile std::string s = t->get<std::string>(titles[i]);
-        }
+    r.add_process("access_vec",[&](int i){
+        volatile bool a = b_vec[i];
     });
-    r.add_process("access_data",[&](int i){
-        if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
-            volatile int a = obj->get<int>(titles[i]);
-        } else if (STRAT==2) { //VARIED strategy
-            switch(seq[i]) {
-                case 1: { volatile float f = obj->get<float>(titles[i]); } break;
-                case 2: { volatile std::string s = obj->get<std::string>(titles[i]); } break;
-                case 3: { volatile int a = obj->get<int>(titles[i]); } break;
-                case 4: { volatile bool b = obj->get<bool>(titles[i]); } break;
-                default: { volatile int a = obj->get<int>(titles[i]); } break;
-            }
-        } else if (STRAT==3) { //Using the fallback
-            volatile std::string s = obj->get<std::string>(titles[i]);
-        }
+    r.add_process("access_list",[&](int i){
+        volatile bool a = b_list[i];
     });
-    r.add_comparison("populate_type","populate_data");
-    r.add_comparison("access_type","access_data");
-    r.run(1000,true,ITS);
+
+    //
 
 
+    r.add_comparison("pop_vec","pop_list");
+    r.add_comparison("access_vec","access_list");
+    r.run(1000,true,100);
+
+ 
+    // g_ptr<Type> t = make<Type>();
+    // g_ptr<Object> obj = make<Object>();
+    // int ITS = 100;
+    // int MAX_RANGE = 4;
+    // int STRAT = 0;
+    // list<std::string> titles;
+    // list<int> seq;
+    // //std::pow(ITS,5)
+    // for(int i=0;i<ITS;i++) {
+    //     titles << std::to_string(i);
+    //     seq << randi(1,MAX_RANGE);
+    // }
+
+    // map<std::string,int> g_map;
+    // std::unordered_map<std::string,int> std_map;
+
+    // Log::rig r;
+    // r.add_process("clean_maps",[&](int i){
+    //     if(i==0) {
+    //         g_map.clear();
+    //         std_map.clear();
+    //     }
+    // },1);
+    // r.add_process("populate_g_map",[&](int i){
+    //     if(STRAT==0||STRAT==1||STRAT==2||STRAT==3) { 
+    //         g_map.put(titles[i],i);
+    //     } else {
+    //         //No strat
+    //     }
+    // },1);
+    // r.add_process("populate_std_map",[&](int i){
+    //     if(STRAT==0||STRAT==1||STRAT==2||STRAT==3) { 
+    //         std_map.emplace(titles[i],i);
+    //     } else {
+    //         //No strat
+    //     }
+    // },1);
+    // r.add_process("access_g_map",[&](int i){
+    //     if(STRAT==0||STRAT==1||STRAT==2||STRAT==3) { 
+    //         volatile int a = g_map.get(titles[i]);
+    //     } else {
+    //         //No strat
+    //     }
+    // },1);
+    // r.add_process("access_std_map",[&](int i){
+    //     if(STRAT==0||STRAT==1||STRAT==2||STRAT==3) { 
+    //         volatile int a = std_map.at(titles[i]);
+    //     } else {
+    //         //No strat
+    //     }
+    // },1);
+
+    // r.add_process("clean",[&](int i){
+    //     if(i==0) {
+    //         t = make<Type>();
+    //         obj = make<Object>();
+    //     }
+    // });
+    // r.add_process("populate_type",[&](int i){
+    //     if(STRAT==0) { //DATA strategy
+    //         t->add<int>(titles[i],i);
+    //     } else if(STRAT==1) { //ARRAY strategy
+    //         t->push<int>(i);
+    //     } else if (STRAT==2) { //VARIED strategy
+    //         switch(seq[i]) {
+    //             case 1: t->add<float>(titles[i],randf(0,100.0f)); break;
+    //             case 2: t->add<std::string>(titles[i],titles[i]); break;
+    //             case 3: t->add<int>(titles[i],i); break;
+    //             case 4: t->add<bool>(titles[i],i%2); break;
+    //             default: t->add<int>(titles[i],i); break;
+    //         }
+    //     } else if (STRAT==3) { //Using the fallback
+    //         t->add<std::string>(titles[i],titles[i]);
+    //     }
+    // });
+    // r.add_process("populate_data",[&](int i){
+    //     if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
+    //         obj->add<int>(titles[i],i);
+    //     } else if (STRAT==2) { //VARIED strategy
+    //         switch(seq[i]) {
+    //             case 1: obj->add<float>(titles[i],randf(0,100.0f)); break;
+    //             case 2: obj->add<std::string>(titles[i],titles[i]); break;
+    //             case 3: obj->add<int>(titles[i],i); break;
+    //             case 4: obj->add<bool>(titles[i],i%2); break;
+    //             default: obj->add<int>(titles[i],i); break;
+    //         }
+    //     } else if (STRAT==3) { //Using the fallback
+    //         obj->add<std::string>(titles[i],titles[i]);
+    //     }
+    // });
+    // r.add_process("access_type",[&](int i){
+    //     if(STRAT==0) { //DATA strategy
+    //         volatile int a = t->get<int>(titles[i]);
+    //     } else if(STRAT==1) { //ARRAY strategy
+    //         volatile int a = t->get<int>(i);
+    //     } else if (STRAT==2) { //VARIED strategy
+    //         switch(seq[i]) {
+    //             case 1: { volatile float f = t->get<float>(titles[i]); } break;
+    //             case 2: { volatile std::string s = t->get<std::string>(titles[i]); } break;
+    //             case 3: { volatile int a = t->get<int>(titles[i]); } break;
+    //             case 4: { volatile bool b = t->get<bool>(titles[i]); } break;
+    //             default: { volatile int a = t->get<int>(titles[i]); } break;
+    //         }
+    //     } else if (STRAT==3) { //Using the fallback
+    //         volatile std::string s = t->get<std::string>(titles[i]);
+    //     }
+    // });
+    // r.add_process("access_data",[&](int i){
+    //     if(STRAT==0||STRAT==1) { //DATA and ARRAY strategy
+    //         volatile int a = obj->get<int>(titles[i]);
+    //     } else if (STRAT==2) { //VARIED strategy
+    //         switch(seq[i]) {
+    //             case 1: { volatile float f = obj->get<float>(titles[i]); } break;
+    //             case 2: { volatile std::string s = obj->get<std::string>(titles[i]); } break;
+    //             case 3: { volatile int a = obj->get<int>(titles[i]); } break;
+    //             case 4: { volatile bool b = obj->get<bool>(titles[i]); } break;
+    //             default: { volatile int a = obj->get<int>(titles[i]); } break;
+    //         }
+    //     } else if (STRAT==3) { //Using the fallback
+    //         volatile std::string s = obj->get<std::string>(titles[i]);
+    //     }
+    // });
+    // r.add_comparison("populate_type","populate_data");
+    // r.add_comparison("access_type","access_data");
+    // r.add_comparison("populate_g_map","populate_std_map");
+    // r.add_comparison("access_g_map","access_std_map");
+    // r.run(1000,true,ITS);
 
 
     // for(int i=0;i<5;i++) {

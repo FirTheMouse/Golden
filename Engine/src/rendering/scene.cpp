@@ -6,28 +6,28 @@ namespace Golden
 {
 
 
+unsigned int loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
+{
+    int n;
+    stbi_set_flip_vertically_on_load(flipY);
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &n, 4);
+    if(!data) { print("stb_image failed: ",path); return 0; }
+
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0,
+                    GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    stbi_image_free(data);
+    return tex;
+}
 unsigned int loadTexture2D(const std::string& path, bool flipY)
 {
     int w,h;
     return loadTexture2D(path,flipY,w,h);
-}
-unsigned int loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
-{
-int n;
-stbi_set_flip_vertically_on_load(flipY);
-unsigned char* data = stbi_load(path.c_str(), &w, &h, &n, 4);
-if(!data) { std::cerr << "stb_image failed: " << path << "\n"; return 0; }
-
-GLuint tex;
-glGenTextures(1, &tex);
-glBindTexture(GL_TEXTURE_2D, tex);
-glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0,
-                GL_RGBA, GL_UNSIGNED_BYTE, data);
-
-glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-stbi_image_free(data);
-return tex;
 }
 
 
@@ -44,7 +44,19 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         quadActive.push(true);
         quadCulled.push(false);
         quads.push(quad);
-        //QUUID.push_back(quad->UUID);
+        if(quad->geom) {
+            if(!quad->geom->instance&&instancingEnabled) {
+                int existing_geom_id = geoms.find(quad->geom);
+                if(existing_geom_id!=-1) {
+                    geoms[existing_geom_id]->enableInstanced();
+                } 
+            }
+            geoms.push(quad->geom);
+            quad->geom = nullptr;
+        } else {
+            geoms.push(make<Geom>());
+        }
+        guiData.push(vec4(1,1,1,1));
         guiTransforms.push(glm::mat4(1.0f));
         guiEndTransforms.push(glm::mat4(1.0f));
         quadAnimStates.push(AnimState());
@@ -106,6 +118,10 @@ void Scene::updateScene(float tpf)
 
     instancedTransforms.clear();
     instancedModels.clear();
+
+    guiInstancedTransforms.clear();
+    guiInstancedData.clear();
+    instancedGeoms.clear();
 
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
@@ -221,18 +237,46 @@ void Scene::updateScene(float tpf)
         if (!quads[i]) continue;
 
         guiShader.setMat4("quad",glm::value_ptr(guiTransforms[i]));
-        guiShader.setVec4("uColor", quads[i]->color);
-   
-        bool useTex = quads[i]->textureGL != 0;
+        guiShader.setVec4("data", guiData[i].toGlm());
+        bool useTex = geoms[i]->texture != 0;
         guiShader.setInt("useTexture", useTex ? 1 : 0);
-        guiShader.setVec4("uvRect", quads[i]->uvRect); 
-        if (useTex) {
-            uint8_t slot = quads[i]->textureSlot;
-            glActiveTexture(GL_TEXTURE0 + slot);
-            glBindTexture(GL_TEXTURE_2D, quads[i]->textureGL);
-            guiShader.setInt("uTex", slot); // Must match glActiveTexture slot
+        if(geoms[i]->instance) {
+            int existing_instance_id = instancedGeoms.find(geoms[i]);
+            if(existing_instance_id!=-1) {
+                guiInstancedTransforms[existing_instance_id].push(guiTransforms[i]);
+                guiInstancedData[existing_instance_id].push(guiData[i]);
+            } else {
+                instancedGeoms.push(geoms[i]);
+                list<glm::mat4> temp(12);
+                temp << guiTransforms[i];
+
+                list<vec4> temp2(12);
+                temp2 << guiData[i];
+
+                guiInstancedTransforms.push(temp);
+                guiInstancedData.push(temp2);
+            }
+            continue;
+        } else if(useTex) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, geoms[i]->texture);
         }
-        quads[i]->draw();
+        geoms[i]->draw();
+    }
+
+    guiInstanceShader.use();
+    guiInstanceShader.setVec2("uResolution", window.resolution);
+    for(size_t g = 0; g < instancedGeoms.length(); ++g) {
+        unsigned int texID = instancedGeoms[g]->texture;
+        bool useTex = texID != 0;
+        guiInstanceShader.setInt("useTexture", useTex ? 1 : 0);
+        if(useTex) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texID);
+        }
+
+        instancedGeoms[g]->transformInstances(guiInstancedTransforms[g],guiInstancedData[g]);
+        instancedGeoms[g]->draw();
     }
 
     glDepthMask(GL_TRUE);          // restore for 3-D, if needed
