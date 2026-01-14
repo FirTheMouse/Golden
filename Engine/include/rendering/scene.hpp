@@ -9,6 +9,20 @@
 #include <gui/text.hpp>
 #include <util/q_list.hpp>
 
+#define DEBUG 1
+
+#define TO_STRING(x) #x
+#define TO_STRING_EXPAND(x) TO_STRING(x)
+
+#if DEBUG
+    #define GET(container, id) \
+        container.get(id, debug_trace_path + \
+                         std::string(__FUNCTION__) + " at " + std::string(__FILE__) + ":" + TO_STRING_EXPAND(__LINE__))
+#else
+    #define GET(container, id) container[id]
+#endif
+
+
 
 namespace Golden
 {

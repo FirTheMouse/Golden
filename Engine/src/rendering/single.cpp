@@ -2,17 +2,7 @@
 #include <rendering/scene.hpp>
 #include<rendering/model.hpp>
 
-#define SINGLE_DEBUG 1
-#define TO_STRING(x) #x
-#define TO_STRING_EXPAND(x) TO_STRING(x)
 
-#if SINGLE_DEBUG
-    #define GET(container, id) \
-        container.get(id, debug_trace_path + \
-                         std::string(__FUNCTION__) + " at " + std::string(__FILE__) + ":" + TO_STRING_EXPAND(__LINE__))
-#else
-    #define GET(container, id) container.get(id)
-#endif
 
 namespace Golden
 {
@@ -158,7 +148,7 @@ CollisionLayer& Single::getLayer() {
 }
 
 vec3 Single::getPosition() {
-    #if SINGLE_DEBUG
+    #if DEBUG
     debug_trace_path = "Single::getPosition::86";
     #endif
     position = vec3(glm::vec3(getTransform()[3]));
@@ -166,7 +156,7 @@ vec3 Single::getPosition() {
 }
 
 glm::quat Single::getRotation() {
-    #if SINGLE_DEBUG
+    #if DEBUG
        debug_trace_path = "Single::getRotation::104";
     #endif
     rotation = glm::quat_cast(getTransform());;
@@ -174,7 +164,7 @@ glm::quat Single::getRotation() {
 }
 
 vec3 Single::getRotationEuler() {
-    #if SINGLE_DEBUG
+    #if DEBUG
        debug_trace_path = ("Single::getRotationEuler::111");
     #endif
     return glm::eulerAngles(getRotation());

@@ -428,15 +428,12 @@ public:
     bool enableQuadDrag = true;
     bool enableQuadGravity = true;
 
-    enum SINGLE_SAMPLE_METHOD {
+    enum SAMPLE_METHOD {
         NAIVE, AABB //GRID <- Add this later!
     };
-    enum QUAD_SAMPLE_METHOD {
-        NAIVE //AABB, GRID <- Add these later!
-    };
 
-    SINGLE_SAMPLE_METHOD collisonMethod = SINGLE_SAMPLE_METHOD::AABB;
-    QUAD_SAMPLE_METHOD quadCollisonMethod = QUAD_SAMPLE_METHOD::NAIVE;
+    SAMPLE_METHOD collisonMethod = SAMPLE_METHOD::AABB;
+    SAMPLE_METHOD quadCollisonMethod = SAMPLE_METHOD::NAIVE;
 
     void updatePhysics()
     {       

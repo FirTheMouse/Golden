@@ -2,17 +2,7 @@
 #include<rendering/scene.hpp>
 #include<gui/text.hpp>
 
-#define QUAD_DEBUG 1
-#define TO_STRING(x) #x
-#define TO_STRING_EXPAND(x) TO_STRING(x)
 
-#if QUAD_DEBUG
-    #define GET(container, id) \
-        container.get(id, debug_trace_path + \
-                         std::string(__FUNCTION__) + " at " + std::string(__FILE__) + ":" + TO_STRING_EXPAND(__LINE__))
-#else
-    #define GET(container, id) container.get(id)
-#endif
 
 
 namespace Golden
@@ -230,8 +220,8 @@ namespace Golden
     }
 
     vec2 Quad::getPosition() {
-        #if QUAD_DEBUG
-        debug_trace_path = "Quad::getPosition::185";
+        #if DEBUG
+            debug_trace_path = "Quad::getPosition::185";
         #endif
         position = vec2(glm::vec3(getTransform()[3]));
         return position;
