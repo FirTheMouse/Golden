@@ -91,7 +91,7 @@ void basic_add(g_ptr<Single> obj, vec3 start) {
         by_func.getOrPut(obj->get<std::string>("func"),list<g_ptr<Single>>{}).push(obj);
     if(obj->has("color")) {
         vec4 col =obj->get<vec4>("color");
-        obj->model->setColor(obj->get<vec4>("color").toGlm());
+        obj->getModel()->setColor(obj->get<vec4>("color").toGlm());
         obj->set<vec4>("mix_color",col);
     }
     obj->set<g_ptr<_slot>>("in_slot",nullptr);
@@ -453,7 +453,7 @@ void manage_interactions(int c_id) {
                             vec4 currentColor = liquid->get<vec4>("mix_color");
                             //float r = (float)(count)/(slots(liquid).length()*3);
                             vec4 mixed = mix_color(currentColor,blend,0.2f);
-                            liquid->model->setColor(mixed.toGlm());
+                            liquid->getModel()->setColor(mixed.toGlm());
                             liquid->set<vec4>("mix_color", mixed);
                         }
                     }
@@ -535,7 +535,10 @@ result << _origin("tomato",vec3(-6,0,0),true);
 result << _origin("tomato",vec3(-4,0,0),true);
         break;
         case 1:
-
+result << _origin("table",vec3(0,0,-2.5f),false);
+result << _origin("knife",vec3(1,0.5,-2.5f),true);
+// result << _origin("plate",vec3(-1.5f,0,-2.5f),true);
+for(int i=0;i<20;i++) result << _origin("tomato",vec3(-(i-i%2),0,i%2),true);
         break;
         default:
 result << _origin("column",vec3(0,0,-5),false);
@@ -569,20 +572,22 @@ int main() {
     scene->setupShadows();
     scene->camera.speedMod = 0.01f;
     scene->camera.toFirstPerson();
+
+    scene->disableInstancing();
+
     window.lock_mouse();
     physics = make<Physics>(scene);
     physics->thread->setSpeed(0.016f);
-    text::TextEditor text(scene);
+    // text::TextEditor text(scene);
     Data d = make_config(scene,K);
-    load_gui(scene, "ThymeLoop", "thymegui.fab");
+    //load_gui(scene, "ThymeLoop", "thymegui.fab");
     start::define_objects(scene,"ThymeLoop");
 
     auto l1 = make<Light>(Light(glm::vec3(0,10,0),glm::vec4(300,300,300,1)));
     scene->lights.push_back(l1);
 
-    starting = get_level(0);
-    scene->closeWidget("desc");
-
+    starting = get_level(1);
+    // scene->closeWidget("desc");
     reloop(true);
 
     // g_ptr<Single> box = make<Single>(makeTestBox(0.5f));
@@ -590,11 +595,13 @@ int main() {
     // box->setPosition(vec3(-3,0,0));
     // box->setPhysicsState(P_State::PASSIVE);
     S_Tool s_tool;
+    // s_tool.log_fps = true;
+    // physics->collisonMethod = Physics::SAMPLE_METHOD::NAIVE;
     int cam_mode = 1;
     std::string reserved_desc = "";
     start::run(window,d,[&]{
-        if(pressed(N)&&!text.editing) text.scan(scene->getSlot("timer")[0]);
-        text.tick(s_tool.tpf);
+        //if(pressed(N)&&!text.editing) text.scan(scene->getSlot("timer")[0]);
+        //text.tick(s_tool.tpf);
 
         g_ptr<Single> last_grabbed = grabbed.last();
 
@@ -700,28 +707,28 @@ int main() {
                 print("----------------");
             }    
 
-            if(pressed(F)) {
-                scene->openWidget("desc",true);
-            } else {
-                if(grabbed.last()&&grabbed.last()!=last_grabbed) {
-                    auto desc = scene->getSlot("desc")[0];
-                    std::string func = grabbed.last()->has("func")?grabbed.last()->get<std::string>("func"):"";
-                    reserved_desc = func;
-                    bool already_open = desc->isActive();
-                    text::setText(reserved_desc, desc);
-                    if(!already_open) { 
-                        scene->closeWidget("desc");
-                    } 
-                }
-            }
+            // if(pressed(F)) {
+            //     scene->openWidget("desc",true);
+            // } else {
+            //     if(grabbed.last()&&grabbed.last()!=last_grabbed) {
+            //         auto desc = scene->getSlot("desc")[0];
+            //         std::string func = grabbed.last()->has("func")?grabbed.last()->get<std::string>("func"):"";
+            //         reserved_desc = func;
+            //         bool already_open = desc->isActive();
+            //         text::setText(reserved_desc, desc);
+            //         if(!already_open) { 
+            //             scene->closeWidget("desc");
+            //         } 
+            //     }
+            // }
 
         //    g_ptr<Single> h = at_hand(0);
         //    if(h) {
         //     box->setPosition(h->getPosition().addY(0.1f));
         //    }
             l_time+=0.02f;
-            auto timer = scene->getSlot("timer")[0];
-            text::setText(std::to_string((int)l_time), timer);
+            // auto timer = scene->getSlot("timer")[0];
+            // text::setText(std::to_string((int)l_time), timer);
         }
         s_tool.tick();
     });

@@ -85,8 +85,7 @@ public:
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
             if(!scene->active[i]) continue;
-            P_State p = scene->physicsStates[i];
-            if(p!=P_State::NONE&&p!=P_State::DETERMINISTIC) {
+            if(p_state_collides(scene->physicsStates[i])) {
                 entities << scene->singles[i];
             }
         }
@@ -288,11 +287,16 @@ public:
         }
     }
 
-    list<std::pair<g_ptr<Single>, g_ptr<Single>>> generateCollisionPairs() {
+    struct collisionData3d {
+        g_ptr<Single> first;
+        g_ptr<Single> second;
+        vec3 mtv;
+    };
+    list<std::pair<g_ptr<Single>, g_ptr<Single>>> AABB_generate3dCollisonPairs() {
         list<std::pair<g_ptr<Single>, g_ptr<Single>>> collisionPairs;
         
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
-            if (!scene->active[i] || scene->physicsStates[i] == P_State::NONE) continue;
+            if (!scene->active[i] || !p_state_collides(scene->physicsStates[i])) continue;
             
             g_ptr<Single> entityA = scene->singles[i];
             BoundingBox boundsA = entityA->getWorldBounds();
@@ -317,15 +321,14 @@ public:
         }
         return collisionPairs;
     }
-
-    list<std::pair<g_ptr<Single>, g_ptr<Single>>> generateCollisionPairsNaive() {
+    list<std::pair<g_ptr<Single>, g_ptr<Single>>> naive_generate3dCollisonPairs() {
         list<std::pair<g_ptr<Single>, g_ptr<Single>>> collisionPairs;
         
         // Collect all active physics entities
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
-            if (!scene->active[i] || scene->physicsStates[i] == P_State::NONE) continue;
+            if (!scene->active[i] || !p_state_collides(scene->physicsStates[i])) continue;
             for(int j = 0; j<scene->transforms.length(); ++j) {
-                if (!scene->active[j] || scene->physicsStates[j] == P_State::NONE) continue;
+                if (!scene->active[j] ||  !p_state_collides(scene->physicsStates[j])) continue;
                 g_ptr<Single> entityA = scene->singles[i];
                 g_ptr<Single> entityB = scene->singles[j];
                 
@@ -345,14 +348,54 @@ public:
         }
         return collisionPairs;
     }
+    void handle3dCollison(const list<std::pair<g_ptr<Single>, g_ptr<Single>>>& pairs) {
+        for(auto& p : pairs) {
+            int i = p.first->ID;
+            int s = p.second->ID;
+            vec3 thisCenter = scene->singles[i]->getPosition();
+            vec3 otherCenter = scene->singles[s]->getPosition();
+            
+            auto thisBounds = scene->singles[i]->getWorldBounds();
+            auto otherBounds = scene->singles[s]->getWorldBounds();
+            
+            vec3 overlap = vec3(
+                std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
+                std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
+                std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
+            );
+            
+            vec3 normal;
+            if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
+                normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
+            } else if(overlap.y() < overlap.z()) {
+                normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
+            } else {
+                normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
+            }
+            
+            Velocity& velocity = GET(scene->velocities,i);
+            vec3 currentVel = velocity.position;
+            float velocityAlongNormal = currentVel.dot(normal);
+            //cs++;
+            if(velocityAlongNormal < 0) {
+                velocity.position = currentVel - (normal * velocityAlongNormal);
+                velocity.position = velocity.position*0.78; //Drag
+            }
+        }
+    }
     
-    list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> generate2dCollisionPairsNaive() {
+    struct collisionData2d {
+        g_ptr<Quad> first;
+        g_ptr<Quad> second;
+        vec2 mtv;
+    };
+    list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> naive_generate2dCollisionPairs() {
         list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> collisionPairs;
         
         for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
-            if (!scene->quadActive[i] || scene->quadPhysicsStates[i] == P_State::NONE) continue;
+            if (!scene->quadActive[i] || !p_state_collides(scene->quadPhysicsStates[i])) continue;
             for(int j = 0; j<scene->guiTransforms.length(); ++j) {
-                if (!scene->quadActive[j] || scene->quadPhysicsStates[j] == P_State::NONE) continue;
+                if (!scene->quadActive[j] || !p_state_collides(scene->quadPhysicsStates[j])) continue;
                 if(i==j) continue;
                 g_ptr<Quad> entityA = scene->quads[i];
                 g_ptr<Quad> entityB = scene->quads[j];
@@ -368,19 +411,13 @@ public:
         }
         return collisionPairs;
     }
-
-    struct collisionData {
-        g_ptr<Quad> first;
-        g_ptr<Quad> second;
-        vec2 mtv;
-    };
-    list<collisionData> generate2dCollisonDataNaive() {
-        list<collisionData> collisionPairs;
+    list<collisionData2d> naive_generate2dCollisonData() {
+        list<collisionData2d> collisionPairs;
         
         for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
-            if (!scene->quadActive[i] || scene->quadPhysicsStates[i] == P_State::NONE) continue;
+            if (!scene->quadActive[i] || !p_state_collides(scene->quadPhysicsStates[i])) continue;
             for(int j = 0; j<scene->guiTransforms.length(); ++j) {
-                if (!scene->quadActive[j] || scene->quadPhysicsStates[j] == P_State::NONE) continue;
+                if (!scene->quadActive[j] || !p_state_collides(scene->quadPhysicsStates[j])) continue;
                 if(i==j) continue;
                 g_ptr<Quad> entityA = scene->quads[i];
                 g_ptr<Quad> entityB = scene->quads[j];
@@ -391,7 +428,7 @@ public:
 
                 vec2 mtv;
                 if (entityA->intersects(entityB,mtv)) {
-                    collisionData cd;
+                    collisionData2d cd;
                     cd.first = entityA;
                     cd.second = entityB;
                     cd.mtv = mtv;
@@ -401,7 +438,6 @@ public:
         }
         return collisionPairs;
     }
-
     void handle2dCollision(g_ptr<Quad> g,vec2 mtv) {
         vec3& vel3 = g->getVelocity().position;
         vec2 push = mtv*-1;
@@ -416,37 +452,65 @@ public:
         vel3.x(v.x());
         vel3.y(v.y());
     }
-    void handle2dCollision(collisionData p) {
+    void handle2dCollision(collisionData2d p) {
         handle2dCollision(p.first,p.mtv);
     }
 
+  
+
     bool enableCollisons = true;
     float dragCof = 0.99f;
-    float gravity = -4.8f;
+    float gravity = 4.8f;
 
     bool enableQuadCollisons = true;
-    bool enableQuadDrag = true;
-    bool enableQuadGravity = true;
+    float quadDragCof = 0.99f;
+    float quadGravity = 48.0f;
 
     enum SAMPLE_METHOD {
-        NAIVE, AABB //GRID <- Add this later!
+        NCOL, NAIVE, AABB //GRID <- Add this later!
     };
 
     SAMPLE_METHOD collisonMethod = SAMPLE_METHOD::AABB;
-    SAMPLE_METHOD quadCollisonMethod = SAMPLE_METHOD::NAIVE;
+    SAMPLE_METHOD quadCollisonMethod = SAMPLE_METHOD::NCOL;
+
+    void enableSinglePhysics() {
+        dragCof = 0.99f;
+        gravity = 48.0f;
+        enableCollisons = true;
+    }
+
+    void disableSinglePhysics() {
+        dragCof = 0;
+        gravity = 0;
+        enableCollisons = false;
+    }
+
+    void enableQuadPhysics() {
+        quadDragCof = 0.99f;
+        quadGravity = 48.0f;
+        enableQuadCollisons = true;
+    }
+
+    void disableQuadPhysics() {
+        quadDragCof = 0;
+        quadGravity = 0;
+        enableQuadCollisons = false;
+    }
 
     void updatePhysics()
     {       
 
+        //This is the pre-loop check for global varients, like gravity and drag and such
+
+        //3d preloop
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
-            if(!scene->active.get(i,"physics::updatePhysics::103")) continue;
-            P_State p = scene->physicsStates.get(i,"physics::updatePhysics::116");
-            Velocity& velocity = scene->velocities.get(i,"physics::142");
-            if(p!=P_State::NONE&&p!=P_State::DETERMINISTIC&&p!=P_State::PASSIVE)
+            if(!GET(scene->active,i)) continue;
+            Velocity& velocity = GET(scene->velocities,i);
+            if(p_state_preloops(GET(scene->physicsStates,i)))
             {
                 if(gravity!=0) {
-                    velocity.position.addY(gravity*thread->getSpeed()); //Somtimes always multiply by 0.016f as a constant: experiment with it.
+                    velocity.position.addY(-gravity*thread->getSpeed()); //Somtimes always multiply by 0.016f as a constant: experiment with it.
                 }
                 if(dragCof!=0) {
                     velocity.position = velocity.position*dragCof;
@@ -454,82 +518,75 @@ public:
             }
         }
 
-        if(!treeBuilt) {
-            buildTree();
-            treeBuilt = true;
-        } else {
-            updateTreeInPlace();
-
-            list<std::pair<g_ptr<Single>, g_ptr<Single>>> pairs = generateCollisionPairs();
-            //int cs = 0;
-            //Collide based on AABB
-            for(auto p : pairs) {
-                int i = p.first->ID;
-                int s = p.second->ID;
-                vec3 thisCenter = scene->singles[i]->getPosition();
-                vec3 otherCenter = scene->singles[s]->getPosition();
-                
-                auto thisBounds = scene->singles[i]->getWorldBounds();
-                auto otherBounds = scene->singles[s]->getWorldBounds();
-                
-                vec3 overlap = vec3(
-                    std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
-                    std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
-                    std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
-                );
-                
-                vec3 normal;
-                if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
-                    normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
-                } else if(overlap.y() < overlap.z()) {
-                    normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
-                } else {
-                    normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
+        //2d preloop
+        for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
+            if(i>=scene->guiTransforms.length()) continue;
+            if(!GET(scene->quadActive,i)) continue;
+            Velocity& velocity = GET(scene->quadVelocities,i);
+            if(p_state_preloops(GET(scene->quadPhysicsStates,i)))
+            {
+                if(quadGravity!=0) {
+                    velocity.position.addY(quadGravity*thread->getSpeed()); //Somtimes always multiply by 0.016f as a constant: experiment with it.
                 }
-                
-                Velocity& velocity = scene->velocities.get(i,"physics::142");
-                vec3 currentVel = velocity.position;
-                float velocityAlongNormal = currentVel.dot(normal);
-                //cs++;
-                if(velocityAlongNormal < 0) {
-                    velocity.position = currentVel - (normal * velocityAlongNormal);
-                    velocity.position = velocity.position*0.78; //Drag
+                if(quadDragCof!=0) {
+                    velocity.position = velocity.position*quadDragCof;
                 }
             }
-            //print("----",cs);
+        }
+
+
+        if(collisonMethod==SAMPLE_METHOD::AABB) {
+            if(!treeBuilt) {
+                buildTree();
+                treeBuilt = true;
+            } else {
+                updateTreeInPlace();
+                handle3dCollison(AABB_generate3dCollisonPairs());
+            }
+        } 
+        else if (collisonMethod==SAMPLE_METHOD::NAIVE) {
+            handle3dCollison(naive_generate3dCollisonPairs());
+        }
+
+        if(quadCollisonMethod==SAMPLE_METHOD::NAIVE) {
+            for(auto& c : naive_generate2dCollisonData()) {
+                handle2dCollision(c);
+            }
+        } else if (quadCollisonMethod==SAMPLE_METHOD::AABB) {
+            print("AABB is not yet implmented for quad collisons!");
         }
 
         //3d physics pass
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
-            if(!scene->active.get(i,"physics::updatePhysics::103")) continue;
-            P_State p = scene->physicsStates.get(i,"physics::updatePhysics::116");
+            if(!GET(scene->active,i)) continue;
+            P_State p = GET(scene->physicsStates,i);
 
             if(p==P_State::DETERMINISTIC)
             {
-                AnimState& a = scene->animStates.get(i,"physics::updatePhysics::109");
+                AnimState& a = GET(scene->animStates,i);
     
                 if (a.duration <= 0.0f) goto c_check; // No animation active
         
                 a.elapsed = std::min(a.elapsed + thread->getSpeed(), a.duration);
                 float alpha = a.elapsed / a.duration;
         
-                scene->transforms.get(i,"physics::updatePhysics::116") = interpolateMatrix(
-                    scene->transforms.get(i,"physics::updatePhysics::117"),
-                    scene->endTransforms.get(i,"physics::updatePhysics::118"),
+               GET(scene->transforms,i) = interpolateMatrix(
+                    GET(scene->transforms,i),
+                    GET(scene->endTransforms,i),
                     alpha
                 );
         
                 if (a.elapsed >= a.duration) {
-                    scene->transforms.get(i,"physics::updatePhysics::123") = scene->endTransforms.get(i,"physics::updatePhysics::123::2");
+                    GET(scene->transforms,i) = GET(scene->endTransforms,i);
                     a.duration = 0.0f; // Animation complete
                     a.elapsed = 0.0f;
                 }
             }
-            else if(p==P_State::ACTIVE)
+            else if(p_state_uses_velocity(p))
             {
-                glm::mat4& transform = scene->transforms.get(i,"physics::141");
-                Velocity& velocity = scene->velocities.get(i,"physics::142");
+                glm::mat4& transform = GET(scene->transforms,i);
+                Velocity& velocity = GET(scene->velocities,i);
                 float velocityScale = 1.0f;
 
                 if(velocity.length()==0) goto c_check;
@@ -565,34 +622,34 @@ public:
         //2d physics pass
         for (size_t i = 0; i < scene->quadActive.length(); ++i) {
             if(i>=scene->quadActive.length()) continue;
-            if(!scene->quadActive.get(i,"physics::updatePhysics::227")) continue;
-            P_State p = scene->quadPhysicsStates.get(i,"physics::updatePhysics::228");
+            if(!GET(scene->quadActive,i)) continue;
+            P_State p = GET(scene->quadPhysicsStates,i);
 
             if(p==P_State::DETERMINISTIC)
             {
-                AnimState& a = scene->quadAnimStates.get(i,"physics::updatePhysics::232");
+                AnimState& a = GET(scene->quadAnimStates,i);
     
                 if (a.duration <= 0.0f) goto c_check2; // No animation active
         
                 a.elapsed = std::min(a.elapsed + thread->getSpeed(), a.duration);
                 float alpha = a.elapsed / a.duration;
-        
-                scene->guiTransforms.get(i,"physics::updatePhysics::239") = interpolateMatrix(
-                    scene->guiTransforms.get(i,"physics::updatePhysics::240"),
-                    scene->guiEndTransforms.get(i,"physics::updatePhysics::241"),
+                
+                GET(scene->guiTransforms,i) = interpolateMatrix(
+                    GET(scene->guiTransforms,i),
+                    GET(scene->guiEndTransforms,i),
                     alpha
                 );
         
                 if (a.elapsed >= a.duration) {
-                    scene->guiTransforms.get(i,"physics::updatePhysics::246") = scene->guiEndTransforms.get(i,"physics::updatePhysics::246::2");
+                    GET(scene->guiTransforms,i) = GET(scene->guiEndTransforms,i);
                     a.duration = 0.0f; // Animation complete
                     a.elapsed = 0.0f;
                 }
             }
-            else if(p==P_State::ACTIVE)
+            else if(p_state_uses_velocity(p))
             {
-                glm::mat4& transform = scene->guiTransforms.get(i,"physics::153");
-                Velocity& velocity = scene->quadVelocities.get(i,"physics::254");
+                glm::mat4& transform = GET(scene->guiTransforms,i);
+                Velocity& velocity = GET(scene->quadVelocities,i);
                 float velocityScale = 1.0f;
 
                 //Add checking for if the velocity in this regard is just all zero in the future
@@ -638,3 +695,148 @@ public:
 };
 
 }
+
+
+
+    //This should be moved into Single's own methods eventually, just like it is for Quad.
+    // collisionData3d generate3dCollisonDataPoint(g_ptr<Single> entityA, g_ptr<Single> entityB) {
+    //     collisionData3d cd; 
+    //     cd.first = nullptr;
+    
+    //     // Check collision layers
+    //     CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
+    //     CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
+    //     if (!layersA.canCollideWith(layersB)) return cd;
+        
+    //     BoundingBox boundsA = entityA->getWorldBounds();
+    //     BoundingBox boundsB = entityB->getWorldBounds();
+        
+    //     if (boundsA.intersects(boundsB)) {
+    //         vec3 thisCenter = entityA->getPosition();
+    //         vec3 otherCenter = entityB->getPosition();
+            
+    //         //BROKEN:
+    //         vec3 overlap = vec3(
+    //             std::min(boundsA.max.x, boundsB.max.x) - std::max(boundsA.min.x, boundsB.min.x),
+    //             std::min(boundsA.max.y, boundsB.max.y) - std::max(boundsA.min.y, boundsB.min.y),
+    //             std::min(boundsA.max.z, boundsB.max.z) - std::max(boundsA.min.z, boundsB.min.z)
+    //         );
+            
+    //         vec3 mtv;
+    //         if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
+    //             float sign = thisCenter.x() > otherCenter.x() ? 1.0f : -1.0f;
+    //             mtv = vec3(overlap.x() * sign, 0, 0);
+    //         } else if(overlap.y() < overlap.z()) {
+    //             float sign = thisCenter.y() > otherCenter.y() ? 1.0f : -1.0f;
+    //             mtv = vec3(0, overlap.y() * sign, 0);
+    //         } else {
+    //             float sign = thisCenter.z() > otherCenter.z() ? 1.0f : -1.0f;
+    //             mtv = vec3(0, 0, overlap.z() * sign);
+    //         }
+    
+    //         cd.first = entityA;
+    //         cd.second = entityB;
+    //         cd.mtv = mtv;
+    //     }
+    //     return cd;
+    // }
+
+    // list<collisionData3d> generate3dCollisionDataNaive() {
+    //     list<collisionData3d> collisionPairs;
+        
+    //     for (size_t i = 0; i < scene->transforms.length(); ++i) {
+    //         if (!scene->active[i] || !p_state_collides(scene->physicsStates[i])) continue;
+    //         for(int j = 0; j<scene->transforms.length(); ++j) {
+    //             if (!scene->active[j] || !p_state_collides(scene->physicsStates[j])) continue;
+    //             if(i==j) continue;
+    //             collisionData3d point = generate3dCollisonDataPoint(GET(scene->singles,i),GET(scene->singles,j));
+    //             if(point.first) { //i.e if we returned a valid data point
+    //                 collisionPairs << point;
+    //             }
+    //         }
+    //     }
+    //     return collisionPairs;
+    // }
+    // list<collisionData3d> generate3dCollisonDataAABB() {
+    //     list<collisionData3d> collisionPairs;
+        
+    //     for (size_t i = 0; i < scene->transforms.length(); ++i) {
+    //         if (!scene->active[i] || !p_state_collides(scene->physicsStates[i])) continue;
+            
+    //         g_ptr<Single> entityA = scene->singles[i];
+    //         BoundingBox boundsA = entityA->getWorldBounds();
+            
+    //         // Query tree for potential collision candidates
+    //         list<g_ptr<Single>> candidates;
+    //         queryTree(treeRoot, boundsA, candidates);
+            
+    //         // Check collision layers and do narrow phase collision
+    //         for (auto entityB : candidates) {
+    //             if (entityA == entityB) continue; // Don't collide with self
+                
+    //             // // Check collision layers
+    //             // CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
+    //             // CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
+    //             // if (!layersA.canCollideWith(layersB)) continue;
+                
+    //             // if (boundsA.intersects(entityB->getWorldBounds())) {
+    //             //     collisionPairs.push(std::pair{entityA,entityB});
+    //             // }
+
+    //             collisionData3d point = generate3dCollisonDataPoint(entityA,entityB);
+    //             if(point.first) { //i.e if we returned a valid data point
+    //                 collisionPairs << point;
+    //             }
+
+    //         }
+    //     }
+    //     return collisionPairs;
+    // }
+    // void handle3dCollision(g_ptr<Single> g, vec3 mtv) {
+    //     vec3 n = mtv.normalized();
+        
+    //     Velocity& velocity = scene->velocities.get(g->ID);
+    //     vec3 currentVel = velocity.position;
+    //     float velocityAlongNormal = currentVel.dot(n);
+        
+    //     if(velocityAlongNormal < 0) {
+    //         velocity.position = currentVel - (n * velocityAlongNormal);
+    //         velocity.position = velocity.position * 0.78f;
+    //     }
+    // }
+    // void handle3dCollision(collisionData3d cd) {
+    //     handle3dCollision(cd.first, cd.mtv);
+    // }
+    // void handle3dCollision(collisionData3d cd) {
+    //     int i = cd.first->ID;
+    //     int s = cd.second->ID;
+    //     vec3 thisCenter = scene->singles[i]->getPosition();
+    //     vec3 otherCenter = scene->singles[s]->getPosition();
+        
+    //     auto thisBounds = scene->singles[i]->getWorldBounds();
+    //     auto otherBounds = scene->singles[s]->getWorldBounds();
+        
+    //     vec3 overlap = vec3(
+    //         std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
+    //         std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
+    //         std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
+    //     );
+        
+    //     vec3 normal;
+    //     if(overlap.x() < overlap.y() && overlap.x() < overlap.z()) {
+    //         normal = vec3(thisCenter.x() > otherCenter.x() ? 1 : -1, 0, 0);
+    //     } else if(overlap.y() < overlap.z()) {
+    //         normal = vec3(0, thisCenter.y() > otherCenter.y() ? 1 : -1, 0);
+    //     } else {
+    //         normal = vec3(0, 0, thisCenter.z() > otherCenter.z() ? 1 : -1);
+    //     }
+        
+    //     Velocity& velocity = GET(scene->velocities, i);
+    //     vec3 currentVel = velocity.position;
+    //     float velocityAlongNormal = currentVel.dot(normal);
+        
+    //     if(velocityAlongNormal < 0) {
+    //         velocity.position = currentVel - (normal * velocityAlongNormal);
+    //         velocity.position = velocity.position * 0.78;
+    //     }
+    // }

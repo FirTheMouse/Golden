@@ -197,7 +197,7 @@ void run_mnist(g_ptr<Scene> scene, int epochs, int amt = -1) {
         // Display the image
         g_ptr<Quad> q = make<Quad>();
         scene->add(q);
-        q->setTexture(mnist_to_texture(test_imgs, idx), 0);
+        q->setTexture(mnist_to_texture(test_imgs, idx));
         float pos_y = (float)i * 300.0f;
         vec2 pos(pos_y, 0.0f);
         q->setPosition(pos);

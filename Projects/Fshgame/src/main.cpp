@@ -23,7 +23,7 @@ int main()  {
     font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
     list<g_ptr<Quad>> boxes;
 
-    scene->disableInstancing();
+    scene->enableInstancing();
     Physics phys(scene);
 
     int TESTING = 1;
@@ -53,14 +53,17 @@ int main()  {
         boxes << test;
     } else if (TESTING==1) {
         g_ptr<Geom> geom = make<Geom>();
-        for(int i=0;i<10000;i++) {
+        for(int i=0;i<100;i++) {
             g_ptr<Quad> box = make<Quad>(geom);
             scene->add(box);
             box->setColor(i%3==0?Color::RED:i%3==1?Color::BLUE:Color::GREEN);
             box->scale({10,10});
             box->setPosition({randf(0,win.x()),randf(0,win.y())});
+            box->setLinearVelocity({randf(-40,40),randf(-40,40)});
+            box->setPhysicsState(P_State::ACTIVE);
             boxes << box;
         }
+        phys.quadCollisonMethod = Physics::NAIVE;
     } else if (TESTING==2) {
         g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
         box->setPosition({randf(0,win.x()),randf(0,win.y())});
@@ -83,9 +86,16 @@ int main()  {
         box->scale({50,50});
         box->setColor(Color::RED);
         box->setPosition({500,500});
+        box->setPhysicsState(P_State::ACTIVE);
         boxes << box;
-    }
 
+        g_ptr<Quad> line = make<Quad>();
+        scene->add(line);
+        line->scale({100,1});
+        line->setPosition({500,200});
+        line->setPhysicsState(P_State::FREE);
+        boxes << line;
+    }
     
     S_Tool s_tool;
     s_tool.log_fps = true;
@@ -98,18 +108,31 @@ int main()  {
             phys.updatePhysics();
         } 
         else if(TESTING==1) {
+            // for(auto b : boxes) {
+            //     vec2 mov(randf(-10,10),randf(-10,10));
+            //     vec2 n_pos = b->getCenter()+mov;
+            //     if(n_pos.x()>win.x()) mov.setX(-800);
+            //     if(n_pos.x()<=0) mov.setX(800);
+            //     if(n_pos.y()>win.y()) mov.setY(-800);
+            //     if(n_pos.y()<=0) mov.setY(800);
+            //     b->move(mov);
+            // }
+            phys.updatePhysics();
             for(auto b : boxes) {
-                vec2 mov(randf(-10,10),randf(-10,10));
-                vec2 n_pos = b->getCenter()+mov;
-                if(n_pos.x()>win.x()) mov.setX(-800);
-                if(n_pos.x()<=0) mov.setX(800);
-                if(n_pos.y()>win.y()) mov.setY(-800);
-                if(n_pos.y()<=0) mov.setY(800);
-                b->move(mov);
+                Velocity& mov = b->getVelocity();
+                vec2 n_pos = b->getCenter();
+                int amt = 400;
+                if(n_pos.x()>win.x()) mov.position.setX(randf(-amt,amt));
+                if(n_pos.x()<=0) mov.position.setX(randf(-amt,amt));
+                if(n_pos.y()>win.y()) mov.position.setY(-randf(-amt,amt));
+                if(n_pos.y()<=0) mov.position.setY(randf(-amt,amt));
             }
+
         } 
         else if(TESTING==4) {
-
+            phys.updatePhysics();
+            g_ptr<Quad> line = boxes[1];
+            g_ptr<Quad> box = boxes[0];
         }
 
     if(held(MOUSE_LEFT)) {

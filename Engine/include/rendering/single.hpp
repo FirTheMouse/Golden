@@ -55,7 +55,7 @@ public:
 
     vec3 markerPos(std::string marker);
     list<std::string> markers() {
-        return model->markers.keySet();
+        return getModel()->markers.keySet();
     }
 
     BoundingBox getWorldBounds();

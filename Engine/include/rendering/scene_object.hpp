@@ -11,10 +11,25 @@ class Scene;
 
 enum class P_State {
     NONE,           // completely static
-    PASSIVE,        // moveable, but not moved by simulation
+    PASSIVE,        // does not use velocity, gravity, or drag, but has collisons
     DETERMINISTIC,  // animation/interpolated
-    ACTIVE          // uses velocity-based motion
+    ACTIVE,          // uses velocity-based motion
+    FREE,            // uses velocity and has collisons, but doesn't have gravity or drag
+    GHOST,           // uses velocity, but has no collisons, gravity, or drag
+    PARTICLE        // uses velocity and has gravity and drag, but no collisons.
 };
+
+//          Preloops | Velocity | Collison
+//None:        no         no        no
+//Passive:     no         no        yes
+//Active:      yes        yes       yes
+//Free:        no         yes       yes
+//Ghost        no         yes       no
+//Particle:    yes        yes       no
+
+inline bool p_state_uses_velocity(const P_State& p) { return (p==P_State::ACTIVE||p==P_State::FREE||p==P_State::GHOST||p==P_State::PARTICLE);}
+inline bool p_state_collides(const P_State& p) { return (p==P_State::ACTIVE||p==P_State::FREE||p==P_State::PASSIVE);}
+inline bool p_state_preloops(const P_State& p) { return (p==P_State::ACTIVE);}
 
 struct Velocity {
     vec3 position = vec3(0,0,0);

@@ -9,7 +9,7 @@
 #include <gui/text.hpp>
 #include <util/q_list.hpp>
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define TO_STRING(x) #x
 #define TO_STRING_EXPAND(x) TO_STRING(x)
