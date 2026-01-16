@@ -63,6 +63,7 @@ public:
     vec2() : impl(0.0f, 0.0f) {}
     vec2(float x, float y) : impl(x, y) {}
     vec2(const glm::vec2& v) : impl(v) {}
+    vec2(float z) : impl(z,z) {}
 
     float x() const { return impl.x; }
     float y() const { return impl.y; }
@@ -178,6 +179,7 @@ class vec3 {
         vec3(float x, float y, float z) : impl(x, y, z) {}
         vec3(const glm::vec3& v) : impl(v) {}
         vec3(const vec2& v2, float z) : impl(v2.x(),v2.y(),z) {}
+        vec3(float n) : impl(n,n,n) {}
     
         // Accessors
         float x() const { return impl.x; }
@@ -312,6 +314,7 @@ class vec4 {
         void print() const {std::cout << "(" << x() << "," << y() << "," << z() << "," << w() << ")" << std::endl;}
     };
 
+
 inline vec3 vec2_to_vec3(const vec2& vec) {
     return vec3(vec.x(),0,vec.y());
 }
@@ -425,4 +428,299 @@ inline void faceMatrixTo(glm::mat4& mat, const vec3& targetPos) {
     mat = rotation;
     mat[3] = glm::vec4(position, 1.0f);
 }
+
+
+// class BoundingBox {
+// public:
+//     glm::vec3 min;
+//     glm::vec3 max;
+
+//     BoundingBox()
+//         : min(std::numeric_limits<float>::max()), max(std::numeric_limits<float>::lowest()) {}
+
+//     BoundingBox(const glm::vec3& min, const glm::vec3& max)
+//         : min(min), max(max) {}
+
+//     void expandToInclude(const glm::vec3& point) {
+//         min = glm::min(min, point);
+//         max = glm::max(max, point);
+//     }
+
+//     vec3 extent() const {
+//         return vec3(
+//             max.x - min.x,
+//             max.y - min.y,
+//             max.z - min.z
+//         );
+//     }
+
+//     char getLongestAxis() const {
+//         glm::vec3 size = getSize(); 
+        
+//         if (size.x >= size.y && size.x >= size.z) return 'x';
+//         if (size.y >= size.z) return 'y';
+//         return 'z';
+//     }
+
+//     float volume() const {
+//     glm::vec3 size = max - min;
+//     return size.x * size.y * size.z;
+//     }
+
+//     void transform(const glm::mat4& matrix) {
+//         glm::vec3 newMin(std::numeric_limits<float>::max());
+//         glm::vec3 newMax(std::numeric_limits<float>::lowest());
+
+//         for (int i = 0; i < 8; ++i) {
+//             glm::vec3 corner = getCorner(i);
+//             glm::vec3 transformed = glm::vec3(matrix * glm::vec4(corner, 1.0f));
+//             newMin = glm::min(newMin, transformed);
+//             newMax = glm::max(newMax, transformed);
+//         }
+
+//         min = newMin;
+//         max = newMax;
+//     }
+
+//     glm::vec3 getCenter() const {
+//         return (min + max) * 0.5f;
+//     }
+
+//     glm::vec3 getSize() const {
+//         return max - min;
+//     }
+
+//     glm::vec3 getCorner(int index) const {
+//         return glm::vec3(
+//             (index & 1) ? max.x : min.x,
+//             (index & 2) ? max.y : min.y,
+//             (index & 4) ? max.z : min.z
+//         );
+//     }
+
+//     BoundingBox& expand(float scalar) {
+//         glm::vec3 center = getCenter();
+//         glm::vec3 halfSize = getSize() * 0.5f;
+//         glm::vec3 newHalfSize = halfSize * scalar;
+        
+//         min = center - newHalfSize;
+//         max = center + newHalfSize;
+//         return *this;
+//     }
+
+//     BoundingBox& expand(const BoundingBox& other) {
+//         min = glm::min(min, other.min);
+//         max = glm::max(max, other.max);
+//         return *this;
+//     }
+
+//     bool intersects(const BoundingBox& other) const {
+//         return (min.x <= other.max.x && max.x >= other.min.x) &&
+//                 (min.y <= other.max.y && max.y >= other.min.y) &&
+//                 (min.z <= other.max.z && max.z >= other.min.z);
+//     }
+
+//     bool contains(const glm::vec3& point) const {
+//         return (point.x >= min.x && point.x <= max.x &&
+//                 point.y >= min.y && point.y <= max.y &&
+//                 point.z >= min.z && point.z <= max.z);
+//     }
+// };
+
+class BoundingBox {
+public:
+    vec3 min;
+    vec3 max;
+    
+    enum Dimension { DIM_2D, DIM_3D };
+    Dimension dim;
+
+    // Constructors
+    BoundingBox(Dimension d = DIM_3D)
+        : min(std::numeric_limits<float>::max(), 
+                std::numeric_limits<float>::max(), 
+                d == DIM_2D ? 0.0f : std::numeric_limits<float>::max()),
+            max(std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest(),
+                d == DIM_2D ? 0.0f : std::numeric_limits<float>::lowest()),
+            dim(d) {}
+
+    BoundingBox(const vec3& _min, const vec3& _max, Dimension d = DIM_3D)
+        : min(_min), max(_max), dim(d) {
+        if (dim == DIM_2D) {
+            min.z(0.0f);
+            max.z(0.0f);
+        }
+    }
+    
+    // 2D convenience constructor
+    BoundingBox(const vec2& _min, const vec2& _max)
+        : min(_min.x(), _min.y(), 0.0f),
+            max(_max.x(), _max.y(), 0.0f),
+            dim(DIM_2D) {}
+
+    void expandToInclude(const vec3& point) {
+        min = vec3(
+            std::min(min.x(), point.x()),
+            std::min(min.y(), point.y()),
+            dim == DIM_2D ? 0.0f : std::min(min.z(), point.z())
+        );
+        max = vec3(
+            std::max(max.x(), point.x()),
+            std::max(max.y(), point.y()),
+            dim == DIM_2D ? 0.0f : std::max(max.z(), point.z())
+        );
+    }
+    
+    void expandToInclude(const vec2& point) {
+        min.x(std::min(min.x(), point.x()));
+        min.y(std::min(min.y(), point.y()));
+        max.x(std::max(max.x(), point.x()));
+        max.y(std::max(max.y(), point.y()));
+    }
+
+    vec3 extent() const {
+        return vec3(
+            max.x() - min.x(),
+            max.y() - min.y(),
+            dim == DIM_2D ? 0.0f : max.z() - min.z()
+        );
+    }
+
+    char getLongestAxis() const {
+        vec3 size = getSize();
+        
+        if (dim == DIM_2D) {
+            return (size.x() >= size.y()) ? 'x' : 'y';
+        }
+        
+        if (size.x() >= size.y() && size.x() >= size.z()) return 'x';
+        if (size.y() >= size.z()) return 'y';
+        return 'z';
+    }
+
+    float volume() const {
+        vec3 size = max - min;
+        if (dim == DIM_2D) {
+            return size.x() * size.y(); // Area for 2D
+        }
+        return size.x() * size.y() * size.z();
+    }
+
+    void transform(const glm::mat4& matrix) {
+        vec3 newMin(std::numeric_limits<float>::max());
+        vec3 newMax(std::numeric_limits<float>::lowest());
+
+        int cornerCount = dim == DIM_2D ? 4 : 8;
+        for (int i = 0; i < cornerCount; ++i) {
+            vec3 corner = getCorner(i);
+            glm::vec3 transformed = glm::vec3(matrix * glm::vec4(corner.toGlm(), 1.0f));
+            newMin = vec3(
+                std::min(newMin.x(), transformed.x),
+                std::min(newMin.y(), transformed.y),
+                dim == DIM_2D ? 0.0f : std::min(newMin.z(), transformed.z)
+            );
+            newMax = vec3(
+                std::max(newMax.x(), transformed.x),
+                std::max(newMax.y(), transformed.y),
+                dim == DIM_2D ? 0.0f : std::max(newMax.z(), transformed.z)
+            );
+        }
+
+        min = newMin;
+        max = newMax;
+    }
+
+    vec3 getCenter() const {
+        return (min + max) * 0.5f;
+    }
+    
+    vec2 getCenter2D() const {
+        vec3 center = getCenter();
+        return vec2(center.x(), center.y());
+    }
+
+    vec3 getSize() const {
+        return max - min;
+    }
+    
+    vec2 getSize2D() const {
+        vec3 size = getSize();
+        return vec2(size.x(), size.y());
+    }
+
+    vec3 getCorner(int index) const {
+        if (dim == DIM_2D) {
+            // 4 corners for 2D: index 0-3
+            return vec3(
+                (index & 1) ? max.x() : min.x(),
+                (index & 2) ? max.y() : min.y(),
+                0.0f
+            );
+        }
+        // 8 corners for 3D
+        return vec3(
+            (index & 1) ? max.x() : min.x(),
+            (index & 2) ? max.y() : min.y(),
+            (index & 4) ? max.z() : min.z()
+        );
+    }
+
+    BoundingBox& expand(float scalar) {
+        vec3 center = getCenter();
+        vec3 halfSize = getSize() * 0.5f;
+        vec3 newHalfSize = halfSize * scalar;
+        
+        min = center - newHalfSize;
+        max = center + newHalfSize;
+        
+        if (dim == DIM_2D) {
+            min.z(0.0f);
+            max.z(0.0f);
+        }
+        return *this;
+    }
+
+    BoundingBox& expand(const BoundingBox& other) {
+        min = vec3(
+            std::min(min.x(), other.min.x()),
+            std::min(min.y(), other.min.y()),
+            dim == DIM_2D ? 0.0f : std::min(min.z(), other.min.z())
+        );
+        max = vec3(
+            std::max(max.x(), other.max.x()),
+            std::max(max.y(), other.max.y()),
+            dim == DIM_2D ? 0.0f : std::max(max.z(), other.max.z())
+        );
+        return *this;
+    }
+
+    bool intersects(const BoundingBox& other) const {
+        bool intersectsXY = (min.x() <= other.max.x() && max.x() >= other.min.x()) &&
+                            (min.y() <= other.max.y() && max.y() >= other.min.y());
+        
+        if (dim == DIM_2D || other.dim == DIM_2D) {
+            return intersectsXY; // Ignore Z for 2D
+        }
+        
+        return intersectsXY &&
+                (min.z() <= other.max.z() && max.z() >= other.min.z());
+    }
+
+    bool contains(const vec3& point) const {
+        bool containsXY = (point.x() >= min.x() && point.x() <= max.x() &&
+                            point.y() >= min.y() && point.y() <= max.y());
+        
+        if (dim == DIM_2D) {
+            return containsXY;
+        }
+        
+        return containsXY && (point.z() >= min.z() && point.z() <= max.z());
+    }
+    
+    bool contains(const vec2& point) const {
+        return (point.x() >= min.x() && point.x() <= max.x() &&
+                point.y() >= min.y() && point.y() <= max.y());
+    }
+};
 

@@ -107,7 +107,8 @@ glm::mat4& Single::getEndTransform() {
     return GET(scene->endTransforms,ID);
     }
     else {
-      return GET(scene->endTransforms,0); }
+      return GET(scene->endTransforms,0); 
+    }
 }
 
 AnimState& Single::getAnimState() {
@@ -148,25 +149,16 @@ CollisionLayer& Single::getLayer() {
 }
 
 vec3 Single::getPosition() {
-    #if DEBUG
-    debug_trace_path = "Single::getPosition::86";
-    #endif
     position = vec3(glm::vec3(getTransform()[3]));
     return position;
 }
 
 glm::quat Single::getRotation() {
-    #if DEBUG
-       debug_trace_path = "Single::getRotation::104";
-    #endif
-    rotation = glm::quat_cast(getTransform());;
+    rotation = glm::quat_cast(getTransform());
     return rotation;
 }
 
 vec3 Single::getRotationEuler() {
-    #if DEBUG
-       debug_trace_path = ("Single::getRotationEuler::111");
-    #endif
     return glm::eulerAngles(getRotation());
 }
 
@@ -182,9 +174,7 @@ vec3 Single::getScale() {
 }
 
 Single& Single::setPhysicsState(P_State p_state) {
-    if (checkGet(4)) {
-        GET(scene->physicsStates,ID) = p_state;
-    }
+    GET(scene->physicsStates,ID) = p_state;
     return *this;
 }
 

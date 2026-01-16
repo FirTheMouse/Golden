@@ -19,7 +19,7 @@ protected:
     glm::quat endRotation = glm::quat(1,0,0,0);
 public:
     Single() {}
-    virtual void remove();
+    virtual void remove() override;
     virtual void recycle();
     ~Single() {remove();};
 
@@ -58,7 +58,7 @@ public:
         return getModel()->markers.keySet();
     }
 
-    BoundingBox getWorldBounds();
+    BoundingBox getWorldBounds() override;
 
     
     vec3 getPosition();

@@ -1172,13 +1172,9 @@ namespace Golden {
         return f;
     }
 
-    #define init 1
-    #define flipbook 0
-    #define save 1
-    int file_num = 1;
+
 
     void test() {
-
         std::ifstream in_meta(IROOT+"meta.json");
         if (in_meta.good()) {
             json meta;

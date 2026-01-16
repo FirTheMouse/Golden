@@ -26,7 +26,7 @@ int main()  {
     scene->enableInstancing();
     Physics phys(scene);
 
-    int TESTING = 1;
+    int TESTING = 2;
     if(TESTING == 0) {
         g_ptr<Quad> test = text::makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
@@ -53,21 +53,41 @@ int main()  {
         boxes << test;
     } else if (TESTING==1) {
         g_ptr<Geom> geom = make<Geom>();
-        for(int i=0;i<100;i++) {
+        for(int i=0;i<10000;i++) {
             g_ptr<Quad> box = make<Quad>(geom);
             scene->add(box);
             box->setColor(i%3==0?Color::RED:i%3==1?Color::BLUE:Color::GREEN);
             box->scale({10,10});
             box->setPosition({randf(0,win.x()),randf(0,win.y())});
             box->setLinearVelocity({randf(-40,40),randf(-40,40)});
-            box->setPhysicsState(P_State::ACTIVE);
+            box->setPhysicsState(P_State::FREE);
+
+            box->setLinearVelocity(vec2(100, 50));  // Move right and down
+            box->getVelocity().rotation = vec3(0, 0, 1.0f);  // Rotate 1 rad/sec
+            box->getVelocity().scale = vec3(0.01f, 0.01f, 0);  // Grow 50% per second
             boxes << box;
         }
         phys.quadCollisonMethod = Physics::NAIVE;
     } else if (TESTING==2) {
-        g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
+        // g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
+        // box->setPosition({randf(0,win.x()),randf(0,win.y())});
+        // box->setPhysicsState(P_State::FREE);
+        // boxes << box;
+
+        g_ptr<Quad> box = make<Quad>();
+        scene->add(box);
+        box->setColor(Color::GREEN);
+        box->scale({100,100});
         box->setPosition({randf(0,win.x()),randf(0,win.y())});
         boxes << box;
+
+        g_ptr<Quad> box2 = make<Quad>();
+        scene->add(box2);
+        box2->setColor(Color::RED);
+        box2->scale({100,100});
+        box2->setPosition({randf(0,win.x()),randf(0,win.y())});
+        boxes << box2;
+
     } else if (TESTING==3) {
         g_ptr<Quad> base = scene->makeImageQuad(IROOT+"plank.png",10);
         base->setPosition({randf(0,win.x()),randf(0,win.y())});
@@ -95,8 +115,113 @@ int main()  {
         line->setPosition({500,200});
         line->setPhysicsState(P_State::FREE);
         boxes << line;
+    } else if (TESTING==5) {
+        
+        Log::rig r;
+
+        // Test data
+        glm::mat4 testMatrix = glm::mat4(1.0f);
+        vec2 cachedPos = vec2(100, 200);
+        vec2 cachedScale = vec2(50, 50);
+        float cachedRot = 0.5f;
+        vec2 extractedPos, extractedScale;
+        float extractedRot;
+        
+        r.add_process("clean", [&](int i) {
+            if(i == 0) {
+                testMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(100, 200, 0));
+                testMatrix = glm::rotate(testMatrix, 0.5f, glm::vec3(0, 0, 1));
+                testMatrix = glm::scale(testMatrix, glm::vec3(50, 50, 1));
+            }
+        });
+        
+        // === Composition costs ===
+        r.add_process("compose_full", [&](int i) {
+            glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(cachedScale.toGlm(), 1));
+            glm::mat4 rotMat = glm::rotate(glm::mat4(1.0f), cachedRot, glm::vec3(0, 0, 1));
+            glm::mat4 transMat = glm::translate(glm::mat4(1.0f), glm::vec3(cachedPos.toGlm(), 0));
+            testMatrix = transMat * rotMat * scaleMat;
+        });
+        
+        r.add_process("compose_no_rotation", [&](int i) {
+            glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(cachedScale.toGlm(), 1));
+            glm::mat4 transMat = glm::translate(glm::mat4(1.0f), glm::vec3(cachedPos.toGlm(), 0));
+            testMatrix = transMat * scaleMat;
+        });
+        
+        // === Extraction costs ===
+        r.add_process("extract_position", [&](int i) {
+            extractedPos = vec2(glm::vec3(testMatrix[3]));
+        });
+        
+        r.add_process("extract_scale", [&](int i) {
+            extractedScale = vec2(
+                glm::length(glm::vec3(testMatrix[0])),
+                glm::length(glm::vec3(testMatrix[1]))
+            );
+        });
+        
+        r.add_process("extract_rotation", [&](int i) {
+            // Assuming 2D rotation around Z-axis
+            glm::vec2 right = glm::normalize(glm::vec2(testMatrix[0]));
+            extractedRot = atan2(right.y, right.x);
+        });
+        
+        r.add_process("extract_all", [&](int i) {
+            extractedPos = vec2(glm::vec3(testMatrix[3]));
+            extractedScale = vec2(
+                glm::length(glm::vec3(testMatrix[0])),
+                glm::length(glm::vec3(testMatrix[1]))
+            );
+            glm::vec2 right = glm::normalize(glm::vec2(testMatrix[0]));
+            extractedRot = atan2(right.y, right.x);
+        });
+        
+        // === Cache access costs (baseline) ===
+        r.add_process("cache_read", [&](int i) {
+            volatile vec2 p = cachedPos;
+            volatile vec2 s = cachedScale;
+            volatile float r = cachedRot;
+        });
+        
+        r.add_process("cache_write", [&](int i) {
+            cachedPos = vec2(i, i);
+            cachedScale = vec2(i, i);
+            cachedRot = (float)i;
+        });
+        
+        // Comparisons
+        r.add_comparison("compose_full", "cache_write");
+        r.add_comparison("compose_no_rotation", "cache_write");
+        r.add_comparison("extract_position", "cache_read");
+        r.add_comparison("extract_scale", "cache_read");
+        r.add_comparison("extract_all", "cache_read");
+        
+        r.run(10000, true, 100);
+
+        return 0;
     }
-    
+
+    if(TESTING==1) {
+
+    }
+
+    // phys.thread->logSPS = true;
+    // phys.thread->run([&](ScriptContext& ctx){
+    //     phys.updatePhysics();
+    //     return ctx;
+    // },0.008f);
+    // phys.thread->start();
+
+    // g_ptr<Thread> thread = make<Thread>();
+    // thread->logSPS = true;
+    // thread->run([&](ScriptContext& ctx){
+    //     phys.updatePhysics();
+    //     return ctx;
+    // },0.008f);
+    // thread->start();
+    // phys.quadGravity = 300;
+
     S_Tool s_tool;
     s_tool.log_fps = true;
     double m = 0;
@@ -105,7 +230,7 @@ int main()  {
         // //test->setPosition(vec2(m,m));
         //    box->move(vec2(m,m));
         if(TESTING==2) {
-            phys.updatePhysics();
+            //phys.updatePhysics();
         } 
         else if(TESTING==1) {
             // for(auto b : boxes) {
@@ -117,7 +242,7 @@ int main()  {
             //     if(n_pos.y()<=0) mov.setY(800);
             //     b->move(mov);
             // }
-            phys.updatePhysics();
+            //phys.updatePhysics();
             for(auto b : boxes) {
                 Velocity& mov = b->getVelocity();
                 vec2 n_pos = b->getCenter();
@@ -127,17 +252,23 @@ int main()  {
                 if(n_pos.y()>win.y()) mov.position.setY(-randf(-amt,amt));
                 if(n_pos.y()<=0) mov.position.setY(randf(-amt,amt));
             }
-
         } 
         else if(TESTING==4) {
             phys.updatePhysics();
             g_ptr<Quad> line = boxes[1];
             g_ptr<Quad> box = boxes[0];
+
+            vec2 dir = box->getCenter().direction(scene->mousePos2d());
+            float angle = std::atan2(dir.y(),dir.x());
+            line->rotate(angle);
+
+            line->setPosition(box->getCenter());
         }
 
     if(held(MOUSE_LEFT)) {
         if(TESTING==2) {
-            boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d())/10);
+            boxes[0]->setCenter(scene->mousePos2d());
+            //boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
         } 
         else if(TESTING==4) {
 
@@ -146,6 +277,47 @@ int main()  {
             boxes[0]->setCenter(scene->mousePos2d());
         }
     }
+
+    if(held(R)) {
+        if(TESTING==2) {
+            boxes[0]->rotateCenter(m+=0.01);
+
+            // vec2 boxCenter = boxes[0]->getCenter();
+            // vec2 mousePos = scene->mousePos2d();
+            // vec2 dir = boxCenter.direction(mousePos);
+            // float targetAngle = std::atan2(dir.y(), dir.x());
+            // boxes[0]->getVelocity().rotation = vec3(0, 0, targetAngle);
+        }
+    }
+
+    if(held(S)) {
+        if(TESTING==2) {
+            vec2 center = boxes[0]->getCenter();
+            vec2 pos = scene->mousePos2d();
+            float n = center.distance(pos) * 2.0f;
+            boxes[0]->scaleCenter(vec2(n,n));
+
+            // vec2 center = boxes[0]->getCenter();
+            // vec2 pos = scene->mousePos2d();
+            // float distance = center.distance(pos);
+            // float targetScale = distance * 2.0f;
+            // float currentScale = boxes[0]->getScale().x();
+            // float scaleRate = (targetScale - currentScale) * 0.005f; // Rate of growth
+            
+            // boxes[0]->getVelocity().scale = vec3(scaleRate, scaleRate, 0);
+        }
+    }
+
+    if(pressed(G)) {
+        if(TESTING==2) {
+            if(boxes[0]->getWorldBounds().intersects(boxes[1]->getWorldBounds())) {
+                print("INTERSECTS!");
+            } else {
+                print("No intersection");
+            }
+        }
+    }
+
        s_tool.tick();
     });
 

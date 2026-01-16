@@ -1,5 +1,5 @@
 #pragma once
-#include "../../Engine/ext/json/json.hpp"
+#include<json.hpp>
 using json = nlohmann::ordered_json;
 // Units:
 // yield: MPa (megapascals) - when material permanently deforms
@@ -8,7 +8,9 @@ using json = nlohmann::ordered_json;
 // density: g/cm³
 // thick: mm (for sheet materials)
 // elastic: dimensionless ratio (0-1)
-const std::string IROOT = "../Projects/AvalVentures/assets/images/";
+const std::string IROOT = root()+"/Projects/AvalVentures/assets/images/";
+
+
 
 // BIOLOGICAL - HARD
 json mat_tooth_enamel = {

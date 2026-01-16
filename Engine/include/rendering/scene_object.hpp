@@ -29,7 +29,7 @@ enum class P_State {
 
 inline bool p_state_uses_velocity(const P_State& p) { return (p==P_State::ACTIVE||p==P_State::FREE||p==P_State::GHOST||p==P_State::PARTICLE);}
 inline bool p_state_collides(const P_State& p) { return (p==P_State::ACTIVE||p==P_State::FREE||p==P_State::PASSIVE);}
-inline bool p_state_preloops(const P_State& p) { return (p==P_State::ACTIVE);}
+inline bool p_state_preloops(const P_State& p) { return (p==P_State::ACTIVE||p==P_State::PARTICLE);}
 
 struct Velocity {
     vec3 position = vec3(0,0,0);
@@ -102,6 +102,9 @@ public:
 
     S_Object() {}
     virtual void remove();
+
+    virtual BoundingBox getWorldBounds() = 0;
+    // virtual BoundingBox getScreenBounds(Camera&) = 0; 
     
     void saveBinary(const std::string& path) const;
     void loadBinary(const std::string& path);

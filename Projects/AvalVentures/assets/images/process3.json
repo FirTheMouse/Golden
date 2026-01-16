@@ -1,0 +1,52 @@
+{
+    "stamper": {
+        "heat": 3,
+        "contents": {
+            "melted_ingot": {
+                "id": "ingot"
+            },
+            "melted_bar": {
+                "id": "bar"
+            },
+            "melted_rail": {
+                "id": "rail"
+            },
+            "melted_obj": {
+                "tags": [
+                    "soft"
+                ],
+                "regions": {
+                    "branch": {
+                        "tags": [
+                            "thin"
+                        ],
+                        "exposure": 0,
+                        "tick": 6,
+                        "integrity": 243
+                    },
+                    "trunk": {
+                        "tags": [
+                            "thick"
+                        ],
+                        "exposure": 0,
+                        "tick": 6,
+                        "integrity": 243
+                    },
+                    "roots": {
+                        "tags": [
+                            "deep",
+                            "rooted"
+                        ],
+                        "exposure": 0,
+                        "tick": 6,
+                        "integrity": 243
+                    }
+                }
+            }
+        }
+    },
+    "melter": {
+        "heat": 2,
+        "contents": {}
+    }
+}

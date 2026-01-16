@@ -23,11 +23,15 @@ namespace Golden {
 
         unsigned int texture = 0;
 
+        BoundingBox localBounds = BoundingBox(
+            vec3(0.0f, 0.0f, 0.0f), 
+            vec3(1.0f, 1.0f, 0.0f), 
+            BoundingBox::DIM_2D
+        );
+
         void setupGeom();
         void draw();
-        void drawInstanced();
 
-        void updateIntances();
         void setupInstancedVAO(const list<glm::mat4>& transforms, const list<vec4>& instanceData);
         void fullInstanceUpdate(const list<glm::mat4>& transforms, const list<vec4>& instanceData);
 

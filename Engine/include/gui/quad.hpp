@@ -13,22 +13,12 @@ struct Q_Snapshot
     Q_Snapshot() {}
     vec2 pos = vec2(0,0);
     vec2 scale = vec2(1,1);
-    float rot = 0.0f;
+    float rot = 0.0f; 
 };
 
 /// @todo Remember to add a remove method with pop and swap for SoA!!
 class Quad : virtual public S_Object 
 {
-protected:
-    bool checkGet(int typeId);
-
-    vec2 position = vec2(0,0);
-    vec2 scaleVec = vec2(1,1);
-    float rotation = 0.0f;
-
-    vec2 endPosition = vec2(0,0);
-    vec2 endScale = vec2(1,1);
-    float endRotation = 0.0f;
 public:
     Quad() {
         //Temporary flag, change this later! 
@@ -42,6 +32,16 @@ public:
     // void recycle();
     // void setupQuad();
     // void draw();
+
+    bool checkGet(int typeId);
+
+    vec2 position = vec2(0,0);
+    vec2 scaleVec = vec2(1,1);
+    float rotation = 0.0f; // Radians, around Z-axis (right-hand rule)
+
+    vec2 endPosition = vec2(0,0);
+    vec2 endScale = vec2(1,1);
+    float endRotation = 0.0f;
 
     g_ptr<Geom> geom;
 
@@ -112,6 +112,7 @@ public:
     vec4 getData();
     unsigned int getTexture();
     CollisionLayer& getLayer();
+    BoundingBox getWorldBounds() override;
 
     Quad& setData(const vec4& d);
     Quad& setTexture(const unsigned int& t);
@@ -132,7 +133,11 @@ public:
     Quad& setCenter(const vec2& pos);
 
     Quad& rotate(float angle);
+    Quad& rotateCenter(float angle);
     Quad& scale(const vec2& scale);
+    Quad& setScale(const vec2& _scale);
+    Quad& scaleBy(const vec2& _scale);
+    Quad& scaleCenter(const vec2& _scale);
     Quad& move(const vec2& pos,bool update = true);
     Quad& move(const vec2& pos,float animationDuration,bool update = true);
 

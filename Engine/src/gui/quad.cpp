@@ -175,12 +175,7 @@ namespace Golden
         return GET(scene->geoms,ID);
     }
     glm::mat4& Quad::getTransform() {
-        if(checkGet(0)) {
-            return GET(scene->guiTransforms,ID);
-        }
-        else {
-            return GET(scene->guiTransforms,0);
-        }
+        return GET(scene->guiTransforms,ID);
     }
     
     glm::mat4& Quad::getEndTransform() {
@@ -220,14 +215,13 @@ namespace Golden
     }
 
     vec2 Quad::getPosition() {
-        #if DEBUG
-            debug_trace_path = "Quad::getPosition::185";
-        #endif
         position = vec2(glm::vec3(getTransform()[3]));
         return position;
     }
 
     float Quad::getRotation() {
+        glm::vec2 right = glm::normalize(glm::vec2(getTransform()[0]));
+        rotation = atan2(right.y, right.x);
         return rotation;
     }
 
@@ -237,7 +231,8 @@ namespace Golden
             glm::length(glm::vec3(mat[0])),
             glm::length(glm::vec3(mat[1]))
         };
-        return scale;
+        scaleVec = scale;
+        return scaleVec;
     }
 
     vec2 Quad::getCenter() {
@@ -284,8 +279,15 @@ namespace Golden
         }
     }
 
+    BoundingBox Quad::getWorldBounds()
+    {
+        BoundingBox worldBox = getGeom()->localBounds;
+        worldBox.transform(getTransform());
+        return worldBox;
+    }
+
     Quad& Quad::setData(const vec4& d) {
-        scene->guiData[ID] = d;
+        GET(scene->guiData,ID) = d;
         return *this;
     }
     Quad& Quad::setTexture(const unsigned int& t) {
@@ -313,11 +315,7 @@ namespace Golden
 
     list<std::string>& Quad::getSlots()
     {
-        if(checkGet(7)) {
-            return scene->slots[ID];
-        }
-        else {
-            return scene->slots[0]; }
+        return GET(scene->slots,ID);;
     }
 
     Quad& Quad::addSlot(const std::string& slot)
@@ -443,6 +441,16 @@ namespace Golden
         return *this;
     }
 
+    Quad& Quad::rotateCenter(float angle) {
+        vec2 center = getCenter();
+        rotation = angle;
+        updateTransform();
+        vec2 newCenter = getCenter();
+        position += (center - newCenter);
+        updateTransform();
+        return *this;
+    }
+
     Quad& Quad::scale(const vec2& scale)
     {
         scaleVec = scale;
@@ -505,6 +513,26 @@ namespace Golden
         return *this;
     }
 
+    Quad& Quad::setScale(const vec2& _scale)
+    {
+        return scale(_scale);
+    }
+
+    Quad& Quad::scaleBy(const vec2& _scale)
+    {
+        return scale(scaleVec*_scale);
+    }
+
+    Quad& Quad::scaleCenter(const vec2& scale) {
+        vec2 center = getCenter();
+        scaleVec = scale;
+        updateTransform();
+        vec2 newCenter = getCenter();
+        position += (center - newCenter);
+        updateTransform();
+        return *this;
+    }
+
     Quad& Quad::move(const vec2& pos,bool update) {
         position+=pos;
         if(update) updateTransform();
@@ -519,6 +547,9 @@ namespace Golden
         }
         return *this;
     }
+
+    //Rotation is 2.6x the performance impact of hte other opperations, if this ever becomes a bottleneck consider systems like 
+    //an affine matrix, hot-path optimizations that ignore rotation if 0, or special handeling for that case.
 
     void Quad::updateTransform() {
         glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(scaleVec.toGlm(),1));

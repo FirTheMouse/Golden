@@ -27,9 +27,11 @@ public:
 
     Physics() {
         thread = make<Thread>();
+        thread->setSpeed(0.016f);
     }
     Physics(g_ptr<Scene> _scene) : scene(_scene) {
         thread = make<Thread>();
+        thread->setSpeed(0.016f);
     }
 
     void rebuildTree() { treeBuilt = false; }
@@ -257,20 +259,20 @@ public:
         }
     }
 
-    void relocateEntity(g_ptr<Single> entity) {
-        removeEntityFromTree(treeRoot, entity);
-        insertIntoSubtree(treeRoot, entity);
+    void relocateEntity(g_ptr<aabb_node> root, g_ptr<Single> entity) {
+        removeEntityFromTree(root, entity);
+        insertIntoSubtree(root, entity);
     }
  
-    void updateTreeInPlace() {
+    void updateTreeInPlace(g_ptr<aabb_node> root) {
         list<g_ptr<Single>> movedEntities;
-        collectMoved(treeRoot, movedEntities);
+        collectMoved(root, movedEntities);
         
         for (auto entity : movedEntities) {
-            relocateEntity(entity);
+            relocateEntity(root, entity);
         }
 
-        treeRoot = cleanupMarkedNodes(treeRoot);
+        treeRoot = cleanupMarkedNodes(root);
     }
 
     void queryTree(g_ptr<aabb_node> node, BoundingBox& queryBounds, list<g_ptr<Single>>& results) {
@@ -359,9 +361,9 @@ public:
             auto otherBounds = scene->singles[s]->getWorldBounds();
             
             vec3 overlap = vec3(
-                std::min(thisBounds.max.x, otherBounds.max.x) - std::max(thisBounds.min.x, otherBounds.min.x),
-                std::min(thisBounds.max.y, otherBounds.max.y) - std::max(thisBounds.min.y, otherBounds.min.y),
-                std::min(thisBounds.max.z, otherBounds.max.z) - std::max(thisBounds.min.z, otherBounds.min.z)
+                std::min(thisBounds.max.x(), otherBounds.max.x()) - std::max(thisBounds.min.x(), otherBounds.min.x()),
+                std::min(thisBounds.max.y(), otherBounds.max.y()) - std::max(thisBounds.min.y(), otherBounds.min.y()),
+                std::min(thisBounds.max.z(), otherBounds.max.z()) - std::max(thisBounds.min.z(), otherBounds.min.z())
             );
             
             vec3 normal;
@@ -464,7 +466,9 @@ public:
 
     bool enableQuadCollisons = true;
     float quadDragCof = 0.99f;
-    float quadGravity = 48.0f;
+    float quadGravity = 400.0f;
+    bool quadRotateAroundCenter = true;
+    bool quadScaleAroundCenter = true;
 
     enum SAMPLE_METHOD {
         NCOL, NAIVE, AABB //GRID <- Add this later!
@@ -540,7 +544,7 @@ public:
                 buildTree();
                 treeBuilt = true;
             } else {
-                updateTreeInPlace();
+                updateTreeInPlace(treeRoot);
                 handle3dCollison(AABB_generate3dCollisonPairs());
             }
         } 
@@ -648,34 +652,61 @@ public:
             }
             else if(p_state_uses_velocity(p))
             {
-                glm::mat4& transform = GET(scene->guiTransforms,i);
-                Velocity& velocity = GET(scene->quadVelocities,i);
-                float velocityScale = 1.0f;
+                // glm::mat4& transform = GET(scene->guiTransforms,i);
+                // Velocity& velocity = GET(scene->quadVelocities,i);
+                // float velocityScale = 1.0f;
 
-                //Add checking for if the velocity in this regard is just all zero in the future
-                //To optimize
+                // //Add checking for if the velocity in this regard is just all zero in the future
+                // //To optimize
 
-                // --- Position ---
-                glm::vec3 pos = glm::vec3(transform[3]);
-                pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
-                transform[3] = glm::vec4(pos, 1.0f);
+                // // --- Position ---
+                // glm::vec3 pos = glm::vec3(transform[3]);
+                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
+                // transform[3] = glm::vec4(pos, 1.0f);
                 
-                // --- Rotation ---
-                glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
-                if (glm::length(rotVel) > 0.0001f) {
-                    glm::mat4 rotationDelta = glm::mat4(1.0f);
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                    transform = transform * rotationDelta; // Apply rotation in object space
+                // // --- Rotation ---
+                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(rotVel) > 0.0001f) {
+                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+                //     transform = transform * rotationDelta; // Apply rotation in object space
+                // }
+                
+                // // --- Scale ---
+                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(scaleChange) > 0.0001f) {
+                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+                //     transform = transform * scaleDelta; // Apply after rotation
+                // }
+
+          
+                g_ptr<Quad> quad = GET(scene->quads, i);
+                Velocity& velocity = GET(scene->quadVelocities, i);
+                float dt = thread->getSpeed();
+                
+                vec2 positionDelta = vec2(vec3_to_vec2(velocity.position)) * dt;
+                
+                // Rotation
+                if(quadRotateAroundCenter && abs(velocity.rotation.z()) > 0.0001f) {
+                    quad->rotateCenter(quad->rotation + velocity.rotation.z() * dt);
+                } else {
+                    quad->rotation += velocity.rotation.z() * dt;
                 }
                 
-                // --- Scale ---
-                glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
-                if (glm::length(scaleChange) > 0.0001f) {
-                    glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                    transform = transform * scaleDelta; // Apply after rotation
+                // Scale
+                vec2 scaleVelocity = vec2(vec3_to_vec2(velocity.scale));
+                if(quadScaleAroundCenter && glm::length(scaleVelocity.toGlm()) > 0.0001f) {
+                    vec2 newScale = quad->scaleVec * (vec2(1.0f) + scaleVelocity * dt);
+                    quad->scaleCenter(newScale);
+                } else {
+                    quad->scaleVec *= (vec2(1.0f) + scaleVelocity * dt);
                 }
+                
+                // Position AFTER rotation/scale
+                quad->position += positionDelta;
+                quad->updateTransform();
             }
             scene->quads.get(i)->getPosition();
             c_check2:;
