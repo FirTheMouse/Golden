@@ -26,7 +26,7 @@ int main()  {
     scene->enableInstancing();
     Physics phys(scene);
 
-    int TESTING = 2;
+    int TESTING = 1;
     if(TESTING == 0) {
         g_ptr<Quad> test = text::makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
@@ -62,12 +62,12 @@ int main()  {
             box->setLinearVelocity({randf(-40,40),randf(-40,40)});
             box->setPhysicsState(P_State::FREE);
 
-            box->setLinearVelocity(vec2(100, 50));  // Move right and down
-            box->getVelocity().rotation = vec3(0, 0, 1.0f);  // Rotate 1 rad/sec
-            box->getVelocity().scale = vec3(0.01f, 0.01f, 0);  // Grow 50% per second
+            // box->setLinearVelocity(vec2(100, 50));  // Move right and down
+            // box->getVelocity().rotation = vec3(0, 0, 1.0f);  // Rotate 1 rad/sec
+            // box->getVelocity().scale = vec3(0.01f, 0.01f, 0);  // Grow 50% per second
             boxes << box;
         }
-        phys.quadCollisonMethod = Physics::NAIVE;
+        phys.quadCollisonMethod = Physics::AABB;
     } else if (TESTING==2) {
         // g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
         // box->setPosition({randf(0,win.x()),randf(0,win.y())});
@@ -242,7 +242,7 @@ int main()  {
             //     if(n_pos.y()<=0) mov.setY(800);
             //     b->move(mov);
             // }
-            //phys.updatePhysics();
+            phys.updatePhysics();
             for(auto b : boxes) {
                 Velocity& mov = b->getVelocity();
                 vec2 n_pos = b->getCenter();

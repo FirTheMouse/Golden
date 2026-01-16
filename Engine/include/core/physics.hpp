@@ -10,7 +10,7 @@ class aabb_node : public Object {
 public:
     g_ptr<aabb_node> left = nullptr;
     g_ptr<aabb_node> right = nullptr;
-    g_ptr<Single> entity = nullptr;
+    g_ptr<S_Object> entity = nullptr;
     BoundingBox aabb;
     bool mark = false;
 };
@@ -22,8 +22,10 @@ public:
     g_ptr<Scene> scene;
     g_ptr<Thread> thread;
 
-    g_ptr<aabb_node> treeRoot;
-    bool treeBuilt = false;
+    g_ptr<aabb_node> treeRoot3d;
+    g_ptr<aabb_node> treeRoot2d;
+    bool treeBuilt3d = false;
+    bool treeBuilt2d = false;
 
     Physics() {
         thread = make<Thread>();
@@ -34,9 +36,9 @@ public:
         thread->setSpeed(0.016f);
     }
 
-    void rebuildTree() { treeBuilt = false; }
+    void rebuildTree() { treeBuilt2d = false; treeBuilt3d = false; }
 
-    g_ptr<aabb_node> populateTree(list<g_ptr<Single>>& entities) {
+    g_ptr<aabb_node> populateTree(list<g_ptr<S_Object>>& entities) {
         if(entities.length() == 0) return nullptr;  
 
         g_ptr<aabb_node> node = make<aabb_node>();
@@ -55,23 +57,34 @@ public:
         char ax = totalBounds.getLongestAxis();
 
         //This is because I never added a sort to my list...
-        std::vector<g_ptr<Single>> temp;
+        std::vector<g_ptr<S_Object>> temp;
         for (auto e : entities) temp.push_back(e);
-        std::sort(temp.begin(), temp.end(), [ax](g_ptr<Single> a, g_ptr<Single> b) {
-            vec3 posA = a->getPosition();
-            vec3 posB = b->getPosition();
-            if(ax=='x')  return posA.x() < posB.x();
-            else if(ax=='y')  return posA.y() < posB.y();
-            else if(ax=='z')  return posA.z() < posB.z();
+        std::sort(temp.begin(), temp.end(), [ax](g_ptr<S_Object> a, g_ptr<S_Object> b) {
+            vec3 posA, posB;
+            if (auto sEntity = g_dynamic_pointer_cast<Single>(a)) {
+                posA = sEntity->getPosition();
+            } else if (auto qEntity = g_dynamic_pointer_cast<Quad>(a)) {
+                posA = vec3(qEntity->getPosition(), 0.0f); // Convert vec2 to vec3
+            }
+            
+            if (auto sEntity = g_dynamic_pointer_cast<Single>(b)) {
+                posB = sEntity->getPosition();
+            } else if (auto qEntity = g_dynamic_pointer_cast<Quad>(b)) {
+                posB = vec3(qEntity->getPosition(), 0.0f); // Convert vec2 to vec3
+            }
+            
+            if(ax == 'x')  return posA.x() < posB.x();
+            else if(ax == 'y')  return posA.y() < posB.y();
+            else if(ax == 'z')  return posA.z() < posB.z();
             else return false;
         });
 
         size_t mid = temp.size() / 2;
-        std::vector<g_ptr<Single>> leftHalf(temp.begin(), temp.begin() + mid);
-        std::vector<g_ptr<Single>> rightHalf(temp.begin() + mid, temp.end());
+        std::vector<g_ptr<S_Object>> leftHalf(temp.begin(), temp.begin() + mid);
+        std::vector<g_ptr<S_Object>> rightHalf(temp.begin() + mid, temp.end());
 
-        list<g_ptr<Single>> left;
-        list<g_ptr<Single>> right;
+        list<g_ptr<S_Object>> left;
+        list<g_ptr<S_Object>> right;
         for(auto l : leftHalf) left << l;
         for(auto r : rightHalf) right << r;
 
@@ -82,8 +95,8 @@ public:
         return node;
     }
 
-    void buildTree() {
-        list<g_ptr<Single>> entities;
+    void buildTree3d() {
+        list<g_ptr<S_Object>> entities;
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
             if(!scene->active[i]) continue;
@@ -91,7 +104,19 @@ public:
                 entities << scene->singles[i];
             }
         }
-        treeRoot = populateTree(entities);
+        treeRoot3d = populateTree(entities);
+    }
+
+    void buildTree2d() {
+        list<g_ptr<S_Object>> entities;
+        for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
+            if(i>=scene->guiTransforms.length()) continue;
+            if(!scene->quadActive[i]) continue;
+            if(p_state_collides(scene->quadPhysicsStates[i])) {
+                entities << scene->quads[i];
+            }
+        }
+        treeRoot2d = populateTree(entities);
     }
 
     void printTree(g_ptr<aabb_node> node,std::string indent = "",int depth = 0) {
@@ -102,7 +127,10 @@ public:
             print(indent,"NULL");
             return;
         }
-        if(node->entity) {printnl(indent); node->entity->getPosition().print(); }
+        if(node->entity) {
+            if (auto sEntity = g_dynamic_pointer_cast<Single>(node->entity))  {printnl(indent); sEntity->getPosition().print(); } 
+            if(auto qEntity = g_dynamic_pointer_cast<Quad>(node->entity))  {printnl(indent); qEntity->getPosition().print(); }
+        }
         if(node->left) {printnl(indent,"LEFT: "); printTree(node->left,indent,depth);}
         if(node->right) {printnl(indent,"RIGHT: ");printTree(node->right,indent,depth);}
     }
@@ -149,7 +177,7 @@ public:
         }
     }
 
-    bool removeEntityFromTree(g_ptr<aabb_node> node, g_ptr<Single> entity) {
+    bool removeEntityFromTree(g_ptr<aabb_node> node, g_ptr<S_Object> entity) {
         if (!node) return false;
         
         if (node->entity == entity) {
@@ -201,14 +229,14 @@ public:
         return node;
     }
 
-    void insertIntoSubtree(g_ptr<aabb_node> targetNode, g_ptr<Single> entity) {
+    void insertIntoSubtree(g_ptr<aabb_node> targetNode, g_ptr<S_Object> entity) {
         if(!targetNode) {
             print("INVALID INSERTION POINT");
             return;
         }
         BoundingBox entityBounds = entity->getWorldBounds();
         if(targetNode->entity) {
-            g_ptr<Single> existingEntity = targetNode->entity;
+            g_ptr<S_Object> existingEntity = targetNode->entity;
             targetNode->entity = nullptr;
             
             targetNode->left = make<aabb_node>();
@@ -244,7 +272,7 @@ public:
         }
     }
 
-    void collectMoved(g_ptr<aabb_node> node,list<g_ptr<Single>>& moved) {
+    void collectMoved(g_ptr<aabb_node> node,list<g_ptr<S_Object>>& moved) {
         if(!node) return;
         if(node->entity) {
             BoundingBox entityBounds = node->entity->getWorldBounds();
@@ -259,23 +287,23 @@ public:
         }
     }
 
-    void relocateEntity(g_ptr<aabb_node> root, g_ptr<Single> entity) {
+    void relocateEntity(g_ptr<aabb_node> root, g_ptr<S_Object> entity) {
         removeEntityFromTree(root, entity);
         insertIntoSubtree(root, entity);
     }
  
     void updateTreeInPlace(g_ptr<aabb_node> root) {
-        list<g_ptr<Single>> movedEntities;
+        list<g_ptr<S_Object>> movedEntities;
         collectMoved(root, movedEntities);
         
         for (auto entity : movedEntities) {
             relocateEntity(root, entity);
         }
 
-        treeRoot = cleanupMarkedNodes(root);
+        treeRoot3d = cleanupMarkedNodes(root);
     }
 
-    void queryTree(g_ptr<aabb_node> node, BoundingBox& queryBounds, list<g_ptr<Single>>& results) {
+    void queryTree(g_ptr<aabb_node> node, BoundingBox& queryBounds, list<g_ptr<S_Object>>& results) {
         if (!node) return;
 
         // Early rejection - if query doesn't intersect this node, skip entire subtree
@@ -304,20 +332,22 @@ public:
             BoundingBox boundsA = entityA->getWorldBounds();
             
             // Query tree for potential collision candidates
-            list<g_ptr<Single>> candidates;
-            queryTree(treeRoot, boundsA, candidates);
+            list<g_ptr<S_Object>> candidates;
+            queryTree(treeRoot3d, boundsA, candidates);
             
             // Check collision layers and do narrow phase collision
-            for (auto entityB : candidates) {
-                if (entityA == entityB) continue; // Don't collide with self
-                
-                // Check collision layers
-                CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
-                CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
-                if (!layersA.canCollideWith(layersB)) continue;
-                
-                if (boundsA.intersects(entityB->getWorldBounds())) {
-                    collisionPairs.push(std::pair{entityA,entityB});
+            for (auto entityB_uncasted : candidates) {
+                if (auto entityB = g_dynamic_pointer_cast<Single>(entityB_uncasted)) {
+                    if (entityA == entityB) continue; // Don't collide with self
+                    
+                    // Check collision layers
+                    CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
+                    CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
+                    if (!layersA.canCollideWith(layersB)) continue;
+                    
+                    if (boundsA.intersects(entityB->getWorldBounds())) {
+                        collisionPairs.push(std::pair{entityA,entityB});
+                    }
                 }
             }
         }
@@ -440,6 +470,37 @@ public:
         }
         return collisionPairs;
     }
+    list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> AABB_generate2dCollisonPairs() {
+        list<std::pair<g_ptr<Quad>, g_ptr<Quad>>> collisionPairs;
+        
+        for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
+            if (!scene->quadActive[i] || !p_state_collides(scene->quadPhysicsStates[i])) continue;
+            
+            g_ptr<Quad> entityA = scene->quads[i];
+            BoundingBox boundsA = entityA->getWorldBounds();
+            
+            // Query tree for potential collision candidates
+            list<g_ptr<S_Object>> candidates;
+            queryTree(treeRoot2d, boundsA, candidates);
+            
+            // Check collision layers and do narrow phase collision
+            for (auto entityB_uncasted : candidates) {
+                if (auto entityB = g_dynamic_pointer_cast<Quad>(entityB_uncasted)) {
+                    if (entityA == entityB) continue; // Don't collide with self
+                    
+                    // Check collision layers
+                    CollisionLayer& layersA = scene->quadCollisonLayers.get(entityA->ID);
+                    CollisionLayer& layersB = scene->quadCollisonLayers.get(entityB->ID);
+                    if (!layersA.canCollideWith(layersB)) continue;
+                    
+                    if (boundsA.intersects(entityB->getWorldBounds())) {
+                        collisionPairs.push(std::pair{entityA,entityB});
+                    }
+                }
+            }
+        }
+        return collisionPairs;
+    }
     void handle2dCollision(g_ptr<Quad> g,vec2 mtv) {
         vec3& vel3 = g->getVelocity().position;
         vec2 push = mtv*-1;
@@ -456,6 +517,40 @@ public:
     }
     void handle2dCollision(collisionData2d p) {
         handle2dCollision(p.first,p.mtv);
+    }
+    void handle2dCollision(const list<std::pair<g_ptr<Quad>, g_ptr<Quad>>>& pairs) {
+        for(auto& p : pairs) {
+            int i = p.first->ID;
+            int s = p.second->ID;
+            vec2 thisCenter = scene->quads[i]->getCenter();
+            vec2 otherCenter = scene->quads[s]->getCenter();
+            
+            auto thisBounds = scene->quads[i]->getWorldBounds();
+            auto otherBounds = scene->quads[s]->getWorldBounds();
+            
+            vec2 overlap = vec2(
+                std::min(thisBounds.max.x(), otherBounds.max.x()) - std::max(thisBounds.min.x(), otherBounds.min.x()),
+                std::min(thisBounds.max.y(), otherBounds.max.y()) - std::max(thisBounds.min.y(), otherBounds.min.y())
+            );
+            
+            vec2 normal;
+            if(overlap.x() < overlap.y()) {
+                normal = vec2(thisCenter.x() > otherCenter.x() ? 1 : -1, 0);
+            } else {
+                normal = vec2(0, thisCenter.y() > otherCenter.y() ? 1 : -1);
+            }
+            
+            Velocity& velocity = GET(scene->quadVelocities, i);
+            vec2 currentVel = vec2(velocity.position.x(), velocity.position.y());
+            float velocityAlongNormal = currentVel.dot(normal);
+            
+            if(velocityAlongNormal < 0) {
+                vec2 newVel = currentVel - (normal * velocityAlongNormal);
+                velocity.position.x(newVel.x());
+                velocity.position.y(newVel.y());
+                velocity.position = velocity.position * 0.78f; // Drag
+            }
+        }
     }
 
   
@@ -540,11 +635,11 @@ public:
 
 
         if(collisonMethod==SAMPLE_METHOD::AABB) {
-            if(!treeBuilt) {
-                buildTree();
-                treeBuilt = true;
+            if(!treeBuilt3d) {
+                buildTree3d();
+                treeBuilt3d = true;
             } else {
-                updateTreeInPlace(treeRoot);
+                updateTreeInPlace(treeRoot3d);
                 handle3dCollison(AABB_generate3dCollisonPairs());
             }
         } 
@@ -552,13 +647,20 @@ public:
             handle3dCollison(naive_generate3dCollisonPairs());
         }
 
-        if(quadCollisonMethod==SAMPLE_METHOD::NAIVE) {
+        if(quadCollisonMethod==SAMPLE_METHOD::AABB) {
+            if(!treeBuilt2d) {
+                buildTree2d();
+                treeBuilt2d = true;
+            } else {
+                updateTreeInPlace(treeRoot2d);
+                handle2dCollision(AABB_generate2dCollisonPairs());
+            }
+        }
+        else if(quadCollisonMethod==SAMPLE_METHOD::NAIVE) {
             for(auto& c : naive_generate2dCollisonData()) {
                 handle2dCollision(c);
             }
-        } else if (quadCollisonMethod==SAMPLE_METHOD::AABB) {
-            print("AABB is not yet implmented for quad collisons!");
-        }
+        } 
 
         //3d physics pass
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
