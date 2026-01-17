@@ -215,14 +215,16 @@ namespace Golden
     }
 
     vec2 Quad::getPosition() {
-        position = vec2(glm::vec3(getTransform()[3]));
-        return position;
+        // position = vec2(glm::vec3(getTransform()[3]));
+        // return position;
+        return vec2(getTransform()[3]);
     }
 
     float Quad::getRotation() {
         glm::vec2 right = glm::normalize(glm::vec2(getTransform()[0]));
-        rotation = atan2(right.y, right.x);
-        return rotation;
+        // rotation = atan2(right.y, right.x);
+        // return rotation;
+        return atan2(right.y, right.x);
     }
 
     vec2 Quad::getScale() {
@@ -231,8 +233,9 @@ namespace Golden
             glm::length(glm::vec3(mat[0])),
             glm::length(glm::vec3(mat[1]))
         };
-        scaleVec = scale;
-        return scaleVec;
+        // scaleVec = scale;
+        // return scaleVec;
+        return scale;
     }
 
     vec2 Quad::getCenter() {
@@ -356,180 +359,191 @@ namespace Golden
         return *this;
     }
 
-    Quad& Quad::setPosition(const vec2& pos)
+    Quad& Quad::setPosition(const vec2& pos, bool update)
     {
        position = pos;
-
-       if(lockToParent)
-       {
-        callingChild=true;
-        parent->setPosition(pos-vec2(ogt.pos.x(),ogt.pos.y()));
-        callingChild=false;
-       }
-       else if(!children.empty())
-       {
-        for(auto c : children)
-        {
-            bool isTextParent = has("char");
-            
-            if(isTextParent)
-            {
-                // Get the character list and update the text scale
-                auto chars = get<g_ptr<d_list<size_t>>>("chars");
-                float textScale = chars->Object::get<float>("scale");
-                
-                // Recalculate positions using makeText logic
-                vec2 start = position; // or however you want to anchor it
-                for(auto c : children)
-                {
-                    if(c->lockToParent && c->has("char"))
-                    {
-                        vec2 bearing = c->get<vec2>("bearing");
-                        c->position = start + (bearing * textScale);
-                        float dx = c->get<float>("advance") * textScale;
-                        
-                        float left = getPosition().x();
-                        if(c->get<char>("char")=='\n') {
-                            dx-=(start.x()-left);
-                            start.addY(50.0f*textScale);}
-
-                        start.addX(dx);
-                        c->updateTransform();
-                    }
-                    else if(c->lockToParent && !c->callingChild)
-                    {
-                        c->position = pos+c->ogt.pos;
-                        c->updateTransform();
-                    } 
-                }
-            }
-            else if(c->lockToParent&&!c->callingChild)
-            {
-                c->position = pos+vec2(c->ogt.pos.x(),c->ogt.pos.y());
-                c->updateTransform();
-            }
-        }
-       }
-       updateTransform();
+       if(update)
+            updateTransform();
        return *this;
+
+    //    if(lockToParent)
+    //    {
+    //     callingChild=true;
+    //     parent->setPosition(pos-vec2(ogt.pos.x(),ogt.pos.y()));
+    //     callingChild=false;
+    //    }
+    //    else if(!children.empty())
+    //    {
+    //     for(auto c : children)
+    //     {
+    //         bool isTextParent = has("char");
+            
+    //         if(isTextParent)
+    //         {
+    //             // Get the character list and update the text scale
+    //             auto chars = get<g_ptr<d_list<size_t>>>("chars");
+    //             float textScale = chars->Object::get<float>("scale");
+                
+    //             // Recalculate positions using makeText logic
+    //             vec2 start = position; // or however you want to anchor it
+    //             for(auto c : children)
+    //             {
+    //                 if(c->lockToParent && c->has("char"))
+    //                 {
+    //                     vec2 bearing = c->get<vec2>("bearing");
+    //                     c->position = start + (bearing * textScale);
+    //                     float dx = c->get<float>("advance") * textScale;
+                        
+    //                     float left = getPosition().x();
+    //                     if(c->get<char>("char")=='\n') {
+    //                         dx-=(start.x()-left);
+    //                         start.addY(50.0f*textScale);}
+
+    //                     start.addX(dx);
+    //                     c->updateTransform();
+    //                 }
+    //                 else if(c->lockToParent && !c->callingChild)
+    //                 {
+    //                     c->position = pos+c->ogt.pos;
+    //                     c->updateTransform();
+    //                 } 
+    //             }
+    //         }
+    //         else if(c->lockToParent&&!c->callingChild)
+    //         {
+    //             c->position = pos+vec2(c->ogt.pos.x(),c->ogt.pos.y());
+    //             c->updateTransform();
+    //         }
+    //     }
+    //    }
     }
 
-    Quad& Quad::setCenter(const vec2& pos)
+    Quad& Quad::setCenter(const vec2& pos, bool update)
     {
-        if (checkGet(10)) {
-            if(has("char"))
-            {
-                auto textQuad = text::parent_of(this);
-                vec2 visualCenter = text::center_of(textQuad);
-                vec2 currentPos = textQuad->getPosition();
-                vec2 offset = pos - visualCenter;
-                textQuad->setPosition(currentPos + offset);
-            }
-            else
-            {
+            // if(has("char"))
+            // {
+            //     auto textQuad = text::parent_of(this);
+            //     vec2 visualCenter = text::center_of(textQuad);
+            //     vec2 currentPos = textQuad->getPosition();
+            //     vec2 offset = pos - visualCenter;
+            //     textQuad->setPosition(currentPos + offset);
+            // }
+            // else
+            // {
+
             vec2 scale = getScale();
-            setPosition(pos-(scale*0.5f));
-            }
-        } 
+            setPosition(pos-(scale*0.5f),update);
+            // }
         return *this;
     }  
     
-    Quad& Quad::rotate(float angle) 
+    Quad& Quad::rotate(float angle,bool update) 
     {
         rotation = angle;
-        updateTransform();
+        if(update)
+            updateTransform();
         return *this;
     }
 
-    Quad& Quad::rotateCenter(float angle) {
-        vec2 center = getCenter();
-        rotation = angle;
-        updateTransform();
-        vec2 newCenter = getCenter();
-        position += (center - newCenter);
-        updateTransform();
-        return *this;
-    }
-
-    Quad& Quad::scale(const vec2& scale)
-    {
-        scaleVec = scale;
-
-        if(lockToParent)
-       {
-        callingChild=true;
-        parent->scale(vec2(scaleVec/ogt.scale));
-        callingChild=false;
-       }
-       else if(!children.empty())
-        {
-            bool isTextParent = has("char");
-            
-            if(isTextParent)
-            {
-                // Get the character list and update the text scale
-                auto chars = get<g_ptr<d_list<size_t>>>("chars");
-                float currentTextScale = chars->Object::get<float>("scale");
-                float newTextScale = (scale.x() + scale.y()) / 2.0f;
-                chars->Object::set<float>("scale", newTextScale);
-                
-                // Recalculate positions using makeText logic
-                vec2 start = position; // or however you want to anchor it
-                for(auto c : children)
-                {
-                    if(c->lockToParent && c->has("char"))
-                    {
-                        // Apply makeText positioning logic here
-                        vec2 bearing = c->get<vec2>("bearing");
-                        c->position = vec2(start + (bearing * newTextScale));
-                        
-                        float dx = c->get<float>("advance") * newTextScale;
-                        float left = getPosition().x();
-                        if(c->get<char>("char")=='\n') {
-                            dx-=(start.x()-left);
-                            start.addY(50.0f*newTextScale);}
-                        start.addX(dx);
-                        // Scale the visual quad
-                        vec2 st = c->get<vec2>("size")*newTextScale;
-                        c->scaleVec = st;
-                        c->updateTransform();
-                    }
-                }
-            }
-            else
-            {
-                // Regular child scaling logic
-                for(auto c : children)
-                {
-                    if(c->lockToParent&&!c->callingChild)
-                    {
-                        c->scaleVec = c->ogt.scale+scale;
-                        c->updateTransform();
-                    }
-                }
-            }
+    //WARNING: Doesn't work with update right now!
+    Quad& Quad::rotateCenter(float angle,bool update) {
+        if(update) {
+            vec2 center = getCenter();
+            rotation = angle;
+            updateTransform();
+            vec2 newCenter = getCenter();
+            position += (center - newCenter);
+            updateTransform();
+        } else {
+            print("Quad::rotateCenter::455 Can't do rotateCenter without updating right now, implment the math later for temporary matrix transforms");
         }
-        updateTransform();
         return *this;
     }
 
-    Quad& Quad::setScale(const vec2& _scale)
+    Quad& Quad::scale(const vec2& scale, bool update)
     {
-        return scale(_scale);
-    }
-
-    Quad& Quad::scaleBy(const vec2& _scale)
-    {
-        return scale(scaleVec*_scale);
-    }
-
-    Quad& Quad::scaleCenter(const vec2& scale) {
-        vec2 center = getCenter();
         scaleVec = scale;
-        updateTransform();
-        vec2 newCenter = getCenter();
-        position += (center - newCenter);
-        updateTransform();
+        if(update)
+            updateTransform();
+        return *this;
+
+    //     if(lockToParent)
+    //    {
+    //     callingChild=true;
+    //     parent->scale(vec2(scaleVec/ogt.scale));
+    //     callingChild=false;
+    //    }
+    //    else if(!children.empty())
+    //     {
+    //         bool isTextParent = has("char");
+            
+    //         if(isTextParent)
+    //         {
+    //             // Get the character list and update the text scale
+    //             auto chars = get<g_ptr<d_list<size_t>>>("chars");
+    //             float currentTextScale = chars->Object::get<float>("scale");
+    //             float newTextScale = (scale.x() + scale.y()) / 2.0f;
+    //             chars->Object::set<float>("scale", newTextScale);
+                
+    //             // Recalculate positions using makeText logic
+    //             vec2 start = position; // or however you want to anchor it
+    //             for(auto c : children)
+    //             {
+    //                 if(c->lockToParent && c->has("char"))
+    //                 {
+    //                     // Apply makeText positioning logic here
+    //                     vec2 bearing = c->get<vec2>("bearing");
+    //                     c->position = vec2(start + (bearing * newTextScale));
+                        
+    //                     float dx = c->get<float>("advance") * newTextScale;
+    //                     float left = getPosition().x();
+    //                     if(c->get<char>("char")=='\n') {
+    //                         dx-=(start.x()-left);
+    //                         start.addY(50.0f*newTextScale);}
+    //                     start.addX(dx);
+    //                     // Scale the visual quad
+    //                     vec2 st = c->get<vec2>("size")*newTextScale;
+    //                     c->scaleVec = st;
+    //                     c->updateTransform();
+    //                 }
+    //             }
+    //         }
+    //         else
+    //         {
+    //             // Regular child scaling logic
+    //             for(auto c : children)
+    //             {
+    //                 if(c->lockToParent&&!c->callingChild)
+    //                 {
+    //                     c->scaleVec = c->ogt.scale+scale;
+    //                     c->updateTransform();
+    //                 }
+    //             }
+    //         }
+    //     }
+    }
+
+    Quad& Quad::setScale(const vec2& _scale, bool update)
+    {
+        return scale(_scale,update);
+    }
+
+    Quad& Quad::scaleBy(const vec2& _scale,bool update)
+    {
+        return scale(scaleVec*_scale,update);
+    }
+
+    Quad& Quad::scaleCenter(const vec2& scale,bool update) {
+        if(update) {
+            vec2 center = getCenter();
+            scaleVec = scale;
+            updateTransform();
+            vec2 newCenter = getCenter();
+            position += (center - newCenter);
+            updateTransform();
+        } else {
+            print("Quad::scaleCenter::542 Can't do scaleCenter without updating right now, implment the math later for temporary matrix transforms");
+        }
         return *this;
     }
 
@@ -551,12 +565,26 @@ namespace Golden
     //Rotation is 2.6x the performance impact of hte other opperations, if this ever becomes a bottleneck consider systems like 
     //an affine matrix, hot-path optimizations that ignore rotation if 0, or special handeling for that case.
 
-    void Quad::updateTransform() {
+    void Quad::updateTransform(bool joined) {
+
+        glm::mat4& mat = getTransform();
+
+        if(joined) {
+            if(!children.empty()) {
+                for(auto c : children) c->updateTransform();
+            }
+
+            if(!unlockJoint && (!parents.empty()||parent) && joint) {
+                if(!joint()) return;
+            }
+        }
+
         glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(scaleVec.toGlm(),1));
         glm::mat4 rotMat = glm::rotate(glm::mat4(1.0f),rotation,glm::vec3(0,0,1));
         glm::mat4 transMat = glm::translate(glm::mat4(1.0f), glm::vec3(position.toGlm(),0));
 
-        getTransform() = transMat * rotMat * scaleMat; 
+        mat = transMat * rotMat * scaleMat; 
+
     }
     
     void Quad::updateEndTransform() {

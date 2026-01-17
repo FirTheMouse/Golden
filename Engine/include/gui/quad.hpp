@@ -51,6 +51,12 @@ public:
     bool callingChild = false;
     Q_Snapshot ogt;
 
+    //Joint is a stateful parent-child transform propagation system, the child should always own the joint!
+    list<g_ptr<Quad>> parents;
+    std::function<bool()> joint = nullptr;
+    std::function<bool()> physicsJoint = nullptr;
+    bool unlockJoint = false;
+
     bool instanced = false;
 
     bool lockToParent = false;
@@ -129,15 +135,15 @@ public:
     Quad& setPhysicsState(P_State p);
     Quad& setLinearVelocity(const vec2& v);
     Quad& impulseL(const vec2& v);
-    Quad& setPosition(const vec2& pos);
-    Quad& setCenter(const vec2& pos);
+    Quad& setPosition(const vec2& pos, bool update = true);
+    Quad& setCenter(const vec2& pos, bool update = true);
 
-    Quad& rotate(float angle);
-    Quad& rotateCenter(float angle);
-    Quad& scale(const vec2& scale);
-    Quad& setScale(const vec2& _scale);
-    Quad& scaleBy(const vec2& _scale);
-    Quad& scaleCenter(const vec2& _scale);
+    Quad& rotate(float angle, bool update = true);
+    Quad& rotateCenter(float angle, bool update = true);
+    Quad& scale(const vec2& scale, bool update = true);
+    Quad& setScale(const vec2& _scale, bool update = true);
+    Quad& scaleBy(const vec2& _scale, bool update = true);
+    Quad& scaleCenter(const vec2& _scale, bool update = true);
     Quad& move(const vec2& pos,bool update = true);
     Quad& move(const vec2& pos,float animationDuration,bool update = true);
 
@@ -214,7 +220,7 @@ public:
     Quad& addSlot(const std::string& slot);
 
    
-    void updateTransform();
+    void updateTransform(bool joined = true);
     void updateEndTransform();
     
 

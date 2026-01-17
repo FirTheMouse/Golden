@@ -26,7 +26,15 @@ int main()  {
     scene->enableInstancing();
     Physics phys(scene);
 
-    int TESTING = 1;
+    g_ptr<Thread> thread = make<Thread>();
+    // thread->logSPS = true;
+    // thread->run([&](ScriptContext& ctx){
+    //     phys.updatePhysics();
+    //     return ctx;
+    // },0.008f);
+    // thread->pause();
+
+    int TESTING = 2;
     if(TESTING == 0) {
         g_ptr<Quad> test = text::makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
@@ -60,7 +68,7 @@ int main()  {
             box->scale({10,10});
             box->setPosition({randf(0,win.x()),randf(0,win.y())});
             box->setLinearVelocity({randf(-40,40),randf(-40,40)});
-            box->setPhysicsState(P_State::FREE);
+            box->setPhysicsState(P_State::GHOST);
 
             // box->setLinearVelocity(vec2(100, 50));  // Move right and down
             // box->getVelocity().rotation = vec3(0, 0, 1.0f);  // Rotate 1 rad/sec
@@ -69,11 +77,6 @@ int main()  {
         }
         phys.quadCollisonMethod = Physics::AABB;
     } else if (TESTING==2) {
-        // g_ptr<Quad> box = scene->makeImageQuad(IROOT+"plank.png",10);
-        // box->setPosition({randf(0,win.x()),randf(0,win.y())});
-        // box->setPhysicsState(P_State::FREE);
-        // boxes << box;
-
         g_ptr<Quad> box = make<Quad>();
         scene->add(box);
         box->setColor(Color::GREEN);
@@ -81,12 +84,42 @@ int main()  {
         box->setPosition({randf(0,win.x()),randf(0,win.y())});
         boxes << box;
 
-        g_ptr<Quad> box2 = make<Quad>();
-        scene->add(box2);
-        box2->setColor(Color::RED);
-        box2->scale({100,100});
-        box2->setPosition({randf(0,win.x()),randf(0,win.y())});
-        boxes << box2;
+        for(int i=0;i<10000;i++) {
+            g_ptr<Quad> box2 = make<Quad>();
+            scene->add(box2);
+            box2->setColor(Color::RED);
+            box2->scale({10,15});
+            box2->setPosition({randf(0,win.x()),randf(0,win.y())});
+            boxes << box2;
+
+            // box2->parent = box;
+            // box->children << box2;
+
+            // box2->joint = [box2]() {
+            //         g_ptr<Quad> parent = box2->parent;
+            //         vec2 offset = box2->getPosition() - parent->getPosition();
+            //         box2->position = vec2(parent->position) + offset;
+            //         return true;
+            //     };
+        }
+
+                // g_ptr<Quad> box2 = make<Quad>();
+        // scene->add(box2);
+        // box2->setColor(Color::RED);
+        // box2->scale({80,150});
+        // box2->setPosition({randf(0,win.x()),randf(0,win.y())});
+        // boxes << box2;
+
+        // box2->parent = box;
+        // box->children << box2;
+
+        // box2->joint = [box2]() {
+        //         g_ptr<Quad> parent = box2->parent;
+        //         vec2 offset = box2->getPosition() - parent->getPosition();
+        //         box2->position = vec2(parent->position) + offset;
+        //         return true;
+        //     };
+
 
     } else if (TESTING==3) {
         g_ptr<Quad> base = scene->makeImageQuad(IROOT+"plank.png",10);
@@ -201,9 +234,135 @@ int main()  {
 
         return 0;
     }
+    else if (TESTING==6) {
+        // list<g_ptr<Quad>> ropeSegments;
+        // vec2 startPos = vec2(win.x()/2, 100);
+        // int segmentCount = 300;
+        // float segmentLength = 10.0f;
+    
+        // for(int i = 0; i < segmentCount; i++) {
+        //     g_ptr<Quad> segment = make<Quad>();
+        //     scene->add(segment);
+        //     segment->setColor(i == 0 ? Color::RED : Color::BLUE);
+        //     segment->scale({15, segmentLength});
+        //     segment->setPosition(startPos + vec2(0, i * segmentLength));
+        //     segment->setPhysicsState(P_State::PARTICLE);
+            
+        //     ropeSegments << segment;
+        //     if(i==0) boxes << segment;
+            
+        //     if(i > 0) {
+        //         g_ptr<Quad> parent = ropeSegments[i-1];
+        //         segment->parent = parent;
+        //         parent->children << segment;
+                
+        //         segment->joint = [segment, segmentLength,ropeSegments]() {
+        //             g_ptr<Quad> parent = segment->parent;
+                    
+        //             vec2 toParent = parent->getPosition() - segment->getPosition();
+        //             float dist = toParent.length();
+                    
+        //             if(dist > segmentLength) {
+        //                 vec2 targetPos = parent->getPosition() - toParent.normalized() * segmentLength;
+        //                 segment->position = segment->getPosition() * 0.3f + targetPos * 0.7f;
+        //             }
+                    
+        //             vec2 dir = toParent.normalized();
+        //             float targetAngle = atan2(dir.x(), -dir.y());
+        //             segment->rotation = targetAngle;
+                    
+        //             if(segment == ropeSegments[1]) {
+        //                 parent->rotation = targetAngle;
+        //                 parent->updateTransform(false); 
+        //             }
+                    
+        //             return true;
+        //         };
+        //     }
+        // }
+        // phys.quadGravity = 100.0f;
 
-    if(TESTING==1) {
+        
+        list<g_ptr<Quad>> ropeSegments;
+        vec2 startPos = vec2(win.x()/2, 100);
+        int segmentCount = 100;
+        float segmentLength = 10.0f;
 
+        for(int i = 0; i < segmentCount; i++) {
+            g_ptr<Quad> segment = make<Quad>();
+            scene->add(segment);
+            segment->setColor(i == 0 ? Color::RED : Color::BLUE);
+            segment->scale({15, segmentLength});
+            segment->setPosition(startPos + vec2(0, i * segmentLength));
+            segment->setPhysicsState(P_State::PARTICLE);
+            
+            ropeSegments << segment;
+            if(i==0) boxes << segment;
+            
+            if(i > 0) {
+                g_ptr<Quad> parent = ropeSegments[i-1];
+                segment->parent = parent;
+                parent->children << segment;
+                
+                // physicsJoint maintains distance constraint via forces
+                segment->physicsJoint = [segment, segmentLength]() {
+                    g_ptr<Quad> parent = segment->parent;
+                    
+                    vec2 toParent = parent->getPosition() - segment->getPosition();
+                    float dist = toParent.length();
+                    
+                    if(dist > 0.001f) {
+                        float error = dist - segmentLength;
+                        vec2 direction = toParent / dist;
+                        float stiffness = 50.0f;
+                        vec2 force = direction * error * stiffness;
+                        vec2 childVel = vec3_to_vec2(segment->getVelocity().position);
+                        vec2 parentVel = vec3_to_vec2(parent->getVelocity().position);
+                        vec2 relativeVel = childVel - parentVel;
+                        float damping = 5.0f;
+                        vec2 dampingForce = (relativeVel * damping)*-1;
+                        
+                        vec2 totalForce = force + dampingForce;
+                        segment->setLinearVelocity(childVel + totalForce * 0.05f);
+                        parent->setLinearVelocity(parentVel - totalForce * 0.05f);
+                    }
+                    return true;
+                };
+                
+                // Regular joint handles rotation
+                segment->joint = [segment, segmentLength, ropeSegments]() {
+                    g_ptr<Quad> parent = segment->parent;
+                    
+                    vec2 toParent = parent->getPosition() - segment->getPosition();
+                    float dist = toParent.length();
+                    
+                    if(dist > 0.001f) {
+                        vec2 dir = toParent / dist;
+                        float targetAngle = atan2(dir.x(), -dir.y());
+                        segment->rotation = targetAngle;
+                        
+                        // First segment rotates head
+                        if(segment == ropeSegments[1]) {
+                            parent->rotation = targetAngle;
+                            parent->updateTransform(false);
+                        }
+                    }
+                    
+                    return true;
+                };
+            }
+        }
+
+        phys.quadGravity = 100.0f;
+        phys.quadDragCof = 0.98f;
+
+    }
+    else if (TESTING== 7) {
+
+    }
+
+    if(TESTING==6) {
+        thread->start();
     }
 
     // phys.thread->logSPS = true;
@@ -213,13 +372,6 @@ int main()  {
     // },0.008f);
     // phys.thread->start();
 
-    // g_ptr<Thread> thread = make<Thread>();
-    // thread->logSPS = true;
-    // thread->run([&](ScriptContext& ctx){
-    //     phys.updatePhysics();
-    //     return ctx;
-    // },0.008f);
-    // thread->start();
     // phys.quadGravity = 300;
 
     S_Tool s_tool;
@@ -267,12 +419,15 @@ int main()  {
 
     if(held(MOUSE_LEFT)) {
         if(TESTING==2) {
+            //vec2 diff = boxes[1]->getPosition() - boxes[0]->getPosition(); 
             boxes[0]->setCenter(scene->mousePos2d());
+            //boxes[1]->setPosition(boxes[0]->getPosition() + diff);
+
             //boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
         } 
-        else if(TESTING==4) {
-
-        } 
+        else if(TESTING==6) {
+            boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
+        }
         else {
             boxes[0]->setCenter(scene->mousePos2d());
         }
@@ -315,6 +470,16 @@ int main()  {
             } else {
                 print("No intersection");
             }
+        }
+    }
+
+    if(pressed(E)) {
+        if(TESTING==2) {
+            print("----------------------");
+            printnl("Box 0 pos: "); boxes[0]->getPosition().print();
+            printnl("Box 1 pos: "); boxes[1]->getPosition().print();
+            print("Toggle Box2 joint lock ");
+            boxes[1]->unlockJoint = !boxes[1]->unlockJoint;
         }
     }
 

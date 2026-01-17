@@ -617,6 +617,13 @@ public:
             }
         }
 
+        for (size_t i = 0; i < scene->quadActive.length(); ++i) {
+            g_ptr<Quad> quad = GET(scene->quads, i);
+            if(quad->physicsJoint) {
+                quad->physicsJoint(); // modifies velocities
+            }
+        }
+
         //2d preloop
         for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
             if(i>=scene->guiTransforms.length()) continue;
@@ -806,7 +813,6 @@ public:
                     quad->scaleVec *= (vec2(1.0f) + scaleVelocity * dt);
                 }
                 
-                // Position AFTER rotation/scale
                 quad->position += positionDelta;
                 quad->updateTransform();
             }

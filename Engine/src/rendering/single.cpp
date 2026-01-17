@@ -149,13 +149,15 @@ CollisionLayer& Single::getLayer() {
 }
 
 vec3 Single::getPosition() {
-    position = vec3(glm::vec3(getTransform()[3]));
-    return position;
+    // position = vec3(glm::vec3(getTransform()[3]));
+    // return position;
+    return vec3(glm::vec3(getTransform()[3]));
 }
 
 glm::quat Single::getRotation() {
-    rotation = glm::quat_cast(getTransform());
-    return rotation;
+    // rotation = glm::quat_cast(getTransform());
+    // return rotation;
+    return glm::quat_cast(getTransform());
 }
 
 vec3 Single::getRotationEuler() {
@@ -164,13 +166,14 @@ vec3 Single::getRotationEuler() {
 
 vec3 Single::getScale() {
     glm::mat4 mat = getTransform();
-    glm::vec3 scale{
+    vec3 scale{
         glm::length(glm::vec3(mat[0])),
         glm::length(glm::vec3(mat[1])),
         glm::length(glm::vec3(mat[2]))
     };
-    scaleVec = vec3(scale);
-    return scaleVec;
+    // scaleVec = vec3(scale);
+    // return scaleVec;
+    return scale;
 }
 
 Single& Single::setPhysicsState(P_State p_state) {
