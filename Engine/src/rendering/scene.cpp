@@ -236,6 +236,35 @@ void Scene::updateScene(float tpf)
         if(quadCulled[i]) continue;
         if (!quads[i]) continue;
 
+        //Handle Quad subdivision and regions
+                size_t subLen = geoms[i]->subdivisions.length();
+                guiShader.setInt("subdivisions", geoms[i]->subdivisions.length());
+                if(subLen>0) {
+                    std::vector<glm::vec4> subDataArray;
+                    std::vector<int> subSizesArray;
+                    std::vector<int> subOffsetsArray;
+                    std::vector<glm::vec2> subVertsArray;
+                    
+                    int vertOffset = 0;
+                    for(int s=0;s<subLen;s++) {
+                        subDataArray.push_back(geoms[i]->subData[s].toGlm());
+                        subSizesArray.push_back(geoms[i]->subdivisions[s].length());
+                        subOffsetsArray.push_back(vertOffset);
+                        
+                        for(vec2& v : geoms[i]->subdivisions[s]) {
+                            subVertsArray.push_back(v.toGlm());
+                        }
+                        vertOffset += geoms[i]->subdivisions[s].length();
+                    }
+
+                    guiShader.setVec4Array("subData", subDataArray.data(), subDataArray.size());
+                    guiShader.setIntArray("subSizes", subSizesArray.data(), subSizesArray.size());
+                    guiShader.setIntArray("subOffsets", subOffsetsArray.data(), subOffsetsArray.size());
+                    guiShader.setVec2Array("subVerts", subVertsArray.data(), subVertsArray.size());
+                    //Crude but I don't want instancing and regions mixing.
+                    if(geoms[i]->instance) { geoms[i]->instance = false; }
+                }
+
         guiShader.setMat4("quad",glm::value_ptr(guiTransforms[i]));
         guiShader.setVec4("data", guiData[i].toGlm());
         bool useTex = geoms[i]->texture != 0;

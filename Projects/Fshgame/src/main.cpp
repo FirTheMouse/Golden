@@ -11,6 +11,90 @@ g_ptr<Scene> scene;
 g_ptr<Font> font;
 ivec2 win(2560,1536);
 
+
+int sampleForSubdivision(g_ptr<Quad> quad, vec2 screenPoint) {
+    if (quad->getGeom()->subdivisions.empty()) return -1;
+    
+    glm::mat4 invTransform = glm::inverse(quad->getTransform());
+    vec4 localPoint4 = invTransform * glm::vec4(screenPoint.toGlm(), 0, 1);
+    vec2 localPoint(localPoint4.x(), localPoint4.y());
+    
+    list<list<vec2>>& subs = quad->getGeom()->subdivisions;
+    for(int r = 0; r < subs.length(); r++) {
+        list<vec2>& poly = subs[r];
+        bool inside = false;
+        for(int i = 0, j = poly.length() - 1; i < poly.length(); j = i++) {
+            if(((poly[i].y() > localPoint.y()) != (poly[j].y() > localPoint.y())) &&
+               (localPoint.x() < (poly[j].x() - poly[i].x()) * 
+                (localPoint.y() - poly[i].y()) / 
+                (poly[j].y() - poly[i].y()) + poly[i].x())) {
+                inside = !inside;
+            }
+        }
+        if(inside) return r;
+    }
+    return -1;
+}
+
+
+//Deosn't work for sampling
+list<std::pair<list<vec2>, vec4>> generateSimpleSubdivisions(int numRegions, unsigned int seed = 0) {
+    if(seed != 0) srand(seed);
+    
+    list<std::pair<list<vec2>, vec4>> result;
+    
+    // Simple approach: recursive binary space partitioning
+    struct Cell {
+        vec2 min, max;
+        vec4 color;
+    };
+    
+    list<Cell> cells;
+    cells << Cell{vec2(0, 0), vec2(1, 1), vec4(randf(0.3, 1), randf(0.3, 1), randf(0.3, 1), 1)};
+    
+    // Keep splitting until we have enough regions
+    while(cells.length() < numRegions) {
+        // Pick a random cell to split
+        int idx = rand() % cells.length();
+        Cell& c = cells[idx];
+        
+        vec2 size = c.max - c.min;
+        bool splitHorizontal = size.x() > size.y();
+        
+        // Split point (with some randomness, not exactly center)
+        float splitPos = randf(0.35, 0.65);
+        
+        Cell a, b;
+        if(splitHorizontal) {
+            float splitX = c.min.x() + size.x() * splitPos;
+            a = {c.min, vec2(splitX, c.max.y()), vec4(randf(0.3, 1), randf(0.3, 1), randf(0.3, 1), 1)};
+            b = {vec2(splitX, c.min.y()), c.max, vec4(randf(0.3, 1), randf(0.3, 1), randf(0.3, 1), 1)};
+        } else {
+            float splitY = c.min.y() + size.y() * splitPos;
+            a = {c.min, vec2(c.max.x(), splitY), vec4(randf(0.3, 1), randf(0.3, 1), randf(0.3, 1), 1)};
+            b = {vec2(c.min.x(), splitY), c.max, vec4(randf(0.3, 1), randf(0.3, 1), randf(0.3, 1), 1)};
+        }
+        
+        // Replace old cell with two new ones
+        cells.removeAt(idx);
+        cells << a << b;
+    }
+    
+    // Convert cells to boundary lists
+    for(auto& c : cells) {
+        list<vec2> boundary;
+        boundary << c.min;
+        boundary << vec2(c.max.x(), c.min.y());
+        boundary << c.max;
+        boundary << vec2(c.min.x(), c.max.y());
+        
+        result << std::pair{boundary, c.color};
+    }
+    
+    return result;
+}
+
+
 int main()  {
     using namespace helper;
 
@@ -34,7 +118,7 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 2;
+    int TESTING = 7;
     if(TESTING == 0) {
         g_ptr<Quad> test = text::makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
@@ -92,15 +176,15 @@ int main()  {
             box2->setPosition({randf(0,win.x()),randf(0,win.y())});
             boxes << box2;
 
-            // box2->parent = box;
-            // box->children << box2;
+            box2->parent = box;
+            box->children << box2;
 
-            // box2->joint = [box2]() {
-            //         g_ptr<Quad> parent = box2->parent;
-            //         vec2 offset = box2->getPosition() - parent->getPosition();
-            //         box2->position = vec2(parent->position) + offset;
-            //         return true;
-            //     };
+            box2->joint = [box2]() {
+                    g_ptr<Quad> parent = box2->parent;
+                    vec2 offset = box2->getPosition() - parent->getPosition();
+                    box2->position = vec2(parent->position) + offset;
+                    return true;
+                };
         }
 
                 // g_ptr<Quad> box2 = make<Quad>();
@@ -358,7 +442,26 @@ int main()  {
 
     }
     else if (TESTING== 7) {
+        g_ptr<Quad> map = make<Quad>();
+        scene->add(map);
+        map->setPosition({100, 100});
+        map->setScale({400, 400});
 
+        // map->getGeom()->addSubdivision({vec2(0, 0),vec2(0.5, 0),vec2(0.5, 1),vec2(0, 1)},vec4(1,0,0,1));
+        // map->getGeom()->addSubdivision({vec2(0.5, 0),vec2(1, 0),vec2(1, 1),vec2(0.5, 1)},vec4(0,0,1,1));
+        auto regions = generateSimpleSubdivisions(15);
+        for(auto& [boundary, color] : regions) {
+            map->getGeom()->addSubdivision(boundary, color);
+        } 
+        boxes << map;
+
+        for(int i=0;i<3;i++) {
+            g_ptr<Quad> box2 = make<Quad>(map->getGeom());
+            scene->add(box2);
+            box2->scale({100,100});
+            box2->setPosition({randf(0,win.x()),randf(0,win.y())});
+            boxes << box2;
+        }
     }
 
     if(TESTING==6) {
@@ -427,10 +530,26 @@ int main()  {
         } 
         else if(TESTING==6) {
             boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
+        } 
+        else if(TESTING==7) {
+
         }
-        else {
+        else if (!boxes.empty()) {
             boxes[0]->setCenter(scene->mousePos2d());
         }
+    }
+
+    if(pressed(MOUSE_LEFT)) {
+        if(TESTING==7) {
+            int sub_idx = sampleForSubdivision(boxes[0],scene->mousePos2d());
+            if(sub_idx!=-1) {
+                vec4& data = boxes[0]->getGeom()->subData[sub_idx];
+                if(data == vec4(1,0,0,1))
+                    data = vec4(0,0,1,1);
+                else
+                    data = vec4(1,0,0,1);
+            }
+         }
     }
 
     if(held(R)) {

@@ -29,6 +29,17 @@ namespace Golden {
             BoundingBox::DIM_2D
         );
 
+        list<list<vec2>> subdivisions;
+        list<vec4> subData;
+        list<unsigned int> subTextures;
+
+        void addSubdivision(const list<vec2>& boundaries, const vec4& data, unsigned int texture = 0) {
+            subdivisions << boundaries;
+            subData << data;
+            subTextures << texture;
+        }
+
+
         void setupGeom();
         void draw();
 

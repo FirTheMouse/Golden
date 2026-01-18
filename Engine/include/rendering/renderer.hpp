@@ -57,7 +57,27 @@ public:
     void setVec2(const char* name, glm::vec2 vec);
     void setInt(const char* name, int i);
     void setFloat(const char* name, float value);
-    // ... add more as needed
+
+    void setVec4Array(const char* name, const glm::vec4* data, int count) {
+        for(int i = 0; i < count; i++) {
+            std::string arrayName = std::string(name) + "[" + std::to_string(i) + "]";
+            setVec4(arrayName.c_str(), data[i]);
+        }
+    }
+
+    void setVec2Array(const char* name, const glm::vec2* data, int count) {
+        for(int i = 0; i < count; i++) {
+            std::string arrayName = std::string(name) + "[" + std::to_string(i) + "]";
+            setVec2(arrayName.c_str(), data[i]);
+        }
+    }
+
+    void setIntArray(const char* name, const int* data, int count) {
+        for(int i = 0; i < count; i++) {
+            std::string arrayName = std::string(name) + "[" + std::to_string(i) + "]";
+            setInt(arrayName.c_str(), data[i]);
+        }
+    }
 
 private:
     unsigned int ID;

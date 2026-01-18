@@ -8,11 +8,13 @@ uniform vec4 data;
 uniform bool useTexture;
 
 out vec2 uv;
+out vec2 rawUV;  
 
 void main() {
     vec4 scaled = quad * vec4(aPos, 0.0, 1.0);
     vec2 ndc = (scaled.xy / uResolution) * 2.0 - 1.0;
-    ndc.y = -ndc.y; // Flip Y axis for screen space
+    ndc.y = -ndc.y;
     gl_Position = vec4(ndc, 0.0, 1.0);
     uv = data.xy + aUV * data.zw;
+    rawUV = aUV;  // untransformed 0-1 coords
 }
