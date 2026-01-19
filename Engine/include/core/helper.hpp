@@ -5,6 +5,7 @@
 #include<core/input.hpp>
 #include<util/files.hpp>
 #include<core/grid.hpp>
+#include<gui/twig.hpp>
 
 namespace Golden
 {
@@ -12,6 +13,17 @@ namespace Golden
     {
         bool pressed(KeyCode code) {return Input::get().keyJustPressed(code);}
         bool held(KeyCode code) {return Input::get().keyPressed(code);}
+        const char n_pressed = '\t';
+        int currently_pressed_keycode() {
+            list<int> pressed = Input::get().justPressed();
+            return pressed.empty() ? -1 : pressed[0];
+        }
+        char currently_pressed() {
+            char c = n_pressed;
+            keycodeToChar(currently_pressed_keycode(),held(LSHIFT),c);
+            return c;
+        }
+
         void check_loaded(list<std::string> needed,g_ptr<Scene> scene) {
             for(auto s : needed)
                 if(!scene->hasSlot(s)) print("helper::check_loaded::17 Missing GUI element: ",s);
@@ -127,6 +139,136 @@ namespace Golden
                 }
             }
         };
+
+        class TextEditor : public Object {
+        private:
+            std::string clipboard;
+        public:
+            g_ptr<Quad> cursor = nullptr;
+            g_ptr<Text> twig = nullptr;
+
+            g_ptr<Quad> selectionStart = nullptr;
+            g_ptr<Quad> selectionEnd = nullptr;
+
+            int last_keycode = 0;
+            
+            float pause = 0;
+        
+            void clearSelection() {
+                selectionStart = nullptr;
+                selectionEnd = nullptr;
+                //Add charachter unhilghiting
+            }
+
+
+            void close() {
+                if(cursor&&twig) 
+                    twig->removeChar(cursor);
+
+                twig = nullptr;
+                cursor = nullptr;
+            }
+
+            void move_cursour(g_ptr<Quad> sel = nullptr) {
+                if(!twig) return;
+                if(cursor)
+                    twig->removeChar(cursor);
+
+                int at = 0;
+                if(sel) {
+                    at = twig->chars.find(sel);
+                }
+                
+                cursor = twig->insertChar('|',at);
+            }
+
+            void click_move(g_ptr<Quad> sel = nullptr) {
+                //clearSelection();
+                move_cursour(sel);
+            }
+
+            void open(g_ptr<Text> _twig, g_ptr<Quad> sel = nullptr) {
+                twig = _twig;
+                move_cursour(sel);
+            }
+
+            void tick(float tpf) {
+                if(!twig) return;
+
+                char current_char = currently_pressed();
+                int current_keycode = currently_pressed_keycode();
+
+                auto checkArrow = [&](KeyCode key, g_ptr<Quad> next) {
+                    bool proceed = false;
+                    if(pressed(key)) {
+                        pause = 0.6f;
+                        proceed = true;
+                    } else if(pause <= 0 && held(key)) {
+                        proceed = true;
+                    }
+
+                    if(proceed) {
+                        if(held(LSHIFT)) {
+                            if(key==RIGHT) {       
+                                if(!selectionStart||last_keycode==LEFT) 
+                                    selectionStart = cursor->parent;
+                                selectionEnd = cursor->children[0];
+                            }
+                            else if(key==LEFT) {
+                                if(!selectionEnd||last_keycode==RIGHT) 
+                                    selectionEnd = cursor->parent;
+                                selectionStart = cursor->parent->parent;
+                            }
+                        } 
+                        move_cursour(next);
+                    }
+                };
+
+                checkArrow(RIGHT,cursor->children[0]);
+                checkArrow(LEFT,cursor->parent->parent);
+                pause -= tpf;
+
+
+                if(held(CMD)) {
+                    if(held(CMD) && pressed(C)) {
+                        if(selectionStart && selectionEnd) {
+                            std::string copied;
+                            g_ptr<Quad> walker = selectionStart;
+                            while(walker && walker != selectionEnd) {
+                                if(walker->opt_char != '|') {
+                                    copied += walker->opt_char;
+                                }
+                                walker = walker->children.empty() ? nullptr : walker->children[0];
+                            }
+                            clipboard = copied;
+                        }
+                        clearSelection();
+                    }
+            
+                    if(held(CMD) && pressed(V)) {
+                        g_ptr<Quad> last = cursor;
+                        twig->insertText(clipboard,cursor->parent->parent);
+                        clearSelection();
+                    }
+                }
+                else {
+                    if(current_keycode==BACKSPACE) {
+                        twig->removeChar(cursor->parent->parent);
+                    }
+                    else if(current_char!=n_pressed) {
+                        twig->insertChar(current_char,cursor->parent->parent);
+                    }
+
+                    if(current_keycode!=-1&&!held(LSHIFT)) {
+                        clearSelection();
+                    }
+                }
+
+                if(current_char!=n_pressed)
+                    last_keycode = current_keycode;
+            }
+        };
+
     }
     namespace start
     {

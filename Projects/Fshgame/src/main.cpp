@@ -5,10 +5,11 @@
 #include<util/logger.hpp>
 #include<core/physics.hpp>
 
+#include<gui/twig.hpp>
+
 using namespace Golden;
 
 g_ptr<Scene> scene;
-g_ptr<Font> font;
 ivec2 win(2560,1536);
 
 
@@ -95,6 +96,7 @@ list<std::pair<list<vec2>, vec4>> generateSimpleSubdivisions(int numRegions, uns
 }
 
 
+
 int main()  {
     using namespace helper;
 
@@ -104,7 +106,9 @@ int main()  {
     scene = make<Scene>(window,2);
     Data d = make_config(scene,K);
     scene->tickEnvironment(0);
-    font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
+
+    g_ptr<Text> twig = nullptr;
+
     list<g_ptr<Quad>> boxes;
 
     scene->enableInstancing();
@@ -118,9 +122,11 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 7;
+    int TESTING = 0;
     if(TESTING == 0) {
-        g_ptr<Quad> test = text::makeText(
+        g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
+        twig = make<Text>(font,scene);
+        boxes << twig->makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
         "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
         "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
@@ -141,8 +147,7 @@ int main()  {
         "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
         "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
         "\nLegislature as a separate role, some are represented by a mayor or dean."
-        ,font,scene,vec2(50,40),0.8f);
-        boxes << test;
+            ,{100,100});
     } else if (TESTING==1) {
         g_ptr<Geom> geom = make<Geom>();
         for(int i=0;i<10000;i++) {
@@ -446,14 +451,16 @@ int main()  {
         scene->add(map);
         map->setPosition({100, 100});
         map->setScale({400, 400});
-
-        // map->getGeom()->addSubdivision({vec2(0, 0),vec2(0.5, 0),vec2(0.5, 1),vec2(0, 1)},vec4(1,0,0,1));
-        // map->getGeom()->addSubdivision({vec2(0.5, 0),vec2(1, 0),vec2(1, 1),vec2(0.5, 1)},vec4(0,0,1,1));
-        auto regions = generateSimpleSubdivisions(15);
-        for(auto& [boundary, color] : regions) {
-            map->getGeom()->addSubdivision(boundary, color);
-        } 
         boxes << map;
+
+        map->getGeom()->addSubdivision({vec2(0, 0),vec2(0.5, 0),vec2(0.5, 1),vec2(0, 1)},vec4(1,0,0,1),"left");
+        map->getGeom()->addSubdivision({vec2(0.5, 0),vec2(1, 0),vec2(1, 1),vec2(0.5, 1)},vec4(0,0,1,1),"right");
+
+        // auto regions = generateSimpleSubdivisions(15);
+        // for(auto& [boundary, color] : regions) {
+        //     map->getGeom()->addSubdivision(boundary, color);
+        // } 
+
 
         for(int i=0;i<3;i++) {
             g_ptr<Quad> box2 = make<Quad>(map->getGeom());
@@ -477,10 +484,34 @@ int main()  {
 
     // phys.quadGravity = 300;
 
+    Log::Line timer; timer.start();
+    int instance_accumulator = 0;
+
     S_Tool s_tool;
     s_tool.log_fps = true;
     double m = 0;
+    //The parent of selected
+    g_ptr<Quad> sel = nullptr;
+    //The actual selected
+    g_ptr<Quad> sub_sel = nullptr;
+
+    g_ptr<TextEditor> editor = make<TextEditor>();
+
+    if(!boxes.empty()) sel = boxes[0];
+
+    bool block_input = false;
     start::run(window,d,[&]{
+
+
+        if(TESTING==0) {
+            editor->tick(s_tool.tpf);
+            if(pressed(ESCAPE)) {
+                editor->close();
+                block_input = false;
+            }
+
+            if(editor->twig) block_input = true;
+        }
         // m = std::sin(s_tool.frame)*100;
         // //test->setPosition(vec2(m,m));
         //    box->move(vec2(m,m));
@@ -518,90 +549,145 @@ int main()  {
             line->rotate(angle);
 
             line->setPosition(box->getCenter());
+        } else if(TESTING==6) {
+            phys.updatePhysics();
         }
 
-    if(held(MOUSE_LEFT)) {
-        if(TESTING==2) {
-            //vec2 diff = boxes[1]->getPosition() - boxes[0]->getPosition(); 
-            boxes[0]->setCenter(scene->mousePos2d());
-            //boxes[1]->setPosition(boxes[0]->getPosition() + diff);
+        if(pressed(MOUSE_RIGHT)||(TESTING==0&&pressed(MOUSE_LEFT))) {
+            sel = scene->nearestElement();
+            sub_sel = sel;
+            if(sel) {
+                // print("Selected at: ",sel->getPosition().to_string());
+                if(sel->parent) {
+                    while(sel->parent) sel = sel->parent;
+                    //print("Transfered to parent at: ",sel->getPosition().to_string());
+                }
+            }
 
-            //boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
-        } 
-        else if(TESTING==6) {
-            boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
-        } 
-        else if(TESTING==7) {
-
-        }
-        else if (!boxes.empty()) {
-            boxes[0]->setCenter(scene->mousePos2d());
-        }
-    }
-
-    if(pressed(MOUSE_LEFT)) {
-        if(TESTING==7) {
-            int sub_idx = sampleForSubdivision(boxes[0],scene->mousePos2d());
-            if(sub_idx!=-1) {
-                vec4& data = boxes[0]->getGeom()->subData[sub_idx];
-                if(data == vec4(1,0,0,1))
-                    data = vec4(0,0,1,1);
+            if(sub_sel&&TESTING==0) {
+                if(!editor->twig) {
+                    editor->open(twig,sub_sel);
+                    block_input = true;
+                }
                 else
-                    data = vec4(1,0,0,1);
-            }
-         }
-    }
-
-    if(held(R)) {
-        if(TESTING==2) {
-            boxes[0]->rotateCenter(m+=0.01);
-
-            // vec2 boxCenter = boxes[0]->getCenter();
-            // vec2 mousePos = scene->mousePos2d();
-            // vec2 dir = boxCenter.direction(mousePos);
-            // float targetAngle = std::atan2(dir.y(), dir.x());
-            // boxes[0]->getVelocity().rotation = vec3(0, 0, targetAngle);
-        }
-    }
-
-    if(held(S)) {
-        if(TESTING==2) {
-            vec2 center = boxes[0]->getCenter();
-            vec2 pos = scene->mousePos2d();
-            float n = center.distance(pos) * 2.0f;
-            boxes[0]->scaleCenter(vec2(n,n));
-
-            // vec2 center = boxes[0]->getCenter();
-            // vec2 pos = scene->mousePos2d();
-            // float distance = center.distance(pos);
-            // float targetScale = distance * 2.0f;
-            // float currentScale = boxes[0]->getScale().x();
-            // float scaleRate = (targetScale - currentScale) * 0.005f; // Rate of growth
-            
-            // boxes[0]->getVelocity().scale = vec3(scaleRate, scaleRate, 0);
-        }
-    }
-
-    if(pressed(G)) {
-        if(TESTING==2) {
-            if(boxes[0]->getWorldBounds().intersects(boxes[1]->getWorldBounds())) {
-                print("INTERSECTS!");
-            } else {
-                print("No intersection");
+                    editor->click_move(sub_sel);
             }
         }
-    }
 
-    if(pressed(E)) {
-        if(TESTING==2) {
-            print("----------------------");
-            printnl("Box 0 pos: "); boxes[0]->getPosition().print();
-            printnl("Box 1 pos: "); boxes[1]->getPosition().print();
-            print("Toggle Box2 joint lock ");
-            boxes[1]->unlockJoint = !boxes[1]->unlockJoint;
+        if(!block_input) {
+            if(held(MOUSE_LEFT)) {
+                if(TESTING==2) {
+                    //vec2 diff = boxes[1]->getPosition() - boxes[0]->getPosition(); 
+                    boxes[0]->setCenter(scene->mousePos2d());
+                    //boxes[1]->setPosition(boxes[0]->getPosition() + diff);
+
+                    //boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
+                } 
+                else if(TESTING==6) {
+                    boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
+                } 
+                else if(TESTING==7) {
+
+                }
+                else if (!boxes.empty()||sel) {
+                    if(sel) 
+                        sel->setCenter(scene->mousePos2d());
+                    else
+                        boxes[0]->setCenter(scene->mousePos2d());
+                }
+            }
+
+            if(pressed(MOUSE_LEFT)) {
+                if(TESTING==7) {
+                    int sub_idx = sampleForSubdivision(boxes[0],scene->mousePos2d());
+                    if(sub_idx!=-1) {
+                        vec4& data = boxes[0]->getGeom()->subData[sub_idx];
+                        if(data == vec4(1,0,0,1))
+                            data = vec4(0,0,1,1);
+                        else
+                            data = vec4(1,0,0,1);
+                        print("Clicked: ",boxes[0]->getGeom()->subSlots[sub_idx]);
+                    }
+                }
+            }
+
+            if(held(R)) {
+                if(TESTING==2) {
+                    boxes[0]->rotateCenter(m+=0.01);
+
+                    // vec2 boxCenter = boxes[0]->getCenter();
+                    // vec2 mousePos = scene->mousePos2d();
+                    // vec2 dir = boxCenter.direction(mousePos);
+                    // float targetAngle = std::atan2(dir.y(), dir.x());
+                    // boxes[0]->getVelocity().rotation = vec3(0, 0, targetAngle);
+                } else if (sel) {
+                    sel->rotateCenter(held(LSHIFT) ? m+=0.01 : m-=0.01);
+                }
+            }
+
+            if(held(S)) {
+                if(TESTING==2) {
+                    vec2 center = boxes[0]->getCenter();
+                    vec2 pos = scene->mousePos2d();
+                    float n = center.distance(pos) * 2.0f;
+                    boxes[0]->scaleCenter(vec2(n,n));
+
+                    // vec2 center = boxes[0]->getCenter();
+                    // vec2 pos = scene->mousePos2d();
+                    // float distance = center.distance(pos);
+                    // float targetScale = distance * 2.0f;
+                    // float currentScale = boxes[0]->getScale().x();
+                    // float scaleRate = (targetScale - currentScale) * 0.005f; // Rate of growth
+                    
+                    // boxes[0]->getVelocity().scale = vec3(scaleRate, scaleRate, 0);
+                } else if (sel) {
+                    vec2 center = sel->getCenter();
+                    vec2 pos = scene->mousePos2d();
+                    float n = center.distance(pos) * 2.0f;
+                    sel->scaleCenter(vec2(n,n));
+                }
+            }
+
+            if(pressed(G)) {
+                if(TESTING==2) {
+                    if(boxes[0]->getWorldBounds().intersects(boxes[1]->getWorldBounds())) {
+                        print("INTERSECTS!");
+                    } else {
+                        print("No intersection");
+                    }
+                }
+            }
+
+            if(pressed(R)||pressed(S)||pressed(MOUSE_LEFT)) {
+                instance_accumulator++;
+            }
+
+            if(pressed(E)) {
+                if(TESTING==2) {
+                    print("----------------------");
+                    printnl("Box 0 pos: "); boxes[0]->getPosition().print();
+                    printnl("Box 1 pos: "); boxes[1]->getPosition().print();
+                    print("Toggle Box2 joint lock ");
+                    boxes[1]->unlockJoint = !boxes[1]->unlockJoint;
+                } else if(TESTING==0) {
+                    double duration = timer.end();
+                    print("Accumulated times over ",duration/1000000000,"s: ");
+                    list<float> final_times;
+                    for(auto b : boxes) {
+                        for(int c=0;c<b->opt_list_float.length();c++) {
+                            if(c>=final_times.length()) final_times << 0;
+                            final_times[c]+=b->opt_list_float[c];
+                            b->opt_list_float[c] = 0;
+                        }
+                    }
+                    for(int t=0;t<final_times.length();t++) {
+                        print("time ",t,": ",(final_times[t]/boxes.length())/instance_accumulator);
+                    }
+                    instance_accumulator = 0;
+                }
+            }
         }
-    }
-
+    
        s_tool.tick();
     });
 

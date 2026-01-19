@@ -6,16 +6,6 @@
 namespace Golden
 {
 
-struct Q_Snapshot
-{
-    Q_Snapshot(const vec2& _pos,const vec2& _scale,float _rot) : 
-    pos(_pos), scale(_scale), rot(_rot) {} 
-    Q_Snapshot() {}
-    vec2 pos = vec2(0,0);
-    vec2 scale = vec2(1,1);
-    float rot = 0.0f; 
-};
-
 /// @todo Remember to add a remove method with pop and swap for SoA!!
 class Quad : virtual public S_Object 
 {
@@ -43,66 +33,44 @@ public:
     vec2 endScale = vec2(1,1);
     float endRotation = 0.0f;
 
+
     g_ptr<Geom> geom;
 
     g_ptr<Quad> parent;
-    vec2 t_vec = {0,0};
     list<g_ptr<Quad>> children;
-    bool callingChild = false;
-    Q_Snapshot ogt;
 
-    //Joint is a stateful parent-child transform propagation system, the child should always own the joint!
+    //Snap is a turing-complet statefultransform propagation system, the child should always own the joint!
     list<g_ptr<Quad>> parents;
     std::function<bool()> joint = nullptr;
     std::function<bool()> physicsJoint = nullptr;
     bool unlockJoint = false;
+    //This is meant to be used for Snap to add break-points in parent chains, but it doesn't have to be
+    bool isAnchor = false;
+
+    //These are just here as shared calculation sketchpads for Twig-Snap
+    float opt_y_offset = 0;
+    float opt_x_offset = 0;
+    vec2 opt_offset = {0,0};
+    vec2 opt_delta = {0,0};
+    float opt_float = 0;
+    float opt_float_2 = 0;
+    int opt_int = 0;
+    bool opt_flag = false;
+    char opt_char = ' ';
+    g_ptr<Quad> opt_ptr = nullptr;
+    vec2 t_vec = {0,0};
+
+    list<float> opt_list_float;
+    list<int> opt_list_lint;
+
 
     bool instanced = false;
-
-    bool lockToParent = false;
-     /// @todo Add methods later for removing children and detatching from parent
-     void addChild(g_ptr<Quad> q,bool andLock = false);
-     inline void detatchAll()
-     {
-         for(auto c : children)
-         {
-             c->lockToParent = false;
-             c->parent = nullptr;
-         }
-         children.clear();
-     }
-     
-     inline void removeFromParent()
-     {
-         if(parent)
-         {
-             lockToParent = false;
-             parent->children.erase_if([this](const g_ptr<Quad>& q){return q->UUID == this->UUID;});
-             parent = nullptr;
-         }
-     }
- 
-     inline void lockWithParent()
-     {
-         if(parent)
-         {
-         lockToParent = true;
-         ogt = Q_Snapshot(
-             position-parent->position,
-             scaleVec-parent->scaleVec,
-             rotation-parent->rotation);
-         }
-     }
- 
-    // void setTexture(unsigned int glTex, uint8_t slot = 0) {
-    //     textureGL   = glTex;
-    //     textureSlot = slot;
-    // }
 
     void hide();
     void show();
     bool culled();
 
+    void addChild(g_ptr<Quad> q);
 
     g_ptr<Geom> getGeom();
     glm::mat4& getTransform();

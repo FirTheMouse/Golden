@@ -27,42 +27,45 @@ namespace Golden
         //I'll just sweep it under the rug for now and use deactivate, coordinating remove across
         //grouped items is too much of a headache, plus if I add GC later it can clean these deactivated
         //objects in one nice clean pass
-        if(lockToParent)
-       {
-        callingChild=true;
-        run("onRemove");
-        parent->remove();
-        callingChild=false;
-        scene->deactivate(this);
-        return;
-       }
-       else if(!children.empty())
-       {
-        list<g_ptr<Quad>> swaped;
-        swaped <= children;
-        for(int i=swaped.length()-1;i>=0;i--)
-        {
-            auto c = swaped[i];
-            if(c->lockToParent&&!c->callingChild)
-            {
-                scene->deactivate(c);
-                c->run("onRemove");
-                // if(c->ID>=c->scene->quadActive.length()) continue;
 
-                // c->S_Object::remove();
-                // c->scene->quadActive.remove(c->ID);
-                // c->scene->quads.remove(c->ID);
-                // c->scene->guiTransforms.remove(c->ID);
-                // c->scene->guiEndTransforms.remove(c->ID);
-                // c->scene->slots.remove(c->ID);
+        //Snap should simplify all of this! But when I need a remove I'll just use the logic correctly, for now, again ignoring it.
+        //I never remove anything anyways.
+    //     if(lockToParent)
+    //    {
+    //     callingChild=true;
+    //     run("onRemove");
+    //     parent->remove();
+    //     callingChild=false;
+    //     scene->deactivate(this);
+    //     return;
+    //    }
+    //    else if(!children.empty())
+    //    {
+    //     list<g_ptr<Quad>> swaped;
+    //     swaped <= children;
+    //     for(int i=swaped.length()-1;i>=0;i--)
+    //     {
+    //         auto c = swaped[i];
+    //         if(c->lockToParent&&!c->callingChild)
+    //         {
+    //             scene->deactivate(c);
+    //             c->run("onRemove");
+    //             // if(c->ID>=c->scene->quadActive.length()) continue;
 
-                // if(c->ID<scene->quads.length())
-                // scene->quads.get(c->ID,"Quad::remove::62")->ID =c->ID;
+    //             // c->S_Object::remove();
+    //             // c->scene->quadActive.remove(c->ID);
+    //             // c->scene->quads.remove(c->ID);
+    //             // c->scene->guiTransforms.remove(c->ID);
+    //             // c->scene->guiEndTransforms.remove(c->ID);
+    //             // c->scene->slots.remove(c->ID);
+
+    //             // if(c->ID<scene->quads.length())
+    //             // scene->quads.get(c->ID,"Quad::remove::62")->ID =c->ID;
                 
-            }
-        }
-        detatchAll();
-        }
+    //         }
+    //     }
+    //     detatchAll();
+    //     }
 
         run("onRemove");
         scene->deactivate(this);
@@ -81,95 +84,13 @@ namespace Golden
         scene->quads.get(ID,"Quad::remove::43")->ID = ID;
     }
 
-    // void Quad::setupQuad()
-    // {
-    //     float quadVertices[] = {
-    //         // pos     // uv
-    //         0.0f, 1.0f, 0.0f, 0.0f, // Top-left
-    //         1.0f, 1.0f, 1.0f, 0.0f, // Top-right
-    //         1.0f, 0.0f, 1.0f, 1.0f, // Bottom-right
-    //         0.0f, 0.0f, 0.0f, 1.0f  // Bottom-left
-    //     };
-        
-    //     unsigned int indices[] = {
-    //         0, 1, 2,
-    //         2, 3, 0
-    //     };
-
-        
-    //     glGenVertexArrays(1, &VAO);
-    //     glGenBuffers(1, &VBO);
-    //     glGenBuffers(1, &EBO);
-
-    //     glBindVertexArray(VAO);
-
-    //     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    //     glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-
-    //     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    //     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    //     glEnableVertexAttribArray(0); // pos
-    //     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-
-    //     glEnableVertexAttribArray(1); // uv
-    //     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-
-    //     glBindVertexArray(0);
-    // }
-
-    // void Quad::draw()
-    // {
-    //     glBindVertexArray(VAO);
-    //     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-    //     glBindVertexArray(0);
-    // }
-
     void Quad::hide() {
-        if(lockToParent)
-        {
-         callingChild=true;
-         parent->hide();
-         callingChild=false;
-         return;
-        }
-        else if(!children.empty())
-        {
-         scene->quadCulled.get(ID)=true;
-         for(auto c : children)
-         {
-             if(c->lockToParent)
-             {
-                scene->quadCulled.get(c->ID)=true;
-             }
-         }
-         } else {
-            scene->quadCulled.get(ID)=true;
-         }
+        GET(scene->quadCulled,ID)=true;
     }
     void Quad::show() {
-        if(lockToParent)
-        {
-         callingChild=true;
-         parent->show();
-         callingChild=false;
-         return;
-        }
-        else if(!children.empty())
-        {
-         scene->quadCulled.get(ID)=false;
-         for(auto c : children)
-         {
-             if(c->lockToParent)
-             {
-                scene->quadCulled.get(c->ID)=false;
-             }
-         }
-         } else {
-            scene->quadCulled.get(ID)=false;
-         }
+        GET(scene->quadCulled,ID)=false;
     }
-    bool Quad::culled() {return scene->quadCulled.get(ID);}
+    bool Quad::culled() {return  GET(scene->quadCulled,ID);}
 
     g_ptr<Geom> Quad::getGeom() {
         return GET(scene->geoms,ID);
@@ -330,24 +251,11 @@ namespace Golden
      return *this;
     }
 
-    void Quad::addChild(g_ptr<Quad> q, bool andLock)
+    void Quad::addChild(g_ptr<Quad> q)
     {
-        if(!q->parent)
-        {
+        if(q->parent) q->parents << this;
+        else q->parent = this;
         children << q;
-        q->parent = g_ptr<Quad>(this);
-            if(andLock)
-            {
-                q->lockToParent = true;
-                q->ogt = Q_Snapshot(
-                    q->position-position,
-                    q->scaleVec-scaleVec,
-                    q->rotation-rotation);
-            }
-        }
-        else {
-            print("Quad::AddChild::131 Quad already parented!");
-        }
     }
 
     Quad& Quad::startAnim(float duration) {
@@ -365,75 +273,12 @@ namespace Golden
        if(update)
             updateTransform();
        return *this;
-
-    //    if(lockToParent)
-    //    {
-    //     callingChild=true;
-    //     parent->setPosition(pos-vec2(ogt.pos.x(),ogt.pos.y()));
-    //     callingChild=false;
-    //    }
-    //    else if(!children.empty())
-    //    {
-    //     for(auto c : children)
-    //     {
-    //         bool isTextParent = has("char");
-            
-    //         if(isTextParent)
-    //         {
-    //             // Get the character list and update the text scale
-    //             auto chars = get<g_ptr<d_list<size_t>>>("chars");
-    //             float textScale = chars->Object::get<float>("scale");
-                
-    //             // Recalculate positions using makeText logic
-    //             vec2 start = position; // or however you want to anchor it
-    //             for(auto c : children)
-    //             {
-    //                 if(c->lockToParent && c->has("char"))
-    //                 {
-    //                     vec2 bearing = c->get<vec2>("bearing");
-    //                     c->position = start + (bearing * textScale);
-    //                     float dx = c->get<float>("advance") * textScale;
-                        
-    //                     float left = getPosition().x();
-    //                     if(c->get<char>("char")=='\n') {
-    //                         dx-=(start.x()-left);
-    //                         start.addY(50.0f*textScale);}
-
-    //                     start.addX(dx);
-    //                     c->updateTransform();
-    //                 }
-    //                 else if(c->lockToParent && !c->callingChild)
-    //                 {
-    //                     c->position = pos+c->ogt.pos;
-    //                     c->updateTransform();
-    //                 } 
-    //             }
-    //         }
-    //         else if(c->lockToParent&&!c->callingChild)
-    //         {
-    //             c->position = pos+vec2(c->ogt.pos.x(),c->ogt.pos.y());
-    //             c->updateTransform();
-    //         }
-    //     }
-    //    }
     }
 
     Quad& Quad::setCenter(const vec2& pos, bool update)
     {
-            // if(has("char"))
-            // {
-            //     auto textQuad = text::parent_of(this);
-            //     vec2 visualCenter = text::center_of(textQuad);
-            //     vec2 currentPos = textQuad->getPosition();
-            //     vec2 offset = pos - visualCenter;
-            //     textQuad->setPosition(currentPos + offset);
-            // }
-            // else
-            // {
-
             vec2 scale = getScale();
             setPosition(pos-(scale*0.5f),update);
-            // }
         return *this;
     }  
     
@@ -466,61 +311,6 @@ namespace Golden
         if(update)
             updateTransform();
         return *this;
-
-    //     if(lockToParent)
-    //    {
-    //     callingChild=true;
-    //     parent->scale(vec2(scaleVec/ogt.scale));
-    //     callingChild=false;
-    //    }
-    //    else if(!children.empty())
-    //     {
-    //         bool isTextParent = has("char");
-            
-    //         if(isTextParent)
-    //         {
-    //             // Get the character list and update the text scale
-    //             auto chars = get<g_ptr<d_list<size_t>>>("chars");
-    //             float currentTextScale = chars->Object::get<float>("scale");
-    //             float newTextScale = (scale.x() + scale.y()) / 2.0f;
-    //             chars->Object::set<float>("scale", newTextScale);
-                
-    //             // Recalculate positions using makeText logic
-    //             vec2 start = position; // or however you want to anchor it
-    //             for(auto c : children)
-    //             {
-    //                 if(c->lockToParent && c->has("char"))
-    //                 {
-    //                     // Apply makeText positioning logic here
-    //                     vec2 bearing = c->get<vec2>("bearing");
-    //                     c->position = vec2(start + (bearing * newTextScale));
-                        
-    //                     float dx = c->get<float>("advance") * newTextScale;
-    //                     float left = getPosition().x();
-    //                     if(c->get<char>("char")=='\n') {
-    //                         dx-=(start.x()-left);
-    //                         start.addY(50.0f*newTextScale);}
-    //                     start.addX(dx);
-    //                     // Scale the visual quad
-    //                     vec2 st = c->get<vec2>("size")*newTextScale;
-    //                     c->scaleVec = st;
-    //                     c->updateTransform();
-    //                 }
-    //             }
-    //         }
-    //         else
-    //         {
-    //             // Regular child scaling logic
-    //             for(auto c : children)
-    //             {
-    //                 if(c->lockToParent&&!c->callingChild)
-    //                 {
-    //                     c->scaleVec = c->ogt.scale+scale;
-    //                     c->updateTransform();
-    //                 }
-    //             }
-    //         }
-    //     }
     }
 
     Quad& Quad::setScale(const vec2& _scale, bool update)
@@ -570,13 +360,16 @@ namespace Golden
         glm::mat4& mat = getTransform();
 
         if(joined) {
+            bool doUpdate = true;
+            if(!unlockJoint && (!parents.empty()||parent) && joint) {
+                doUpdate = joint();
+            }
+
             if(!children.empty()) {
                 for(auto c : children) c->updateTransform();
             }
 
-            if(!unlockJoint && (!parents.empty()||parent) && joint) {
-                if(!joint()) return;
-            }
+            if(!doUpdate) return;
         }
 
         glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), glm::vec3(scaleVec.toGlm(),1));

@@ -6,8 +6,8 @@
 #include <rendering/renderer.hpp>
 #include <rendering/scene_object.hpp>
 #include <gui/quad.hpp>
-#include <gui/text.hpp>
 #include <util/q_list.hpp>
+#include <util/d_list.hpp>
 
 #define DEBUG 0
 
@@ -94,24 +94,24 @@ struct Q_Fab {
     }
 
     void encodeText(const g_ptr<Quad> g) {
-        if(!g->has("char")) {
-            print("q_fab::encodeText::61 Tried to encode a non-text quad");
-            return;
-        }
-        auto chars = g->get<txt>("chars");
-        // g_ptr<S_Object> sobj = chars->Object::get<g_ptr<Scene>>("scene")->getObject((*chars)[0]);
-        // if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
-        // {
-        auto quad = chars->Object::get<g_ptr<Quad>>("parent");
-        text = chars->Object::get<std::string>("string");
-        g_ptr<Font> font = chars->Object::get<g_ptr<Font>>("font");
-        filePath = font->get<std::string>("path");
-        pos = quad->getPosition();
-        float text_scale = chars->Object::get<float>("scale");
-        float font_scale = font->get<float>("scale");
-        scale = vec2(font_scale,text_scale);
-        type = "text";
-        slots = g->getSlots();
+        // if(!g->has("char")) {
+        //     print("q_fab::encodeText::61 Tried to encode a non-text quad");
+        //     return;
+        // }
+        // auto chars = g->get<txt>("chars");
+        // // g_ptr<S_Object> sobj = chars->Object::get<g_ptr<Scene>>("scene")->getObject((*chars)[0]);
+        // // if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
+        // // {
+        // auto quad = chars->Object::get<g_ptr<Quad>>("parent");
+        // text = chars->Object::get<std::string>("string");
+        // g_ptr<Font> font = chars->Object::get<g_ptr<Font>>("font");
+        // filePath = font->get<std::string>("path");
+        // pos = quad->getPosition();
+        // float text_scale = chars->Object::get<float>("scale");
+        // float font_scale = font->get<float>("scale");
+        // scale = vec2(font_scale,text_scale);
+        // type = "text";
+        // slots = g->getSlots();
     }
 
     void saveBinary(const std::string& path) {
@@ -383,29 +383,11 @@ public:
         sobj->stop();
         if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
         {
-            quadActive.get(sobj->ID,"scene::deactivate::214") = false;
-            if(quad->lockToParent)
-            {
-             quad->callingChild=true;
-             deactivate(quad->parent);
-             quad->callingChild=false;
-             return;
-            }
-            else if(!quad->children.empty())
-            {
-             for(auto c : quad->children)
-             {
-                 if(c->lockToParent&&!c->callingChild)
-                 {
-                    c->stop();
-                    quadActive.get(c->ID,"scene::deactivate::214") = false;
-                 }
-             }
-             }
+            GET(quadActive,sobj->ID) = false;
         }
         else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
         {
-            active.get(sobj->ID,"scene::deactivate::219") = false;
+            GET(active,sobj->ID) = false;
         }
     }
 
@@ -414,29 +396,11 @@ public:
         sobj->resurrect();
         if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
         {
-            quadActive.get(sobj->ID,"scene::reactivate::228") = true;
-            if(quad->lockToParent)
-            {
-             quad->callingChild=true;
-             reactivate(quad->parent);
-             quad->callingChild=false;
-             return;
-            }
-            else if(!quad->children.empty())
-            {
-             for(auto c : quad->children)
-             {
-                 if(c->lockToParent&&!c->callingChild)
-                 {
-                    c->resurrect();
-                    quadActive.get(c->ID,"scene::deactivate::214") = true;
-                 }
-             }
-             }
+            GET(quadActive,sobj->ID) = true;
         }
         else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
         {
-            active.get(sobj->ID,"scene::reactivate::233") = true;
+            GET(active,sobj->ID) = true;
         }
     }
 
@@ -488,20 +452,16 @@ public:
     return vec2(xpos*2,ypos*2);
     }
 
-    g_ptr<Quad> nearestElement(vec2 from = vec2(-10000,0))
+    g_ptr<Quad> nearestElement(vec2 from)
     {
-    //Inefficent and dangerous at this point, but it functions
-    //A better option could be a dedicated selectable list, like in GUIDE, but that adds
-    //overhead elsewhere
-    vec2 pos = mousePos2d();
-    if(from.x()!=-10000) pos = from;
+    //Could use Physics for this? Maybe the AAABB tree if enabled or something?
+    vec2 pos = from;
     float closestDist = 10000;
     g_ptr<Quad> closest = nullptr;
     for(int i=0;i<quadActive.length();i++)
     {
         if(i>=quads.length()) break;
-        auto qobj = quads.get(i,"gguim::nearestElement::514");
-        if (!qobj->check("valid")) continue;
+        auto qobj = GET(quads,i);
         if(!quadActive[i]) continue;
 
         if (qobj->pointInQuad(pos)) {
@@ -518,6 +478,10 @@ public:
     return closest;
     }
 
+    g_ptr<Quad> nearestElement() {
+       return nearestElement(mousePos2d());
+    }
+
     g_ptr<Quad> nearestWithin(float min = 5.0f)
     {
     vec2 pos = mousePos2d();
@@ -527,7 +491,6 @@ public:
     {
         if(i>=quads.length()) break;
         auto qobj = quads[i];
-        if (!qobj->check("valid")) continue;
         if(!quadActive[i]) continue;
 
         if (qobj->pointInQuad(pos)) {
@@ -859,63 +822,63 @@ public:
         }
         else if (fab.type=="text")
         {
-            auto font = make<Font>();
-            std::string fontID = fab.filePath+std::to_string(fab.scale.x());
-            if(has(fontID)) font = get<g_ptr<Font>>(fontID);
-            else {
-                font->loadFromTTF(fab.filePath,fab.scale.x());
-                set<g_ptr<Font>>(fontID,font);
-            }
-            g_ptr<Quad> first = text::makeText(fab.text,font,this,fab.pos,fab.scale.y());
+        //     auto font = make<Font>();
+        //     std::string fontID = fab.filePath+std::to_string(fab.scale.x());
+        //     if(has(fontID)) font = get<g_ptr<Font>>(fontID);
+        //     else {
+        //         font->loadFromTTF(fab.filePath,fab.scale.x());
+        //         set<g_ptr<Font>>(fontID,font);
+        //     }
+        //     g_ptr<Quad> first = text::makeText(fab.text,font,this,fab.pos,fab.scale.y());
 
-            for(std::string s : fab.slots)
-            {
-                if(loaded_slots.hasKey(s))
-                loaded_slots.get(s).push(first);
-                else loaded_slots.put(s,list<g_ptr<Quad>>{first});
+        //     for(std::string s : fab.slots)
+        //     {
+        //         if(loaded_slots.hasKey(s))
+        //         loaded_slots.get(s).push(first);
+        //         else loaded_slots.put(s,list<g_ptr<Quad>>{first});
 
-                if(s.at(0)=='_')
-                {
-                    auto l = split_str(s,'_');
-                    if(l[1]=="wdgt")
-                    {
-                       std::string compID = "";
-                       for(int i=2;i<l.length()-1;i++)
-                       {
-                        if(i>2) compID.append("_");
-                         compID.append(l[i]);
-                       }
-                       w_part w(compID,s,first);
-                    //    if(partBin.hasKey(compID))
-                    //    {
-                    //    // print("Has comp: ",compID);
-                    //     //This actually means there's a duplicate, handle collison logic here
-                    //     partBin.get(compID) << w;
-                    //    } 
-                    //    else {partBin.put(compID,list<w_part>{w});}
+        //         if(s.at(0)=='_')
+        //         {
+        //             auto l = split_str(s,'_');
+        //             if(l[1]=="wdgt")
+        //             {
+        //                std::string compID = "";
+        //                for(int i=2;i<l.length()-1;i++)
+        //                {
+        //                 if(i>2) compID.append("_");
+        //                  compID.append(l[i]);
+        //                }
+        //                w_part w(compID,s,first);
+        //             //    if(partBin.hasKey(compID))
+        //             //    {
+        //             //    // print("Has comp: ",compID);
+        //             //     //This actually means there's a duplicate, handle collison logic here
+        //             //     partBin.get(compID) << w;
+        //             //    } 
+        //             //    else {partBin.put(compID,list<w_part>{w});}
 
-                       if(l.length()>=6)
-                       {
-                            std::string parentID = "";
-                            for(int i=2;i<l.length()-2;i++)
-                            {
-                            if(i>2) parentID.append("_");
-                            parentID.append(l[i]);
-                            }
-                            // print(compID,", Parent: ",parentID);
-                            if(partBin.hasKey(parentID))
-                            {
-                                partBin.get(parentID) << w;
-                            } 
-                            else {partBin.put(parentID,list<w_part>{w});}
-                       }
-                    }
-                }
-            }
+        //                if(l.length()>=6)
+        //                {
+        //                     std::string parentID = "";
+        //                     for(int i=2;i<l.length()-2;i++)
+        //                     {
+        //                     if(i>2) parentID.append("_");
+        //                     parentID.append(l[i]);
+        //                     }
+        //                     // print(compID,", Parent: ",parentID);
+        //                     if(partBin.hasKey(parentID))
+        //                     {
+        //                         partBin.get(parentID) << w;
+        //                     } 
+        //                     else {partBin.put(parentID,list<w_part>{w});}
+        //                }
+        //             }
+        //         }
+        //     }
 
-            first->getSlots() <= fab.slots;
-            //Could also store slots in chars, I'll see what I like most later
-            return first;
+        //     first->getSlots() <= fab.slots;
+        //     //Could also store slots in chars, I'll see what I like most later
+        //     return first;
         }
         else 
         {print("Unrecognized type in GGUIM::loadFab");}
@@ -994,7 +957,7 @@ private:
                 c->set<bool>("valid",valid);
             }
         }
-        else if(g->lockToParent)
+        else if(g->unlockJoint)
         {
             if(g->parent)
             {
@@ -1109,7 +1072,7 @@ private:
         {
         g->set<g_ptr<Quad>>("text",g_txt);
         set_valid(g_txt,false);
-        g_txt->addChild(g,true);
+        g_txt->addChild(g);
         std::string ext_label_text = "_wdgt_base_";
         g_txt->set<std::string>("ext_label",ext_label_text);
 

@@ -31,12 +31,12 @@ namespace Golden {
 
         list<list<vec2>> subdivisions;
         list<vec4> subData;
-        list<unsigned int> subTextures;
+        list<std::string> subSlots;
 
-        void addSubdivision(const list<vec2>& boundaries, const vec4& data, unsigned int texture = 0) {
+        void addSubdivision(const list<vec2>& boundaries, const vec4& data, std::string subSlot = "") {
             subdivisions << boundaries;
             subData << data;
-            subTextures << texture;
+            subSlots << subSlot;
         }
 
 
