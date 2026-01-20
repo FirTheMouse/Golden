@@ -8,36 +8,43 @@
 
 #include<util/logger.hpp>
 
+#include<util/DSL_util.hpp>
+
 int main() {
 
-    std::vector<bool> b_vec;
-    list<bool> b_list;
-    Log::rig r;
-    r.add_process("clean",[&](int i){
-        if(i==0) {
-            b_vec.clear();
-            b_list.clear();
-        }
-    });
-    r.add_process("pop_vec",[&](int i){
-        b_vec.push_back(false);
-    });
-    r.add_process("pop_list",[&](int i){
-        b_list.push(false);
-    });
-    r.add_process("access_vec",[&](int i){
-        volatile bool a = b_vec[i];
-    });
-    r.add_process("access_list",[&](int i){
-        volatile bool a = b_list[i];
-    });
-
-    //
+    GDSL::helper_test_module::initialize();
+    g_ptr<GDSL::Frame> frame = GDSL::compile(root()+"/Projects/Testing/src/test.gld");
+    GDSL::execute_r_nodes(frame);
 
 
-    r.add_comparison("pop_vec","pop_list");
-    r.add_comparison("access_vec","access_list");
-    r.run(1000,true,100);
+    // std::vector<bool> b_vec;
+    // list<bool> b_list;
+    // Log::rig r;
+    // r.add_process("clean",[&](int i){
+    //     if(i==0) {
+    //         b_vec.clear();
+    //         b_list.clear();
+    //     }
+    // });
+    // r.add_process("pop_vec",[&](int i){
+    //     b_vec.push_back(false);
+    // });
+    // r.add_process("pop_list",[&](int i){
+    //     b_list.push(false);
+    // });
+    // r.add_process("access_vec",[&](int i){
+    //     volatile bool a = b_vec[i];
+    // });
+    // r.add_process("access_list",[&](int i){
+    //     volatile bool a = b_list[i];
+    // });
+
+    // //
+
+
+    // r.add_comparison("pop_vec","pop_list");
+    // r.add_comparison("access_vec","access_list");
+    // r.run(1000,true,100);
 
  
     // g_ptr<Type> t = make<Type>();

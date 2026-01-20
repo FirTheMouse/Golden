@@ -1,5 +1,6 @@
-#include<Golden.hpp>
+#include<core/GDSL.hpp>
 
+namespace GDSL {
 
 //For all the core lanqauge stuff, always goes first
 namespace base_module {
@@ -1782,5 +1783,7 @@ namespace functions_module {
             return ctx.node;
         });
     }
+
+}
 
 }

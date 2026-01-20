@@ -10,9 +10,6 @@ namespace Golden {
         list<std::string> rows;
         list<std::string> contents;
 
-        // std::string columns[6] = {"Trivial","Minor","Normal","Major","Severe","Permanent"};
-        // std::string regions[7] = {"**Head**","**Face / Neck**","**Chest / Belly**","**Back / Shoulders**","**Arms / Paws**","**Legs / Feet**","**Tail / Base**"};
-
         m_table() {}
         m_table(const std::string& table) {
             list<std::string> sections = split_str(table,'|');

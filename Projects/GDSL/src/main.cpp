@@ -6,6 +6,8 @@
 #include <chrono>
 #include <iostream>
 
+using namespace GDSL;
+
 #define MAIN_TEST 0
 
 int main() {
@@ -71,7 +73,7 @@ int main() {
         paren_module::initialize();
         functions_module::initialize();
         std::string code = readFile(root()+"/Projects/GDSL/src/golden.gld");
-        list<g_ptr<Token>> tokens = tokenize(code);
+        list<g_ptr<Token>> tokens = tokenize(code,';');
         list<g_ptr<a_node>> nodes = parse_tokens(tokens);
         balance_precedence(nodes);
         g_ptr<s_node> root = parse_scope(nodes);

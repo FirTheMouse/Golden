@@ -3,12 +3,14 @@
 #include<util/util.hpp>
 #include<core/type.hpp>
 
+namespace GDSL {
+
 //Controls for the compiler printing, for debugging
-#define PRINT_ALL 0
+#define PRINT_ALL 1
 #define PRINT_STYLE 1
 //Very important when adding modules, but will add overhead on execution, causes the reg class
 //to check if a hash exists before using it
-#define CHECK_REG 0
+#define CHECK_REG 1
 
 
 //The GDSL compiler has undergone plenty of changes over time, its current version is 0.1.9, with 0.2.0 planned to be the
@@ -133,17 +135,22 @@ struct t_info {
     uint32_t family = 0;
 };
 
-            //Many classes inherity from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
+            //Many classes inherit from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
 class Token : public Object {
     public:
         Token(uint32_t _type,const std::string& _content) 
         : content(_content) {
+            type_info = t_info(_type,0,GET_TYPE(LITERAL)); //I dislike having a GET_TYPE() in a default constructer like this, especially because I hardly use family! Note to self to fix later
+        }
+        Token(uint32_t _type,char _content) 
+        : content(std::string(1,_content)) {
             type_info = t_info(_type,0,GET_TYPE(LITERAL));
         }
         ~Token() {}
     
         int index = -1; 
         bool parsed = false;
+        bool dotted = false;
         t_info type_info;
         std::string content;    
         uint32_t getType() {return type_info.type;}
@@ -177,11 +184,69 @@ static void reg_t_key(std::string name,uint32_t enum_key,size_t size, uint32_t f
     reg_t_key(name,t_info(enum_key,size,family_key));
 }
 
-//Consider adding this in the future, if it's ever really needed
-//map<char,std::function<void()>> tokenizer_functions;
+
+struct tokenizer_context {
+    uint32_t& state;
+    list<g_ptr<Token>>& result;
+    std::string::const_iterator& it;
+    g_ptr<Token> token;
+
+    tokenizer_context(uint32_t& _state,list<g_ptr<Token>>& _result,std::string::const_iterator& _it,g_ptr<Token> _token)
+        : state(_state), result(_result), it(_it), token(_token) {}
+};
+
+using token_handler = std::function<void(tokenizer_context& ctx)>;
+map<char,token_handler> tokenizer_functions;
+map<char,token_handler> tokenizer_state_functions;
+token_handler tokenizer_default_function = nullptr;
+
+static list<g_ptr<Token>> tokenize(const std::string& code) {
+    auto it = code.begin();
+    list<g_ptr<Token>> result;
+
+    // t_info fallback; //Defaults to undefined for checking by the t_keys map, could use hasKey but fallbacks are cleaner here, avoids two searches
+    // auto check_type = [&](){                
+    //     t_info type_info = t_keys.getOrDefault(token->content, fallback);
+    //     if(type_info.type != GET_TYPE(UNDEFINED)) {
+    //         token->type_info = type_info;
+    //     }
+    // };
+
+    uint32_t state = 0;
+    tokenizer_context ctx(state,result,it,nullptr);
+
+    if(!tokenizer_default_function) {
+        print("GDSL::tokenize warning! No defined default function, please define one");
+    }
+
+    while (it != code.end()) {
+        if(!*it) break;
+        char c = *it;
+        if(ctx.state!=0&&tokenizer_state_functions.hasKey(ctx.state)) {
+            auto state_func = tokenizer_state_functions.get(ctx.state);
+            state_func(ctx);
+        } else {
+            auto func = tokenizer_functions.getOrDefault(c,tokenizer_default_function);
+            func(ctx);
+        }
+        ++it;
+    }  
+
+
+
+    #if PRINT_ALL
+    for(auto t : result) {
+        if(t->getType()) {
+            print(TO_STRING(t->getType()),": ",t->content);
+        }
+    }
+    #endif
+
+    return result;
+}
 
 //Basic recursive descent tokenizer, this is probably the least fancy part of the entire compiler
-static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') {
+static list<g_ptr<Token>> tokenize(const std::string& code,char end_char) {
     auto it = code.begin();
     list<g_ptr<Token>> result;
     g_ptr<Token> token = nullptr;
@@ -191,11 +256,11 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
     };
 
     State state = OPEN;
-    t_info fallback;
+    t_info fallback; //Defaults to undefined for checking by the t_keys map, could use hasKey but fallbacks are cleaner here, avoids two searches
     auto check_type = [&](){                
-        t_info result = t_keys.getOrDefault(token->content, fallback);
-        if(result.type != GET_TYPE(UNDEFINED)) {
-            token->type_info = result;
+        t_info type_info = t_keys.getOrDefault(token->content, fallback);
+        if(type_info.type != GET_TYPE(UNDEFINED)) {
+            token->type_info = type_info;
         }
     };
 
@@ -241,7 +306,7 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
                 state=OPEN;
             }
             else if(c=='.') {
-                if(token->check("dotted")) {
+                if(token->dotted) {
                     state=IN_IDENTIFIER;
                     token->setType(GET_TYPE(IDENTIFIER));
                     token->type_info.size = 0;
@@ -250,7 +315,7 @@ static list<g_ptr<Token>> tokenize(const std::string& code,char end_char = ';') 
                 else {
                     token->setType(GET_TYPE(FLOAT));
                     token->type_info.size = 4;
-                    token->flagOn("dotted");
+                    token->dotted = true;
                     token->add(c);
                 }
             }
@@ -456,7 +521,7 @@ public:
     ~a_node() {}
 
     list<g_ptr<Token>> tokens;
-    uint32_t type = GET_TYPE(UNTYPED);
+    uint32_t type = 0;
 
     list<g_ptr<a_node>> sub_nodes;
     s_node* owned_scope = nullptr;
@@ -705,14 +770,14 @@ map<uint32_t,int> type_precdence;
 
 //This goes in the compiler because it's to do with internals, the modules are trusting this handeling
 auto literal_handler = [](a_context& ctx) {
-    if(ctx.state == GET_TYPE(UNTYPED)) {
+    if(ctx.state == 0) {
         ctx.state = GET_TYPE(LITERAL);
     }
     ctx.node->tokens << ctx.token;
 };
 
 auto type_key_handler = [](a_context& ctx) {
-    if(ctx.state == GET_TYPE(UNTYPED)) {
+    if(ctx.state == 0) {
         ctx.state = GET_TYPE(VAR_DECL);
     }
     ctx.node->tokens << ctx.token;
@@ -723,7 +788,7 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
         print("==PARSE TOKENS PASS==");
         #endif
         list<g_ptr<a_node>> result;
-        uint32_t state = GET_TYPE(UNTYPED);
+        uint32_t state = 0;
         g_ptr<a_node> node = make<a_node>();
         bool no_add = false;
 
@@ -760,8 +825,8 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                 }
             }
             else {
-                uint32_t opp = token_to_opp.getOrDefault(token->getType(),GET_TYPE(UNTYPED));
-                if(opp!=GET_TYPE(UNTYPED)) {
+                uint32_t opp = token_to_opp.getOrDefault(token->getType(),(unsigned int)0);
+                if(opp!=0) {
                     //If we're already in an opperation, end the current one, start a new one
                     if(state_is_opp.getOrDefault(state,false)) {
                         end();
@@ -793,7 +858,7 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
 
 
 static bool balance_nodes(list<g_ptr<a_node>>& result) {
-    uint32_t state = GET_TYPE(UNTYPED);
+    uint32_t state = 0;
     int corrections = 0;
     for (int i = result.size() - 1; i >= 0; i--) {
         g_ptr<a_node> right = result[i];
@@ -1532,7 +1597,8 @@ struct exec_context {
         : node(_node), frame(_frame), index(_index), sub_index(_sub_index) {}
 };
 
-map<uint32_t, std::function<g_ptr<r_node>(exec_context&)>> exec_handlers;
+using exec_handler = std::function<g_ptr<r_node>(exec_context&)>;
+map<uint32_t, exec_handler> exec_handlers;
 
 static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index, int sub_index) {
     exec_context ctx(node,frame,index,sub_index);
@@ -1657,6 +1723,18 @@ static void execute_stream(g_ptr<Frame> frame) {
     // }
 }   
 
+g_ptr<Frame> compile(const std::string& path) {
+    std::string code = readFile(path);
+    list<g_ptr<Token>> tokens = tokenize(code);
+    list<g_ptr<a_node>> nodes = parse_tokens(tokens);
+    balance_precedence(nodes);
+    g_ptr<s_node> root = parse_scope(nodes);
+    parse_nodes(root);
+    discover_symbols(root);
+    g_ptr<Frame> frame = resolve_symbols(root);
+    return frame;
+}
+
 
 // g_ptr<s_node> compile_script(const std::string& file) {
 //     //"../Projects/Testing/src/golden.gld"
@@ -1672,3 +1750,5 @@ static void execute_stream(g_ptr<Frame> frame) {
 //     execute_r_nodes(frame);
 //     return root;
 // }
+
+}

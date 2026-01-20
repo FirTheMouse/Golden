@@ -6,6 +6,7 @@
 #include<core/physics.hpp>
 
 #include<gui/twig.hpp>
+#include<util/DSL_util.hpp>
 
 using namespace Golden;
 
@@ -122,7 +123,7 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 0;
+    int TESTING = 8;
     if(TESTING == 0) {
         g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
         twig = make<Text>(font,scene);
@@ -469,6 +470,54 @@ int main()  {
             box2->setPosition({randf(0,win.x()),randf(0,win.y())});
             boxes << box2;
         }
+    }
+    else if (TESTING==8) {
+        GDSL::helper_test_module::initialize();
+        GDSL::add_keyword("make_quad",[](GDSL::exec_context& ctx){
+            g_ptr<Quad> box = make<Quad>();
+            scene->add(box);
+            box->scale({100,100});
+            box->setColor(vec4(1,0,0,1));
+            box->setPosition({500,500});
+            return ctx.node;
+        });
+
+        GDSL::add_function("make_quad_pos",[](GDSL::exec_context& ctx){
+            g_ptr<Quad> box = make<Quad>();
+            scene->add(box);
+            box->scale({100,100});
+            box->setColor(vec4(1,0,0,1));
+            if(ctx.node->children.length()<2) print("WARNING: at least two args required for make_quad_pos!");
+            float x = get_arg<int>(ctx, 0);
+            float y = get_arg<int>(ctx, 1);
+            box->setPosition({x, y});
+            return ctx.node;
+        });
+
+        g_ptr<GDSL::Frame> frame = GDSL::compile(root()+"/Projects/Testing/src/test.gld");
+        Log::Line l; l.start();
+        for(int i=0;i<4;i++) {
+            g_ptr<Quad> box = make<Quad>();
+            scene->add(box);
+            box->scale({100,100});
+            box->setColor(vec4(1,0,0,1));
+            box->setPosition({100, 800});
+        }
+        print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        GDSL::execute_r_nodes(frame);
+        print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        for(int i=0;i<4;i++) {
+            g_ptr<Quad> box = make<Quad>();
+            scene->add(box);
+            box->scale({100,100});
+            box->setColor(vec4(1,0,0,1));
+            box->setPosition({100, 800});
+        }
+        print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        GDSL::execute_r_nodes(frame);
+        print("Time taken: ",l.end()/1000000,"ms");
+
+        print("Done!");
     }
 
     if(TESTING==6) {

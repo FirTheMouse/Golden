@@ -11,8 +11,8 @@
 
 #define DEBUG 0
 
-#define TO_STRING(x) #x
-#define TO_STRING_EXPAND(x) TO_STRING(x)
+#define TO_STRING_SCENE(x) #x
+#define TO_STRING_EXPAND(x) TO_STRING_SCENE(x)
 
 #if DEBUG
     #define GET(container, id) \
