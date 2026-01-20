@@ -1,6 +1,6 @@
-#include<core/GDSL.hpp>
+#include<Golden.hpp>
 
-namespace GDSL {
+
 
 //For all the core lanqauge stuff, always goes first
 namespace base_module {
@@ -1786,4 +1786,4 @@ namespace functions_module {
 
 }
 
-}
+

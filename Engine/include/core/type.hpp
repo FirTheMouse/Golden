@@ -335,6 +335,52 @@ public:
     //Consider splitting the stratgeies into their own types of Type via inhereitence, I'm doing it manual right now because I prefer
     //composition, but it may be better to have all this in constructers and private methods.
 
+
+    // Returns the ammount of rows in a column
+    size_t column_length(size_t size) {
+        switch(size) {
+            case 1: return byte1_columns.length();
+            case 2: return byte2_columns.length();
+            case 4: return byte4_columns.length();
+            case 8: return byte8_columns.length();
+            case 16: return byte16_columns.length();
+            case 24: return byte24_columns.length();
+            case 32: return byte32_columns.length();
+            case 64: return byte64_columns.length();
+            default: 
+            size = next_size(size);
+            if(size==0) {
+                print("column_length::414 size is too large ");
+                return 0;
+            } 
+            else 
+                return column_length(size);
+        }
+    }
+
+    //Returns the amount of places in a row
+    size_t row_length(int index,size_t size) {
+        switch(size) {
+            case 1: return byte1_columns[index].length();
+            case 2: return byte2_columns[index].length();
+            case 4: return byte4_columns[index].length();
+            case 8: return byte8_columns[index].length();
+            case 16: return byte16_columns[index].length();
+            case 24: return byte24_columns[index].length();
+            case 32: return byte32_columns[index].length();
+            case 64: return byte64_columns[index].length();
+            default:
+            size = next_size(size);
+            if(size==0) {
+                print("row_length::436 size is too large ");
+                return 0;
+            } 
+            else 
+                return row_length(index,size);
+        }
+    }
+
+    
     //Adds a new place to all the rows in a column
     void add_rows(size_t size = 0) {
         switch(size) {
@@ -394,6 +440,7 @@ public:
 
     // Adds a new place to the indicated row in a column
     void add_row(int index, size_t size = 0) {
+        while(column_length(size)<=index) add_column(size);
         switch(size) {
         case 0:
             for(int i=0;i<8;i++) add_row(index,sizes[i]);
@@ -474,49 +521,11 @@ public:
         }
     }
 
-    // Returns the ammount of rows in a column
-    size_t column_length(size_t size) {
-        switch(size) {
-            case 1: return byte1_columns.length();
-            case 2: return byte2_columns.length();
-            case 4: return byte4_columns.length();
-            case 8: return byte8_columns.length();
-            case 16: return byte16_columns.length();
-            case 24: return byte24_columns.length();
-            case 32: return byte32_columns.length();
-            case 64: return byte64_columns.length();
-            default: 
-            size = next_size(size);
-            if(size==0) {
-                print("column_length::414 size is too large ");
-                return 0;
-            } 
-            else 
-                return column_length(size);
-        }
+    template<typename T>
+    void make_space_for(int ammount) {
+        add_row(ammount,sizeof(T));
     }
 
-    //Returns the amount of places in a row
-    size_t row_length(int index,size_t size) {
-        switch(size) {
-            case 1: return byte1_columns[index].length();
-            case 2: return byte2_columns[index].length();
-            case 4: return byte4_columns[index].length();
-            case 8: return byte8_columns[index].length();
-            case 16: return byte16_columns[index].length();
-            case 24: return byte24_columns[index].length();
-            case 32: return byte32_columns[index].length();
-            case 64: return byte64_columns[index].length();
-            default:
-            size = next_size(size);
-            if(size==0) {
-                print("row_length::436 size is too large ");
-                return 0;
-            } 
-            else 
-                return row_length(index,size);
-        }
-    }
 
     inline bool has(int index) {return index<array.length();}
     inline bool has(const std::string& label) {return notes.hasKey(label);}
@@ -560,6 +569,7 @@ public:
     /// @brief For use in the MAP strategy
     void* address_column(const std::string& name) {
         _note note = notes.getOrDefault(name,note_fallback);
+        if(note.index==-1) return nullptr;
         switch(note.size) {
             case 0: return nullptr; //print("address_column::175 Note not found for ",name); 
             case 1: return &byte1_columns[note.index];
@@ -574,33 +584,7 @@ public:
         }
     }
 
-    static void set(void* ptr,void* value,size_t index,size_t size) {
-        // print("S: ",size," I: ",index);
-        // print("L: ",(*(list<uint32_t>*)ptr).length());
-        switch(size) {
-            case 1: memcpy(&(*(list<uint8_t>*)ptr)[index], value, 1); break;
-            case 2: memcpy(&(*(list<uint16_t>*)ptr)[index], value, 2); break;
-            case 4: memcpy(&(*(list<uint32_t>*)ptr)[index], value, 4); break;
-            case 8: memcpy(&(*(list<uint64_t>*)ptr)[index], value, 8); break;
-            case 16: memcpy(&(*(list<byte16_t>*)ptr)[index].data, value, 16); break;
-            case 24: memcpy(&(*(list<byte24_t>*)ptr)[index].data, value, 24); break;
-            case 32: memcpy(&(*(list<byte32_t>*)ptr)[index].data, value, 32); break;
-            case 64: memcpy(&(*(list<byte64_t>*)ptr)[index].data, value, 64); break;
-            default: print("type::set::280 Bad size for type value: ",size); break;
-        }
-    }
-
-    void set(const std::string& label,void* value,size_t index,size_t size) {
-        void* ptr = address_column(label);
-        if (!ptr) return;
-        return set(ptr,value,index,size);
-    }
-
-    template<typename T>
-    void set(const std::string& label,T value,size_t index) {
-        size_t size = sizeof(T);
-        set(label,&value,index,size);
-    }
+ 
 
 
     inline static void* get(void* ptr, size_t index, size_t size) {        
@@ -717,6 +701,38 @@ public:
         }
     }
 
+    static void set(void* ptr,void* value,size_t index,size_t size) {
+        // print("S: ",size," I: ",index);
+        // print("L: ",(*(list<uint32_t>*)ptr).length());
+        switch(size) {
+            case 1: memcpy(&(*(list<uint8_t>*)ptr)[index], value, 1); break;
+            case 2: memcpy(&(*(list<uint16_t>*)ptr)[index], value, 2); break;
+            case 4: memcpy(&(*(list<uint32_t>*)ptr)[index], value, 4); break;
+            case 8: memcpy(&(*(list<uint64_t>*)ptr)[index], value, 8); break;
+            case 16: memcpy(&(*(list<byte16_t>*)ptr)[index].data, value, 16); break;
+            case 24: memcpy(&(*(list<byte24_t>*)ptr)[index].data, value, 24); break;
+            case 32: memcpy(&(*(list<byte32_t>*)ptr)[index].data, value, 32); break;
+            case 64: memcpy(&(*(list<byte64_t>*)ptr)[index].data, value, 64); break;
+            default: print("type::set::280 Bad size for type value: ",size); break;
+        }
+    }
+
+    void set(const std::string& label,void* value,size_t index,size_t size) {
+        void* ptr = address_column(label);
+        if (!ptr) {
+            //WARNING! Won't work for non-trivially copyable types!
+            push(label,value,size);
+            return;
+        }
+        return set(ptr,value,index,size);
+    }
+
+    template<typename T>
+    void set(const std::string& label,T value,size_t index) {
+        size_t size = sizeof(T);
+        set(label,&value,index,size);
+    }
+
     inline void* get(int index,int sub_index,size_t size) {
         switch(size) {
             case 0: return nullptr; 
@@ -787,7 +803,7 @@ public:
         default: 
             size = next_size(size);
             if(size==0) {
-                //print("set::670 Pointer fallback triggered");
+                print("set::670 Pointer fallback triggered");
                 memcpy(&(byte8_columns[index])[sub_index],&value, 8);
             } 
             else set(index,sub_index,size,value);
@@ -799,6 +815,17 @@ public:
         set(note.index,note.sub_index,note.size,value);
     }
 
+    template<typename T>
+    void set(const std::string& label,T value) {
+        _note& note = notes.getOrDefault(label,note_fallback);
+        if(note.index==-1) {
+            add<T>(label,value);
+        } else {
+            size_t size = sizeof(T);
+            set_from_note(note,&value);
+        }
+    }
+
     void data_set(const std::string& name,void* value) {
         set_from_note(get_note(name),value);
     }
@@ -808,10 +835,10 @@ public:
     }
 
     //Uses data set
-    template<typename T>
-    void set(const std::string& label,T value) {
-     data_set(label,&value);
-    }
+    // template<typename T>
+    // void set(const std::string& label,T value) {
+    //  data_set(label,&value);
+    // }
 
     //Uses array set
     template<typename T>

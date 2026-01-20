@@ -6,8 +6,6 @@
 #include <chrono>
 #include <iostream>
 
-using namespace GDSL;
-
 #define MAIN_TEST 0
 
 int main() {

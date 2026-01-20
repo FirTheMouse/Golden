@@ -317,7 +317,11 @@ public:
 
         //Something appears to be corrupting the resized bucket, removing all the projectiles
     bool remove(const K& key) {
-    return buckets.get(hashT(key)%capacity,"map::remove::264").remove(key);
+        int hash = (hashT(key)%capacity);
+        if(hash<buckets.length())
+            return buckets.get(hash).remove(key);
+        else
+            return false;
     }
 
     void debugMap() {

@@ -66,7 +66,7 @@ namespace GDSL
 
     // T() <- Function, your data appears in ctx.node->children[]
     template<typename Op>
-    static void add_function(const std::string& f, Op op) {
+    static size_t add_function(const std::string& f, Op op) {
         auto key_and_call = reg_keyword(f);
         size_t key_id = key_and_call.first;
         size_t call_id = key_and_call.second;
@@ -91,6 +91,8 @@ namespace GDSL
             }
         });
         exec_handlers.put(r_id,op);
+
+        return key_id;
     }
 
     // T() {} <- As with function, but we ctx.node->frame contains the bracketed code for further execution.
@@ -166,7 +168,7 @@ namespace GDSL
         size_t o_id = reg::new_type(f);
         state_is_opp.put(o_id, true);
         token_to_opp.put(a_id, o_id);
-        type_precdence.put(a_id, precedence);
+        type_precdence.put(o_id, precedence);
         size_t t_id = reg::new_type("T_"+f);
         t_opp_conversion.put(o_id, t_id);
         size_t r_id = reg::new_type("R_"+f);
