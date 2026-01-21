@@ -162,7 +162,11 @@ void Scene::updateScene(float tpf)
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glClearColor(sunColor.x*0.5f, sunColor.y*0.8f, sunColor.z*1.3f, 1.0f);
+    if(background_color.w()>0) {
+        glClearColor(background_color.x(),background_color.y(),background_color.z(),background_color.w());
+    } else {
+        glClearColor(sunColor.x*0.5f, sunColor.y*0.8f, sunColor.z*1.3f, 1.0f);
+    }
     glViewport(0, 0, fbW, fbH);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

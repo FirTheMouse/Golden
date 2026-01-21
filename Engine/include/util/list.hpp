@@ -413,6 +413,28 @@ public:
         return ptr[randi(0,size_-1)];
     }
 
+    inline void shuffle() {
+        for(int i = size_ - 1; i > 0; i--) {
+            int j = randi(0, i);
+            int temp = ptr[i];
+            ptr[i] = ptr[j];
+            ptr[j] = temp;
+        }
+    }
+
+    //This is crude and temporary
+    inline void sort(std::function<bool(T,T)> func) {
+        std::vector<T> temp_vec;
+        for(int i=0;i<size_;i++) {
+            temp_vec.push_back(ptr[i]);
+        }
+        std::sort(temp_vec.begin(), temp_vec.end(), func);
+        clear();
+        for(int i=0;i<temp_vec.size();i++) {
+            push(temp_vec[i]);
+        }
+    }
+
     template<typename TT>
     /// @brief Compares two lists and returns true if they are equivalent.
     bool operator==(list<TT>& other) {

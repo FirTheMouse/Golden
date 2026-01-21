@@ -156,12 +156,12 @@ int main()
 
 
     //Uncomment and use this to add new projects:
-    // std::string name = "FirML";
+    // std::string name = "Emergence";
     // startProject(name);
     // addProjectToCMake(name);
 
     //Launch projects here, set to the name of the project
-    std::string p1 = "Testing";
+    std::string p1 = "Emergence";
     std::string p2 = "ThymeLoop";
     std::string p3 = "Fshgame";
     std::string p4 = "FirChess";

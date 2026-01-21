@@ -296,6 +296,8 @@ public:
     Shader guiShader;
     Shader guiInstanceShader;
 
+    vec4 background_color = vec4(0,0,0,0);
+
     float sceneTime = 0.0f;
 
     unsigned int depthMapFBO;

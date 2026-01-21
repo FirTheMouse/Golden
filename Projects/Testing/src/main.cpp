@@ -8,194 +8,236 @@
 
 #include<util/logger.hpp>
 
-#include<util/DSL_util.hpp>
+// #include<util/DSL_util.hpp>
+#include<core/GDSL.hpp>
 
 
 namespace GDSL {
-    void test_module() {
 
-        reg::new_type("UNDEFINED");
-        reg::new_type("END"); 
-        reg::new_type("T_NOP"); 
-        reg::new_type("UNTYPED"); 
-        reg::new_type("R_NOP");
-        size_t f_type_key_id = reg::new_type("F_TYPE_KEY");//Honestly not sure about these family types
-        size_t f_keyword_id = reg::new_type("F_KEYWORD"); //Keeping them in because it may be useful later
-        reg::new_type("GLOBAL");
-        reg::new_type("BLOCK");
-        reg::new_type("T_BLOCK");  
-        reg::new_type("NOT"); 
 
-        size_t literal_id = reg::new_type("LITERAL");
-        auto literal_handler = [literal_id](a_context& ctx) {
+    // static std::pair<size_t,size_t> testing_reg_keyword(const std::string& f) {
+    //     size_t key_id = reg::new_type(f+"_KEY");  
+    //     size_t call_id = reg::new_type(f+"_CALL");
+
+    //     std::string s = f;
+    //     std::transform(s.begin(),s.end(), s.begin(), ::tolower);
+    //     reg_t_key(s, key_id, 0, GET_TYPE(F_KEYWORD)); 
+
+    //     token_to_opp.put(key_id, call_id);
+    //     state_is_opp.put(call_id, true);
+    //     type_precdence.put(call_id, 20);
+
+    //     return {key_id,call_id};
+    // }
+
+    // template<typename Op>
+    // static size_t testing_add_function(const std::string& f, Op op) {
+    //     auto key_and_call = testing_reg_keyword(f);
+    //     size_t key_id = key_and_call.first;
+    //     size_t call_id = key_and_call.second;
+
+    //     size_t t_id = reg::new_type("T_"+f);
+    //     t_opp_conversion.put(call_id, t_id); 
+    //     t_functions.put(call_id, [t_id](t_context& ctx) -> g_ptr<t_node> {
+    //         ctx.result->type = t_id;
+    //         parse_sub_nodes(ctx,true);
+    //         return ctx.result;
+    //     });
+    //     size_t r_id = reg::new_type("R_"+f); 
+    //     r_handlers.put(t_id, [r_id](g_ptr<r_node> result, r_context& ctx) {
+    //         result->type = r_id;
+    //         if(ctx.node->left) 
+    //             result->children << resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+    //         if(ctx.node->right)
+    //             result->children << resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+    //         for(auto c : ctx.node->children) {
+    //             g_ptr<r_node> sub = resolve_symbol(c, ctx.scope, ctx.frame);
+    //             result->children << sub;
+    //         }
+    //     });
+    //     exec_handlers.put(r_id,op);
+
+    //     return key_id;
+    // }
+
+    // void test_module() {
+
+    //     //Current always defineds
+    //     reg::new_type("UNDEFINED");
+
+    //     reg::new_type("T_NOP"); 
+    //     reg::new_type("UNTYPED"); 
+    //     reg::new_type("R_NOP");
+    //     size_t f_type_key_id = reg::new_type("F_TYPE_KEY");//Honestly not sure about these family types
+    //     size_t f_keyword_id = reg::new_type("F_KEYWORD"); //Keeping them in because it may be useful later
+
+    //     reg::new_type("GLOBAL");
+    //     reg::new_type("BLOCK");
+    //     reg::new_type("T_BLOCK");  
+        
+    //     reg::new_type("NOT"); 
+
+    //     size_t literal_id = reg::new_type("LITERAL");
+    //     t_functions.put(literal_id, [](t_context& ctx) -> g_ptr<t_node> {
+    //         //I hate this, it's unsafe and verbose, this needs to change
+    //         return t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
+    //     });
+    //     size_t t_literal_id = reg::new_type("T_LITERAL");
+    //     size_t r_literal_id = reg::new_type("R_LITERAL");
+    //     r_handlers.put(t_literal_id, [r_literal_id](g_ptr<r_node> result, r_context& ctx) {
+    //         result->type = r_literal_id;
+    //         result->value = std::move(ctx.node->value);
+    //     });
+    //     exec_handlers.put(r_literal_id, [](exec_context& ctx) -> g_ptr<r_node> {
+    //         return ctx.node;
+    //     });
+        
+    //     size_t string_id = reg::new_type("STRING");
+    //     size_t string_key_id = reg::new_type("STRING_KEY");
+    //     size_t in_string_id = reg::new_type("IN_STRING_KEY");
+    //     tokenizer_state_functions.put(in_string_id,[](tokenizer_context& ctx){
+    //         char c = *(ctx.it);
+    //         if(c=='"') {
+    //             ctx.state=0;
+    //             ctx.token->type_info.size = 24;
+    //         }
+    //         else {
+    //             ctx.token->add(c);
+    //         }
+    //     });
+    //     tokenizer_functions.put('"',[string_id,in_string_id](tokenizer_context& ctx){
+    //         ctx.state = in_string_id;
+    //         ctx.token = make<Token>(string_id,"");
+    //         ctx.result << ctx.token;
+    //     });
+    //     reg_t_key("string", string_key_id, 24, f_type_key_id); 
+    //     a_functions.put(string_key_id, [](a_context& ctx) {
+    //         if(ctx.state == 0) {
+    //             ctx.state = GET_TYPE(VAR_DECL);
+    //         }
+    //         ctx.node->tokens << ctx.token;
+    //     });
+    //     value_to_string.put(string_id,[](void* data){
+    //         return *(std::string*)data;
+    //     });
+    //     a_functions.put(string_id,[literal_id](a_context& ctx) {
+    //         if(ctx.state == 0) {
+    //             ctx.state = literal_id;
+    //         }
+    //         ctx.node->tokens << ctx.token;
+    //     });
+    //     type_key_to_type.put(string_key_id, string_id);
+    //     t_literal_handlers.put(string_id, [t_literal_id, string_id](g_ptr<Token> token) -> g_ptr<t_node> {
+    //         g_ptr<t_node> node = make<t_node>();
+    //         node->type = t_literal_id;
+    //         node->value.type = string_id;
+    //         node->value.set<std::string>(token->content);
+    //         node->value.size = 24;
+    //         return node;
+    //     });
+        
+    // }
+
+    map<std::string,g_ptr<Value>> keywords;
+
+    g_ptr<Value> make_value(const std::string& name, size_t size = 0) {
+        return make<Value>(reg::new_type(name),size);
+    }
+
+    void make_keyword(const std::string& name, size_t size = 0) {
+        keywords.put(name,make_value(name,size));
+    }
+
+    void test_module(const std::string& path) {
+
+        //BASIC TOKENIZATION:
+        size_t undefined_id = reg::new_type("UNDEFINED");
+
+
+
+        size_t identifier_id = reg::new_type("IDENTIFIER");
+        size_t words_id = reg::new_type("WORDS");
+        size_t not_words_id = reg::new_type("NOT_WORDS");
+        a_functions.put(identifier_id,[words_id,not_words_id](a_context& ctx){
+            g_ptr<Value> value = keywords.getOrDefault(ctx.token->content,fallback_value);
+            if(value->type==0) {
+                
+            } else {
+
+            }
+ 
             if(ctx.state == 0) {
-                ctx.state = literal_id;
+                ctx.state = words_id;
             }
             ctx.node->tokens << ctx.token;
-        };
-        a_functions.put(literal_id, literal_handler);
-        t_functions.put(literal_id, t_literal_handler);
-        size_t t_literal_id = reg::new_type("T_LITERAL");
-        t_literal_handlers.put(literal_id, [t_literal_id](g_ptr<Token> token) -> g_ptr<t_node> {
-            g_ptr<t_node> node = make<t_node>();
-            node->type = t_literal_id;
-            node->value.type = 0;
-            node->name = token->content;
-            return node;
         });
-        size_t r_literal_id = reg::new_type("R_LITERAL");
-        r_handlers.put(t_literal_id, [r_literal_id](g_ptr<r_node> result, r_context& ctx) {
-            result->type = r_literal_id;
-            result->name = ctx.node->name;
-            result->value = std::move(ctx.node->value);
-        });
-        exec_handlers.put(r_literal_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            ScriptContext scx;
-            scx.set<std::string>("content",ctx.node->name);
-            ctx.frame->run("talk",scx);
-            return ctx.node;
-        });
-
-        size_t in_command_id = reg::new_type("IN_COMMAND");
-        tokenizer_state_functions.put(in_command_id,[](tokenizer_context& ctx){
-            char c = *(ctx.it);
-            if(c==':'||c=='('||c==')') {
-                ctx.state=0;
-                if(t_keys.hasKey(ctx.token->content)) {
-                    ctx.token->type_info = t_keys.get(ctx.token->content);
-                }
-                --ctx.it;
-            }
-            else if(c==' '||c=='\t'||c=='\n') {
-                if(t_keys.hasKey(ctx.token->content)) {
-                    ctx.token->type_info = t_keys.get(ctx.token->content);
-                }
-                ctx.state=0;
-            }
-            else {
-                ctx.token->add(c);
-            }
-        });
-        size_t in_number_id = reg::new_type("IN_NUMBER"); 
-        tokenizer_state_functions.put(in_number_id,[](tokenizer_context& ctx){
-            char c = *(ctx.it);
-            if(c==':'||c=='('||c==')') {
-                ctx.state=0;
-                --ctx.it;
-            }
-            else if(c==' '||c=='\t'||c=='\n') {
-                ctx.state=0;
-            }
-            else {
-                ctx.token->add(c);
-            }
-        });
-
-        //add_function("COMMAND",[](exec_context& ctx){
-        //     for(auto c : ctx.node->children) {
-        //         execute_r_node(c,ctx.frame,ctx.index,ctx.sub_index);
-        //     }
-        //     return ctx.node;
-        // });
 
         size_t int_id = reg::new_type("INT");
-        size_t int_key_id = reg::new_type("INT_KEY");
-        reg_t_key("int", int_key_id, 4, 0); 
-        a_functions.put(int_key_id, type_key_handler);
-        value_to_string.put(int_id,[](void* data){
-            return std::to_string(*(int*)data);
-        });
-        negate_value.put(int_id,[](void* data){
-            *(int*)data = -(*(int*)data);
-        });
-        a_functions.put(int_id, literal_handler);
-        type_key_to_type.put(int_key_id, int_id);
-        t_literal_handlers.put(int_id, [t_literal_id, int_id](g_ptr<Token> token) -> g_ptr<t_node> {
-            g_ptr<t_node> node = make<t_node>();
-            node->type = t_literal_id;
-            node->value.type = int_id;
-            node->value.set<int>(std::stoi(token->content));
-            return node;
+        size_t float_id = reg::new_type("FLOAT");
+
+        make_keyword("words");        
+
+        size_t in_alpha_id = reg::new_type("IN_ALPHA");
+        tokenizer_state_functions.put(in_alpha_id,[](tokenizer_context& ctx){
+            char c = *(ctx.it);
+            if(c==' ') {
+                ctx.state = 0; 
+                return;
+            } 
+            ctx.token->add(c);
         });
 
-        std::function<void(tokenizer_context& ctx)> default_function = [in_command_id,in_number_id,literal_id,int_id](tokenizer_context& ctx) {
+        size_t in_digit_id = reg::new_type("IN_DIGIT");
+        tokenizer_state_functions.put(in_digit_id,[in_alpha_id](tokenizer_context& ctx){
             char c = *(ctx.it);
-                if(std::isalpha(c)) {
-                    ctx.state = in_command_id;
-                    ctx.token = make<Token>(literal_id,c);
-                    ctx.result << ctx.token;
-                }
-                else if(std::isdigit(c)) {
-                    ctx.state = in_number_id;
-                    ctx.token = make<Token>(int_id,c);
-                    ctx.result << ctx.token;
-                }
+            if(c==' ') {
+                ctx.state = 0; 
+                return;
+            } else if(std::isalpha(c)) {
+                ctx.state = in_alpha_id;
+            } else if(c=='.') {
+                ctx.token->type = 3;
+            }
+            ctx.token->add(c);
+        });
+
+        token_handler default_function = [in_alpha_id,in_digit_id,identifier_id,int_id](tokenizer_context& ctx) {
+            char c = *(ctx.it);
+            if(std::isalpha(c)) {
+                ctx.state = in_alpha_id;
+                ctx.token = make<Token>(identifier_id,c);
+                ctx.result << ctx.token;
+            }
+            else if(std::isdigit(c)) {
+                ctx.state = in_digit_id;
+                ctx.token = make<Token>(int_id,c);
+                ctx.result << ctx.token;
+            } else {
+                print("tokenize::default_function missing handling for charachter: ",c);
+            }
         };
         tokenizer_default_function = default_function;
 
 
-        size_t lparen_id = add_token('(',"LPAREN");
-        size_t rparen_id = add_token(')',"RPAREN");
-        a_functions.put(lparen_id, [lparen_id,rparen_id](a_context& ctx) {
-            std::pair<int,int> paren_range = balance_tokens(ctx.tokens, lparen_id, rparen_id, ctx.index-1);
-            if (paren_range.first < 0 || paren_range.second < 0) {
-                print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
-                return;
-            }
 
-            list<g_ptr<Token>> sub_list;
-            for(int i=paren_range.first+1;i<paren_range.second;i++) {
-                sub_list.push(ctx.tokens[i]);
-            }
-            ctx.node->sub_nodes = parse_tokens(sub_list,true);
-            if(ctx.state != 0) {
-                ctx.end_lambda();     
-            }
-            ctx.state = 0;        
-            ctx.index = paren_range.second-1;
-            ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
-            ctx.skip_inc = 1; // Can skip more if needed
-        });
-        
-        reg::new_type("EXIT_PAREN"); 
-        a_functions.put(rparen_id, [](a_context& ctx) {
-            if(ctx.local && ctx.state != 0) {
-                ctx.end_lambda();
-                ctx.state = 0;
-            }
-        });
+
+        std::string code = readFile(path);
+        list<g_ptr<Token>> tokens = tokenize(code);
+        list<g_ptr<a_node>> nodes = parse_tokens(tokens);
+        // balance_precedence(nodes);
+        // g_ptr<s_node> root = parse_scope(nodes);
+        // parse_nodes(root);
+        // discover_symbols(root);
+        // g_ptr<Frame> frame = resolve_symbols(root);
     }
 }
 using namespace GDSL;
 
 int main() {
-
-    //GDSL::helper_test_module::initialize();
-    GDSL::test_module();
-    GDSL::add_keyword("say",[](GDSL::exec_context& ctx){
-        ctx.frame->replaceScript("talk",[](ScriptContext& scx){
-            std::string content = scx.get<std::string>("content");
-            print(content);
-        });
-        return ctx.node;
-    });
-
-    GDSL::add_keyword("shout",[](GDSL::exec_context& ctx){
-        ctx.frame->replaceScript("talk",[](ScriptContext& scx){
-            std::string content = scx.get<std::string>("content");
-            std::transform(content.begin(), content.end(), content.begin(), ::toupper);
-            print(content);
-        });
-        return ctx.node;
-    });
-
-    GDSL::add_binary_operator(':',"COLON","PARSER",1,[](GDSL::exec_context& ctx){
-        GDSL::execute_r_node(ctx.node->left,ctx.frame,ctx.index,ctx.sub_index);
-        GDSL::execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
-        return ctx.node;
-    });
-    g_ptr<GDSL::Frame> frame = GDSL::compile(root()+"/Projects/Testing/src/test.gld");
-    GDSL::execute_r_nodes(frame);
+    // GDSL::helper_test_module::initialize();
+    test_module(root()+"/Projects/Testing/src/test.gld");
+    // g_ptr<GDSL::Frame> frame = compile(root()+"/Projects/Testing/src/test.gld");
+    // execute_r_nodes(frame);
 
 
     // std::vector<bool> b_vec;
@@ -405,6 +447,183 @@ int main() {
     return 0;
 }
 
+//Old test module for GDSL:
+
+    // GDSL::add_keyword("say",[](GDSL::exec_context& ctx){
+    //     ctx.frame->replaceScript("talk",[](ScriptContext& scx){
+    //         std::string content = scx.get<std::string>("content");
+    //         print(content);
+    //     });
+    //     return ctx.node;
+    // });
+
+    // GDSL::add_keyword("shout",[](GDSL::exec_context& ctx){
+    //     ctx.frame->replaceScript("talk",[](ScriptContext& scx){
+    //         std::string content = scx.get<std::string>("content");
+    //         std::transform(content.begin(), content.end(), content.begin(), ::toupper);
+    //         print(content);
+    //     });
+    //     return ctx.node;
+    // });
+
+    // GDSL::add_binary_operator(':',"COLON","PARSER",1,[](GDSL::exec_context& ctx){
+    //     GDSL::execute_r_node(ctx.node->left,ctx.frame,ctx.index,ctx.sub_index);
+    //     GDSL::execute_r_node(ctx.node->right,ctx.frame,ctx.index,ctx.sub_index);
+    //     return ctx.node;
+    // });
+
+        //reg::new_type("UNDEFINED");
+        // reg::new_type("END"); 
+        // reg::new_type("T_NOP"); 
+        // reg::new_type("UNTYPED"); 
+        // reg::new_type("R_NOP");
+        // size_t f_type_key_id = reg::new_type("F_TYPE_KEY");//Honestly not sure about these family types
+        // size_t f_keyword_id = reg::new_type("F_KEYWORD"); //Keeping them in because it may be useful later
+        // reg::new_type("GLOBAL");
+        // reg::new_type("BLOCK");
+        // reg::new_type("T_BLOCK");  
+        // reg::new_type("NOT"); 
+
+        // size_t literal_id = reg::new_type("LITERAL");
+        // auto literal_handler = [literal_id](a_context& ctx) {
+        //     if(ctx.state == 0) {
+        //         ctx.state = literal_id;
+        //     }
+        //     ctx.node->tokens << ctx.token;
+        // };
+        // a_functions.put(literal_id, literal_handler);
+        // t_functions.put(literal_id, t_literal_handler);
+        // size_t t_literal_id = reg::new_type("T_LITERAL");
+        // t_literal_handlers.put(literal_id, [t_literal_id](g_ptr<Token> token) -> g_ptr<t_node> {
+        //     g_ptr<t_node> node = make<t_node>();
+        //     node->type = t_literal_id;
+        //     node->value.type = 0;
+        //     node->name = token->content;
+        //     return node;
+        // });
+        // size_t r_literal_id = reg::new_type("R_LITERAL");
+        // r_handlers.put(t_literal_id, [r_literal_id](g_ptr<r_node> result, r_context& ctx) {
+        //     result->type = r_literal_id;
+        //     result->name = ctx.node->name;
+        //     result->value = std::move(ctx.node->value);
+        // });
+        // exec_handlers.put(r_literal_id, [](exec_context& ctx) -> g_ptr<r_node> {
+        //     ScriptContext scx;
+        //     scx.set<std::string>("content",ctx.node->name);
+        //     ctx.frame->run("talk",scx);
+        //     return ctx.node;
+        // });
+
+        // size_t in_command_id = reg::new_type("IN_COMMAND");
+        // tokenizer_state_functions.put(in_command_id,[](tokenizer_context& ctx){
+        //     char c = *(ctx.it);
+        //     if(c==':'||c=='('||c==')') {
+        //         ctx.state=0;
+        //         if(t_keys.hasKey(ctx.token->content)) {
+        //             ctx.token->type_info = t_keys.get(ctx.token->content);
+        //         }
+        //         --ctx.it;
+        //     }
+        //     else if(c==' '||c=='\t'||c=='\n') {
+        //         if(t_keys.hasKey(ctx.token->content)) {
+        //             ctx.token->type_info = t_keys.get(ctx.token->content);
+        //         }
+        //         ctx.state=0;
+        //     }
+        //     else {
+        //         ctx.token->add(c);
+        //     }
+        // });
+        // size_t in_number_id = reg::new_type("IN_NUMBER"); 
+        // tokenizer_state_functions.put(in_number_id,[](tokenizer_context& ctx){
+        //     char c = *(ctx.it);
+        //     if(c==':'||c=='('||c==')') {
+        //         ctx.state=0;
+        //         --ctx.it;
+        //     }
+        //     else if(c==' '||c=='\t'||c=='\n') {
+        //         ctx.state=0;
+        //     }
+        //     else {
+        //         ctx.token->add(c);
+        //     }
+        // });
+
+        // //add_function("COMMAND",[](exec_context& ctx){
+        // //     for(auto c : ctx.node->children) {
+        // //         execute_r_node(c,ctx.frame,ctx.index,ctx.sub_index);
+        // //     }
+        // //     return ctx.node;
+        // // });
+
+        // size_t int_id = reg::new_type("INT");
+        // size_t int_key_id = reg::new_type("INT_KEY");
+        // reg_t_key("int", int_key_id, 4, 0); 
+        // a_functions.put(int_key_id, type_key_handler);
+        // value_to_string.put(int_id,[](void* data){
+        //     return std::to_string(*(int*)data);
+        // });
+        // negate_value.put(int_id,[](void* data){
+        //     *(int*)data = -(*(int*)data);
+        // });
+        // a_functions.put(int_id, literal_handler);
+        // type_key_to_type.put(int_key_id, int_id);
+        // t_literal_handlers.put(int_id, [t_literal_id, int_id](g_ptr<Token> token) -> g_ptr<t_node> {
+        //     g_ptr<t_node> node = make<t_node>();
+        //     node->type = t_literal_id;
+        //     node->value.type = int_id;
+        //     node->value.set<int>(std::stoi(token->content));
+        //     return node;
+        // });
+
+        // std::function<void(tokenizer_context& ctx)> default_function = [in_command_id,in_number_id,literal_id,int_id](tokenizer_context& ctx) {
+        //     char c = *(ctx.it);
+        //         if(std::isalpha(c)) {
+        //             ctx.state = in_command_id;
+        //             ctx.token = make<Token>(literal_id,c);
+        //             ctx.result << ctx.token;
+        //         }
+        //         else if(std::isdigit(c)) {
+        //             ctx.state = in_number_id;
+        //             ctx.token = make<Token>(int_id,c);
+        //             ctx.result << ctx.token;
+        //         }
+        // };
+        // tokenizer_default_function = default_function;
+
+
+        // size_t lparen_id = add_token('(',"LPAREN");
+        // size_t rparen_id = add_token(')',"RPAREN");
+        // a_functions.put(lparen_id, [lparen_id,rparen_id](a_context& ctx) {
+        //     std::pair<int,int> paren_range = balance_tokens(ctx.tokens, lparen_id, rparen_id, ctx.index-1);
+        //     if (paren_range.first < 0 || paren_range.second < 0) {
+        //         print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
+        //         return;
+        //     }
+
+        //     list<g_ptr<Token>> sub_list;
+        //     for(int i=paren_range.first+1;i<paren_range.second;i++) {
+        //         sub_list.push(ctx.tokens[i]);
+        //     }
+        //     ctx.node->sub_nodes = parse_tokens(sub_list,true);
+        //     if(ctx.state != 0) {
+        //         ctx.end_lambda();     
+        //     }
+        //     ctx.state = 0;        
+        //     ctx.index = paren_range.second-1;
+        //     ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
+        //     ctx.skip_inc = 1; // Can skip more if needed
+        // });
+        
+        // reg::new_type("EXIT_PAREN"); 
+        // a_functions.put(rparen_id, [](a_context& ctx) {
+        //     if(ctx.local && ctx.state != 0) {
+        //         ctx.end_lambda();
+        //         ctx.state = 0;
+        //     }
+        // });
+
+//Random tests:
 
     // g_ptr<Type> t = make<Type>();
     // g_ptr<Object> obj = make<Object>();

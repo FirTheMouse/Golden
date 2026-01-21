@@ -151,7 +151,12 @@ public:
             if(!anchorParent) {
                 anchorParent = q->parent;
                 while(anchorParent && !anchorParent->isAnchor) {
-                    anchorParent = anchorParent->parent;
+                    if(anchorParent->parent) {
+                        anchorParent = anchorParent->parent;
+                    } else {
+                        anchorParent->isAnchor = true;
+                        break;
+                    }
                 }
                 q->opt_ptr = anchorParent;
             }
@@ -258,18 +263,26 @@ public:
 
         if(parent) {
             parent->children.erase(at);
-        }
-
-        if(!at->children.empty()) {
-            parent->children << at->children[0];
-            at->children[0]->parent = parent;
-            at->children.clear();
+            if(!at->children.empty()) {
+                parent->children << at->children[0];
+                at->children[0]->parent = parent;
+                at->children.clear();
+            }
+        } 
+        else {
+            if(!at->children.empty()) {
+                at->children[0]->parent = nullptr;
+                at->children[0]->isAnchor = true;
+                at->children[0]->setPosition(at->getPosition());
+                at->children.clear();
+            }
         }
 
         chars.erase(at);
         scene->recycle(at);
         
-        chars[0]->updateTransform();
+        // if(!chars.empty())
+        //     chars[0]->updateTransform();
 
         return parent;
     }
@@ -281,7 +294,8 @@ public:
     void removeText(size_t at,size_t ammount) {
         for(size_t i=0;i<ammount;i++)
         {
-            removeChar(at);
+            if(chars.length()>i)
+                removeChar(at);
         }
     }
     void removeText(g_ptr<Quad> at,size_t ammount) {
@@ -296,6 +310,11 @@ public:
     }
     void insertText(const std::string& content, g_ptr<Quad> at) {
         insertText(content,chars.find(at));
+    }
+
+    void setText(const std::string& content) {
+        removeText(0,chars.length()-1);
+        insertText(content,0);
     }
 
 };

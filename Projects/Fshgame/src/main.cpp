@@ -123,7 +123,7 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 8;
+    int TESTING = 0;
     if(TESTING == 0) {
         g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
         twig = make<Text>(font,scene);
@@ -519,6 +519,9 @@ int main()  {
 
         print("Done!");
     }
+    else if(TESTING==9) {
+
+    }
 
     if(TESTING==6) {
         thread->start();
@@ -734,6 +737,17 @@ int main()  {
                     }
                     instance_accumulator = 0;
                 }
+            }
+
+            if(pressed(H)) {
+                twig->removeText(0,twig->chars.length());
+
+                if(s_tool.frame%2==0)
+                    twig->setText("womble");
+                // else
+                //     twig->setText("wibles");
+                // print(twig->chars.length());
+                // print(scene->quads.length());
             }
         }
     

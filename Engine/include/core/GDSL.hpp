@@ -56,6 +56,9 @@ namespace GDSL {
 //In January of 2026 I turned it from a compiler for a specific language into a general framework usable in all Golden projects as an
 //embedable programming language designer.
 
+//ARCHIVE REFRACTOR NOTES GOLDEN 0.3.1
+//This needs to be simplified. 
+
 
 
 constexpr uint32_t hashString(const char* str) {
@@ -124,40 +127,29 @@ public:
 
 static std::string fallback = "[undefined]";
 
-//t_info contains all the key information for a token (t stage), the family and such is a bit unnesecary
-//right now, but I keep it around because I've got no idea when we'll need it. 
-struct t_info {
-    t_info(uint32_t _type, size_t _size, uint32_t _family) : type(_type), size(_size), family(_family) {}
-    t_info(uint32_t _type, size_t _size) : type(_type), size(_size) {}
-    t_info() {}
-    uint32_t type = 0;
-    size_t size = 0;
-    uint32_t family = 0;
-};
 
-            //Many classes inherit from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
+//ARCHIVE REFRACTOR NOTES GOLDEN 0.3.1
+//TOKEN:
+//Basic compositional unit for a lot of the early Golden stages. The job of a token is to group chars into labeled units.
+//CURRENT AREAS:
+//The t_info may be unnesecary, just the token type could be all that's really needed. 
+//I should ask: why can size, sub type (i.e number->int/float or indetifier->keyword) not be handled by the a_stage?
+//I've decided I'm just going to nuke t_info and see what happens.
+
+//Many classes inherit from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
 class Token : public Object {
     public:
-        Token(uint32_t _type,const std::string& _content) 
-        : content(_content) {
-            type_info = t_info(_type,0,GET_TYPE(LITERAL)); //I dislike having a GET_TYPE() in a default constructer like this, especially because I hardly use family! Note to self to fix later
-        }
-        Token(uint32_t _type,char _content) 
-        : content(std::string(1,_content)) {
-            type_info = t_info(_type,0,GET_TYPE(LITERAL));
-        }
+        Token(uint32_t _type,const std::string& _content) : type(_type), content(_content) {}
+        Token(uint32_t _type,char _content) : type(_type), content(std::string(1,_content)) {}
         ~Token() {}
     
         int index = -1; 
         bool parsed = false;
         bool dotted = false;
-        t_info type_info;
+        uint32_t type;
         std::string content;    
-        uint32_t getType() {return type_info.type;}
-        uint32_t getFamily() {return type_info.family;}
-
-        void setType(uint32_t type) {type_info.type = type;}
-        void setFamily(uint32_t type) {type_info.family = type;}
+        uint32_t getType() {return type;}
+        void setType(uint32_t _type) {type = _type;}
         void mark() {parsed = true;}
 
         void add(const std::string& _content) {
@@ -173,17 +165,6 @@ class Token : public Object {
 // }
 
 map<char,bool> char_is_split;
-
-static map<std::string,t_info> t_keys;
-
-static void reg_t_key(std::string name,const t_info& info) {
-    t_keys.put(name,info);
-}
-
-static void reg_t_key(std::string name,uint32_t enum_key,size_t size, uint32_t family_key) {
-    reg_t_key(name,t_info(enum_key,size,family_key));
-}
-
 
 struct tokenizer_context {
     uint32_t& state;
@@ -203,14 +184,6 @@ token_handler tokenizer_default_function = nullptr;
 static list<g_ptr<Token>> tokenize(const std::string& code) {
     auto it = code.begin();
     list<g_ptr<Token>> result;
-
-    // t_info fallback; //Defaults to undefined for checking by the t_keys map, could use hasKey but fallbacks are cleaner here, avoids two searches
-    // auto check_type = [&](){                
-    //     t_info type_info = t_keys.getOrDefault(token->content, fallback);
-    //     if(type_info.type != GET_TYPE(UNDEFINED)) {
-    //         token->type_info = type_info;
-    //     }
-    // };
 
     uint32_t state = 0;
     tokenizer_context ctx(state,result,it,nullptr);
@@ -244,277 +217,16 @@ static list<g_ptr<Token>> tokenize(const std::string& code) {
 
     return result;
 }
-
-//Basic recursive descent tokenizer, this is probably the least fancy part of the entire compiler
-static list<g_ptr<Token>> tokenize(const std::string& code,char end_char) {
-    auto it = code.begin();
-    list<g_ptr<Token>> result;
-    g_ptr<Token> token = nullptr;
-
-    enum State {
-       OPEN, IN_STRING, IN_NUMBER, IN_IDENTIFIER, IN_COMMENT
-    };
-
-    State state = OPEN;
-    t_info fallback; //Defaults to undefined for checking by the t_keys map, could use hasKey but fallbacks are cleaner here, avoids two searches
-    auto check_type = [&](){                
-        t_info type_info = t_keys.getOrDefault(token->content, fallback);
-        if(type_info.type != GET_TYPE(UNDEFINED)) {
-            token->type_info = type_info;
-        }
-    };
-
-
-    while (it != code.end()) {
-        char c = *it;
-        if(state==IN_STRING) {
-            if(c=='"') {
-                state=OPEN;
-                token->type_info.size = 24;
-            }
-            else {
-                token->add(c);
-            }
-            ++it;
-        } else if(state==IN_COMMENT) {
-            if(c=='\n') {
-                state=OPEN;
-            }
-            ++it;
-        }
-        else if(state==IN_IDENTIFIER) {
-            if(c==end_char||c=='.'||char_is_split.hasKey(c)) {
-                state=OPEN;
-                check_type();
-                continue;
-            }
-            else if(c==' '||c=='\t'||c=='\n') {
-                check_type();
-                state=OPEN;
-            }
-            else {
-                token->add(c);
-            }
-            ++it;
-        }
-        else if(state==IN_NUMBER) {
-            if(c==end_char||char_is_split.hasKey(c)) {
-                state=OPEN;
-                continue;
-            }
-            else if(c==' '||c=='\t'||c=='\n') {
-                state=OPEN;
-            }
-            else if(c=='.') {
-                if(token->dotted) {
-                    state=IN_IDENTIFIER;
-                    token->setType(GET_TYPE(IDENTIFIER));
-                    token->type_info.size = 0;
-                    token->add(c);
-                }
-                else {
-                    token->setType(GET_TYPE(FLOAT));
-                    token->type_info.size = 4;
-                    token->dotted = true;
-                    token->add(c);
-                }
-            }
-            else {
-                token->add(c);
-            }
-            ++it;
-        }
-        else {
-            switch (c) {
-                case ' ': case '\t': case '\n':
-                    break;
-                case '.':
-                    token = make<Token>(GET_TYPE(DOT),".");
-                    result << token;
-                    break;
-                case ',':
-                    token = make<Token>(GET_TYPE(COMMA),",");
-                    result << token;
-                    break;
-                case '"':
-                    state = IN_STRING;
-                    token = make<Token>(GET_TYPE(STRING),"");
-                    result << token;
-                    break;
-                case '+':
-                    if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(PLUS_EQUALS),"+=");
-                        result << token;
-                        ++it; //Double move so we skip
-                    }
-                    else if(*(it+1)=='+') {
-                        token = make<Token>(GET_TYPE(PLUS_PLUS),"++");
-                        result << token;
-                        ++it;
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(PLUS),"+");
-                        result << token;
-                    }
-                    break;
-                case '-':
-                    if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(MINUS_EQUALS),"-=");
-                        result << token;
-                        ++it; 
-                    }
-                    else if(*(it+1)=='-') {
-                        token = make<Token>(GET_TYPE(MINUS_MINUS),"--");
-                        result << token;
-                        ++it;
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(MINUS),"-");
-                        result << token;
-                    }
-                    break;
-                case '*':
-                    if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(STAR_EQUALS),"*=");
-                        result << token;
-                        ++it;
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(STAR),"*");
-                        result << token;
-                    }
-                    break;
-                case '@':
-                    token = make<Token>(GET_TYPE(AT_SYMBOL),"@");
-                    result << token;
-                    break;
-                case '/':
-                    if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(SLASH_EQUALS),"/=");
-                        result << token;
-                        ++it;
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(SLASH),"/");
-                        result << token;
-                    }
-                    break;
-                case '=':
-                    if(*(it+1)=='+') {
-                        token = make<Token>(GET_TYPE(PLUS_EQUALS),"=+");
-                        result << token;
-                        ++it; 
-                    }
-                    else if(*(it+1)=='-') {
-                        token = make<Token>(GET_TYPE(MINUS_EQUALS),"=-");
-                        result << token;
-                        ++it;
-                    }
-                    else if(*(it+1)=='*') {
-                        token = make<Token>(GET_TYPE(STAR_EQUALS),"=*");
-                        result << token;
-                        ++it;
-                    }
-                    else if(*(it+1)=='/') {
-                        token = make<Token>(GET_TYPE(SLASH_EQUALS),"=/");
-                        result << token;
-                        ++it;
-                    }
-                    else if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(EQUALS_EQUALS),"==");
-                        result << token;
-                        ++it;
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(EQUALS),"=");
-                        result << token;
-                    }
-                    break;
-                case '!':
-                    if(*(it+1)=='=') {
-                        token = make<Token>(GET_TYPE(NOT_EQUALS),"!=");
-                        result << token;
-                        ++it; 
-                    }
-                    else {
-                        token = make<Token>(GET_TYPE(NOT),"!");
-                        result << token;
-                    }
-                    break;
-                case '<':
-                        token = make<Token>(GET_TYPE(LANGLE),"<");
-                        result << token;
-                    break;
-                case '>':
-                        token = make<Token>(GET_TYPE(RANGLE),">");
-                        result << token;
-                    break;
-                case '[':
-                        token = make<Token>(GET_TYPE(LBRACKET),"[");
-                        result << token;
-                break;
-                case ']':
-                        token = make<Token>(GET_TYPE(RBRACKET),"]");
-                        result << token;
-                break;
-                case '{':
-                        token = make<Token>(GET_TYPE(LBRACE),"{");
-                        result << token;
-                    break;
-                case '}':
-                    token = make<Token>(GET_TYPE(RBRACE),"}");
-                    result << token;
-                    break;
-                case '(':
-                    token = make<Token>(GET_TYPE(LPAREN),"(");
-                    result << token;
-                    break;
-                case ')':
-                    token = make<Token>(GET_TYPE(RPAREN),")");
-                    result << token;
-                    break;
-                case '#':
-                    state = IN_COMMENT;
-                    break;
-                default:
-                    if(std::isalpha(c)||c=='_') {
-                        state = IN_IDENTIFIER;
-                        token = make<Token>(GET_TYPE(IDENTIFIER),"");
-                        token->add(c);
-                        result << token;
-                    }
-                    else if(std::isdigit(c)) {
-                        state = IN_NUMBER;
-                        token = make<Token>(GET_TYPE(INT),"");
-                        token->add(c);
-                        result << token;
-                    }
-                    break;
-            }
-            if(c==end_char) {
-                token = make<Token>(GET_TYPE(END),"");
-                token->add(c);
-                result << token;
-            }
-            ++it;
-        }
-    }
-
-    #if PRINT_ALL
-    for(auto t : result) {
-        if(t->getType()) {
-            print(TO_STRING(t->getType()));
-        }
-    }
-    #endif
-    return result;
-}
-
-//Forward delcaring s_node
+//ARCHIVE REFRACTOR NOTES GOLDEN 0.3.1
+//s_node, should it even be seen here? Why is an a_node owning scope so early?
+//I should ensure this is actually nessecary.
 class s_node;
 
 //The a_node is used for the 'a stage', it contains groupings of tokens and their scopes.
 //Most a_functions are very basic state transforms for the recursive descent parser, this is more a cleanup stage after tokenization
+
+//ARCHIVE REFRACTOR NOTES GOLDEN 0.3.1
+// Complexity could be moved from token to here, have a_node discern size, keywords, etc... 
 class a_node : public Object {
 public:
     a_node() {}
@@ -543,6 +255,59 @@ static std::string data_to_string(uint32_t type,void* data) {
 }
 
 
+class Value : public Object {
+public:
+    Value(uint32_t _type) : type(_type) {}
+    Value(uint32_t _type, size_t _size) : type(_type), size(_size) {}
+    ~Value() {}
+    uint32_t type = 0;
+    void* data;
+    int address = -1;
+    size_t size;
+    int sub_size = -1;
+
+    template<typename T>
+    T get() { return *(T*)data; }
+    
+    template<typename T>
+    void set(const T& value) { 
+        if (!data) {
+            data = malloc(sizeof(T));
+            size = sizeof(T);
+        }
+        new(data) T(value);
+    }
+
+    std::string to_string() {
+        if (!data) {
+            return "[null]";
+        }
+        std::function<std::string(void*)> fallback_func = [this](void* ptr){return "[missing value_to_string for type "+TO_STRING(type)+"]";};
+        return value_to_string.getOrDefault(type,fallback_func)(data);
+    }
+
+    void negate() {
+        if(data) {
+            try {
+                negate_value.get(type)(data);
+            }
+            catch(std::exception e) {
+                print("value::300 missing negate_value handler for ",TO_STRING(type));
+            }
+        }
+    }
+
+    bool is_true() {
+        if (IS_TYPE(this,BOOL) && data) {
+            return *(bool*)data; 
+        }
+        return false;
+    }
+};
+
+g_ptr<Value> fallback_value;
+
+
 /// @brief BIG WARNING! These leak right now and we need to add cleanup for data in the future!
 struct t_value {
 
@@ -551,7 +316,7 @@ struct t_value {
         //I should really just make t_value a g_ptr...
         //free(data);
     }
-    uint32_t type = GET_TYPE(UNDEFINED);
+    uint32_t type = 0;
     void* data;
     int address = -1;
     size_t size;
@@ -783,6 +548,10 @@ auto type_key_handler = [](a_context& ctx) {
     ctx.node->tokens << ctx.token;
 };
 
+a_handler a_default_function;
+
+//This should be called the a_stage instead. This is defintly overcomplicated.
+//Proper prescedence could be added here, alongside discernment of specific identity based upon token rather than the previous rich token requirments with t_info.
 static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = false) {
         #if PRINT_ALL
         print("==PARSE TOKENS PASS==");
@@ -801,6 +570,9 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
             node = make<a_node>();
         };
 
+        if(!a_default_function)
+            print("GDSL::parse_tokens a_stage requires a default function!");
+
         auto it = tokens.begin();
         int pos = 1;
         int index = -1;
@@ -812,32 +584,12 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
                 ctx.skip_inc--;
                 continue;
             }
-            g_ptr<Token> token = *it;
-            ctx.token = token;
-            // print("State: ",a_type_string(state));
-            //print("Reading: ",token->content);
-            if(a_functions.hasKey(token->getType())) {
-                auto func = a_functions.get(token->getType());
-                func(ctx);
-                if(ctx.skip_inc>0) {
-                    ctx.skip_inc--;
-                    continue;
-                }
-            }
-            else {
-                uint32_t opp = token_to_opp.getOrDefault(token->getType(),(unsigned int)0);
-                if(opp!=0) {
-                    //If we're already in an opperation, end the current one, start a new one
-                    if(state_is_opp.getOrDefault(state,false)) {
-                        end();
-                        state=opp;
-                    }
-                    else {
-                        state=opp;
-                    }
-                }
-                else
-                print("parse_tokens::653 missing case for type ",TO_STRING(token->getType()));
+            ctx.token = *it; //What if we let each a_function deicde to change or not change the token handeling?
+            a_handler& func = a_functions.getOrDefault(ctx.token->getType(),a_default_function);
+            func(ctx);
+            if(ctx.skip_inc>0) {
+                ctx.skip_inc--;
+                continue;
             }
             ++it;
             ++pos;
