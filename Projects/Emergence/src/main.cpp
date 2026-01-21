@@ -27,7 +27,7 @@ int main() {
      std::string MROOT = root()+"/Projects/Emergence/assets/models/";
      std::string IROOT = root()+"/Projects/Emergence/assets/images/";
      std::string SROOT = root()+"/Projects/Emergence/src/";
-     Window window = Window(win.x()/2, win.y()/2, "Emergence 0.2");
+     Window window = Window(win.x()/2, win.y()/2, "Emergence 0.3");
      scene = make<Scene>(window,1);
      Data d = make_config(scene,K);
      scene->tickEnvironment(1000);
@@ -60,30 +60,136 @@ int main() {
      //     int y = i / width;
      //     int dx = x - width/2;
      //     int dy = y - height/2;
-     //     int r = 3; //radius
+     //     int r = 4; //radius
      //     if(dx*dx + dy*dy <= r*r) {
-     //         grid[i] = 8;  // inside blob
+     //         grid[i] = 16;  // inside blob
      //     } else {
      //         grid[i] = 0;  // outside blob
      //     }
      // }
 
      bool toggle = true;
-     int order = 0;
-     int bias = 0;
-     int max_order = 2;
-     int max_bias = 2;
      bool shuffle_neighbours = true;
 
-     std::function<void(list<int>&)> order_func = [](list<int>& iterate_order){
-          //Do nothing, forward order
-     };
-     std::function<void(list<int>&)> bias_func = [](list<int>& flips){
-          //Do nothing, no bias
-     };
-     std::function<void(int,list<int>&)> direction_func = [](int i, list<int>& neighbours){
-          //Do nothing, forward order
-     };
+     // ORDERS
+          int max_order = 3;
+          list<std::function<void(list<int>&)>> order_funcs;
+          int order = 0; list<std::string> order_types;
+
+          order_funcs << [](list<int>& iterate_order){
+               //Do nothing, forward order
+          };
+          order_types << "FORWARD";
+
+          order_funcs << [](list<int>& iterate_order){
+               list<int> n_ran;
+               for(int i=iterate_order.length()-1;i>=0;i--) {
+                    n_ran << iterate_order[i];
+               }
+               iterate_order = n_ran;
+          };
+          order_types << "REVERSE";
+
+          order_funcs << [](list<int>& iterate_order){
+               iterate_order.shuffle();
+          };
+          order_types << "RANDOM";
+
+          order_funcs << [](list<int>& iterate_order){
+               list<int> first_ran;
+               for(int i=iterate_order.length()-1;i>=iterate_order.length()/2;i--) {
+               first_ran << iterate_order[i];
+               }
+               list<int> second_ran;
+               for(int i=0;i<=iterate_order.length()/2;i++) {
+               second_ran << iterate_order[i];
+               }
+               first_ran << second_ran;
+               iterate_order = first_ran;
+          };
+          order_types << "SPLIT";
+
+     //BIASES
+          int max_bias = 4;
+          int bias = 0; list<std::string> bias_types;
+          list<std::function<void(list<int>&)>> bias_funcs;
+
+          bias_funcs << [](list<int>& flips){
+               //Do nothing, no bias
+          };
+          bias_types << "NONE";
+
+          bias_funcs << [&](list<int>& flips){
+               flips.sort([&](int a, int b) {return grid[a] >= grid[b];});
+          };
+          bias_types << "TOWARDS ENERGY AND EQUAL";
+
+          bias_funcs << [&](list<int>& flips){
+               flips.sort([&](int a, int b) {return grid[a] > grid[b];});
+          };
+          bias_types << "TOWARDS ENERGY";
+
+          bias_funcs << [&](list<int>& flips){
+               flips.sort([&](int a, int b) {return grid[a] == grid[b];});
+          };
+          bias_types << "TOWARDS EQUAL";
+
+          bias_funcs << [&](list<int>& flips){
+               flips.sort([&](int a, int b) {return grid[a] < grid[b];});
+          };
+          bias_types << "AWAY FROM ENERGY";
+
+     //FREEDOMS
+          int max_freedom = 2;
+          int freedom = 0; list<std::string> freedom_types;
+          list<std::function<void(int,list<int>&)>> freedom_funcs;
+
+          freedom_funcs << [&](int i, list<int>& neighbours){
+               int row = i / width;
+               int col = i % width;
+               
+               // Wrap vertically and horizontally (torus topology)
+               int up = ((row - 1 + height) % height) * width + col;
+               int down = ((row + 1) % height) * width + col;
+               int left = row * width + ((col - 1 + width) % width);
+               int right = row * width + ((col + 1) % width);
+               
+               neighbours << up << down << left << right;
+               
+               // Diagonal wrapping
+               int up_left = ((row - 1 + height) % height) * width + ((col - 1 + width) % width);
+               int up_right = ((row - 1 + height) % height) * width + ((col + 1) % width);
+               int down_left = ((row + 1) % height) * width + ((col - 1 + width) % width);
+               int down_right = ((row + 1) % height) * width + ((col + 1) % width);
+               
+               neighbours << up_left << up_right << down_left << down_right;
+          };
+          freedom_types << "TORODIAL";
+
+          freedom_funcs << [&](int i, list<int>& neighbours){
+               int row = i / width;
+               int col = i % width;
+               if(row > 0) neighbours << i - width;      // up
+               if(row < height-1) neighbours << i + width; // down
+               if(col > 0) neighbours << i - 1;          // left
+               if(col < width-1) neighbours << i + 1;    // right
+
+               if(row > 0 && col > 0) neighbours << i - width - 1;
+               if(row > 0 && col < width-1) neighbours << i - width + 1;
+               if(row < height-1 && col > 0) neighbours << i + width - 1;
+               if(row < height-1 && col < width-1) neighbours << i + width + 1;
+          };
+          freedom_types << "8 DEGREES";
+
+          freedom_funcs << [&](int i, list<int>& neighbours){
+               int row = i / width;
+               int col = i % width;
+               if(row > 0) neighbours << i - width;      // up
+               if(row < height-1) neighbours << i + width; // down
+               if(col > 0) neighbours << i - 1;          // left
+               if(col < width-1) neighbours << i + 1;    // right
+          };
+          freedom_types << "4 DEGREES";
 
      auto run = [&](){
           list<list<int>> desired_flips(width*height);
@@ -92,41 +198,13 @@ int main() {
                iterate_order << i;
           }
 
-          order_func(iterate_order); //Order
-
-          
-          //Priority order
-               //iterate_order.sort([&](int a, int b) {return grid[a] > grid[b];}); //Towards high energy
-               //iterate_order.sort([&](int a, int b) {return grid[a] < grid[b];}); //Towards low energy
-
-          //Sanity check
-               // for(int i=0;i<10;i++) {
-               //     printnl(grid[iterate_order[i]],":");
-               // }
-               // print();
+          order_funcs[order](iterate_order); //Order
 
           for(int i : iterate_order) {
                int value = grid[i];
                list<int> neighbours;
                if(value>0) {
-                    int row = i / width;
-                    int col = i % width;
-                    
-                    // Wrap vertically and horizontally (torus topology)
-                    int up = ((row - 1 + height) % height) * width + col;
-                    int down = ((row + 1) % height) * width + col;
-                    int left = row * width + ((col - 1 + width) % width);
-                    int right = row * width + ((col + 1) % width);
-                    
-                    neighbours << up << down << left << right;
-                    
-                    // Diagonal wrapping
-                    int up_left = ((row - 1 + height) % height) * width + ((col - 1 + width) % width);
-                    int up_right = ((row - 1 + height) % height) * width + ((col + 1) % width);
-                    int down_left = ((row + 1) % height) * width + ((col - 1 + width) % width);
-                    int down_right = ((row + 1) % height) * width + ((col + 1) % width);
-                    
-                    neighbours << up_left << up_right << down_left << down_right;
+                    freedom_funcs[freedom](i,neighbours);
                }
 
                if(shuffle_neighbours)
@@ -134,77 +212,73 @@ int main() {
                desired_flips[i] = neighbours;
           }
 
-               for(int i : iterate_order) {
-                    list<int> flips = desired_flips[i];
-                    bias_func(flips);
-                    for(int to : flips) {
-                         //Incremental
-                              if(grid[i]>0) {
-                                   grid[i] = grid[i]-1;
-                                   grid[to] = grid[to]+1;
-                              }                         
-                    }
+          for(int i : iterate_order) {
+               list<int> flips = desired_flips[i];
+               bias_funcs[bias](flips);
+               for(int to : flips) {
+                    //Incremental
+                         if(grid[i]>0) {
+                              grid[i] = grid[i]-1;
+                              grid[to] = grid[to]+1;
+                         }                         
                }
+          }
      };
 
      vec4 red = vec4(1,0,0,1);
-     vec4 black = vec4(0,0,0,0);
+     vec4 black = vec4(0,0,0,1);
 
-     #define enable_quads 1
-     #define enable_singles 0
+     bool render2d = true;
+     bool oneD2d = false;
+     bool torus_mode = true;
+     bool enable_color = true;
 
+     float tile_x = (win.x())/width;
+     float tile_y = (win.y())/height;
 
-     #if enable_quads
-          float tile_x = (win.x())/width;
-          float tile_y = (win.y())/height;
-
-          g_ptr<Geom> geom = make<Geom>();
-          // Script<> make_char("make_char",[&](ScriptContext& ctx){
-          //     auto q = make<Quad>(geom);
-          //     scene->add(q);
-          //     float tile_x = (win.x())/width;
-          //     float tile_y = (win.y())/height;
-          //     q->setPhysicsState(P_State::NONE);
-          //     q->scale({tile_x,tile_y});
-          //     q->setColor(black);
-          //     q->setPosition(vec2((q->ID%width)*tile_x,(q->ID/width)*tile_y));
-          //     ctx.set<g_ptr<Object>>("toReturn",q);
-          // });
-          //scene->define("squares",make_char);
-
-          for(int i=0;i<(width*height);i++) {
-               //auto q = scene->create<Quad>("squares");
-               auto q = make<Quad>(geom);
-               scene->add(q);
-               q->setPhysicsState(P_State::NONE);
-               q->scale({tile_x,tile_y});
-               q->setColor(black);
+     g_ptr<Geom> geom = make<Geom>();
+     for(int i=0;i<(width*height);i++) {
+          auto q = make<Quad>(geom);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          q->scale({tile_x,tile_y});
+          q->setColor(black);
+          if(!oneD2d)
                q->setPosition(vec2((q->ID%width)*tile_x,(q->ID/width)*tile_y));
-               squares << q;
-          }
-     #endif
+          else
+               q->setPosition(vec2(q->ID*tile_x,0));
+          squares << q;
+     }
 
-     #if enable_singles
-          int cam_type = 0;
-          bool torus_mode = false;
-          float s_scale = 0.5f;
-          float mR = (width * s_scale) / (2.0f * M_PI); 
-          float mr = (height * s_scale) / (3.0f * M_PI);
-          g_ptr<Model> model = make<Model>(makeTestBox(s_scale-0.01f)); 
-          for(int i=0;i<(width*height);i++) {
-               // auto q = scene->create<Quad>("squares");
-               auto s = make<Single>(model);
-               scene->add(s);
-               s->setPhysicsState(P_State::NONE);
-               s->setColor({1,0,0,1});
-               if(torus_mode) {
-                    s->setPosition(gridToTorus(i, width, height, mR, mr));
-                } else {
-                    s->setPosition(vec3((s->ID%width)*s_scale, 0, (s->ID/width)*s_scale));
-                }
-               boxes << s;
-          }
-     #endif
+     int cam_type = 0;
+     float s_scale = 0.5f;
+     float mR_factor = 1.5f;
+     float mr_factor = 4.0f;
+
+     float mR = (width * s_scale) / (mR_factor * M_PI); 
+     float mr = (height * s_scale) / (mr_factor * M_PI);
+
+     g_ptr<Model> model = make<Model>(makeTestBox(s_scale-0.01f)); 
+     for(int i=0;i<(width*height);i++) {
+          auto s = make<Single>(model);
+          scene->add(s);
+          s->setPhysicsState(P_State::NONE);
+          s->setColor({1,0,0,1});
+          if(torus_mode) {
+               s->setPosition(gridToTorus(i, width, height, mR, mr));
+               } else {
+               s->setPosition(vec3((s->ID%width)*s_scale, 0, (s->ID/width)*s_scale));
+               }
+          boxes << s;
+     }
+
+     if(render2d) {
+          for(auto b : boxes) scene->active[b->ID] = false;
+          for(auto s : squares) scene->quadActive[s->ID] = true;
+     } else {
+          for(auto b : boxes) scene->active[b->ID] = true;
+          for(auto s : squares) scene->quadActive[s->ID] = false;
+     }
 
      //Log::Line l; l.start();
 
@@ -229,12 +303,13 @@ int main() {
           for_csv << list<int>();
      }
 
+
      int display_threshold = 2;
      int current_tick = 0;
      vec2 a_mov;
      float sensitivity = 8.0f;
      S_Tool s_tool;
-     s_tool.log_fps = true;
+     s_tool.log_fps = false;
      start::run(window,d,[&]{
           s_tool.tick();
           //l.end(); l.start();
@@ -244,14 +319,13 @@ int main() {
           int highest_val = 0;
           for(int i=0;i<grid.length();i++) {
 
-                    #if enable_quads
+                    if(render2d) {
                          if(i>=scene->quadActive.length()) break;
                          scene->quadActive[i] = grid[i]>=display_threshold;
-                    #endif
-                    #if enable_singles
+                    } else {
                          if(i>=scene->active.length()) break;
                          scene->active[i] = grid[i]>=display_threshold;
-                    #endif
+                    }
                     if(grid[i]>=display_threshold) {
                          vec4 color = black;
                          if(grid[i]>=display_threshold) {
@@ -265,32 +339,34 @@ int main() {
                               color = vec4(0.0f,0.3f,0.0f,1);
                          }
                          if(grid[i]>highest_val) highest_val = grid[i];
-                         #if enable_quads
-                              scene->guiData[i] = color;
-                         #endif
-                         #if enable_singles
-                         if(torus_mode) {
-                              // For torus, move along the normal direction
-                              vec3 base_pos = gridToTorus(i, width, height, mR, mr);
-                              
-                              // Calculate normal (points outward from torus surface)
-                              int col = i % width;
-                              int row = i / width;
-                              float u = (col / (float)width) * 2.0f * M_PI;
-                              float v = (row / (float)height) * 2.0f * M_PI;
-                              
-                              vec3 normal;
-                              normal.x(cos(v) * cos(u));
-                              normal.y(sin(v));
-                              normal.z(cos(v) * sin(u));
-                              normal = normal.normalized();
-                              
-                              scene->transforms[i][3] = vec4(base_pos + normal * (grid[i] * 0.1f), 1.0f).toGlm();
+
+                         if(render2d) {
+                              if(enable_color)
+                                   scene->guiData[i] = color;
                          }
                          else {
-                              scene->transforms[i][3].y = grid[i]*3;
+                              if(torus_mode) {
+                                   // For torus, move along the normal direction
+                                   vec3 base_pos = gridToTorus(i, width, height, mR, mr);
+                                   
+                                   // Calculate normal (points outward from torus surface)
+                                   int col = i % width;
+                                   int row = i / width;
+                                   float u = (col / (float)width) * 2.0f * M_PI;
+                                   float v = (row / (float)height) * 2.0f * M_PI;
+                                   
+                                   vec3 normal;
+                                   normal.x(cos(v) * cos(u));
+                                   normal.y(sin(v));
+                                   normal.z(cos(v) * sin(u));
+                                   normal = normal.normalized();
+                                   
+                                   scene->transforms[i][3] = vec4(base_pos + normal * (grid[i] * 0.1f), 1.0f).toGlm();
+                              }
+                              else {
+                                   scene->transforms[i][3].y = grid[i]*3;
+                              }
                          }
-                         #endif
                     } 
                     total+=grid[i];
 
@@ -304,28 +380,67 @@ int main() {
           }
           current_tick++;
 
-          #if enable_quads
+          if(render2d) {
                vec2 mov = input_2d_keys(sensitivity)*-1;
                a_mov += mov;
                if(mov.length()!=0)
                     for(auto b : squares) {
-                         b->setPosition(vec2((b->ID%width)*tile_x, (b->ID/width)*tile_y) + a_mov);
+                         if(!oneD2d)
+                              b->setPosition(vec2((b->ID%width)*tile_x, (b->ID/width)*tile_y) + a_mov);
+                         else
+                              b->setPosition(vec2(b->ID*tile_x,0) + a_mov);
                     }
-          #endif
+          }
            
 
           //KEYBINDS:
           //F = Increase display threshold (hold shift to decrease)
           //R = Reset
-          //Up/Down = shift through orders
+          //Up/Down = shift through orders, hold shift to shift through freedoms
           //Left/Right = shift through biases
           //E = Speed up the simulation (hold shift to slow it down)
           //Q = Zoom in (hold shift to zoom out)
           //WASD = Pan
           //H = Print highest value
           //C = Print data and write to the CSV
-          //T = Current tick and total units
+          //T = Current confqiuration
           //M = if 3d, change mode
+          //X = switch between 2d and 3d
+          //Z = color
+          //I and O = Changing torus factors
+
+          //I = changing mR factors
+          if(pressed(I)||pressed(O)) {
+               if(pressed(I)) {
+                    if(held(LSHIFT))
+                         mR_factor+=0.05f;
+                    else
+                         mR_factor-=0.05f;
+                    mR = (width * s_scale) / (mR_factor * M_PI); 
+                    print("mR factor: ",mR_factor);
+               }
+               if(pressed(O)) {
+                    if(held(LSHIFT))
+                         mr_factor+=0.2f;
+                    else
+                         mr_factor-=0.2f;  
+                    mr = (height * s_scale) / (mr_factor * M_PI);
+                    print("mr factor: ",mr_factor);
+               }
+          }
+          if(pressed(P)) {
+               oneD2d = !oneD2d;
+          }
+
+          if(pressed(Z)) {
+               enable_color = !enable_color;
+               if(enable_color) {
+                    print("Enabling colors");
+               } else {
+                    print("Disabling colors");
+                    for(auto s : squares) s->setColor(vec4(0,0,0.6f,1));
+               }
+          }
 
 
           if(pressed(E)) {
@@ -339,7 +454,7 @@ int main() {
                print("Thread speed to: ",run_thread->getSpeed());
           }
           if(pressed(Q)) {
-               #if enable_quads
+               if(render2d) {
                     vec2 view_center = (a_mov*-1) + vec2(win.x()/2, win.y()/2);
                     vec2 grid_pos_before = view_center / vec2(tile_x, tile_y);
                     
@@ -361,29 +476,32 @@ int main() {
                     if(i<squares.length()) {
                          auto q = squares[i];
                          q->scale({tile_x, tile_y});
-                         q->setColor(black);
-                         q->setPosition(vec2((q->ID%width)*tile_x, (q->ID/width)*tile_y) + a_mov);
+                         if(!oneD2d)
+                              q->setPosition(vec2((q->ID%width)*tile_x, (q->ID/width)*tile_y) + a_mov);
+                         else
+                              q->setPosition(vec2(q->ID*tile_x,0) + a_mov);
                     }
                     }
-                #endif
-                #if enable_singles
+                }
+                else {
                     if(held(LSHIFT)) {
                          scene->camera.setPosition(vec3(0,50,0));
                     }
                     else {
                          cam_type++;
-                         if(cam_type>=2) cam_type=0;
                          if(cam_type==0)
                               scene->camera.toIso();
                          else if(cam_type==1)
                               scene->camera.toOrbit();
-                         else if(cam_type==2)
-                              scene->camera.toFly();
+                         else {
+                              cam_type = 0;
+                              scene->camera.toIso();
+                         }
                     }
-                #endif
+                }
           }
           if(pressed(M)) { 
-               #if enable_singles
+               if(!render2d) {
                    torus_mode = !torus_mode;
                    for(int i = 0; i < boxes.length(); i++) {
                        if(torus_mode) {
@@ -394,13 +512,29 @@ int main() {
                    }
                    
                    print(torus_mode ? "TORUS MODE" : "FLAT GRID MODE");
-               #endif
-           }
+               }
+          }
+          if(pressed(X)) {
+               render2d = !render2d;
+               if(render2d) {
+                    for(auto b : boxes) scene->active[b->ID] = false;
+                    for(auto s : squares) scene->quadActive[s->ID] = true;
+               } else {
+                    for(auto b : boxes) scene->active[b->ID] = true;
+                    for(auto s : squares) scene->quadActive[s->ID] = false;
+               }
+          }
           if(pressed(H)) {
                print("Highest value: ",highest_val);
           }
-          if(held(T)) {
+          if(pressed(T)) {
+               print("---------------------------------");
                print("Current tick: ",current_tick," total: ",total);
+               print("ORDER: ",order_types[order]);
+               print("BIAS: ",bias_types[bias]);
+               print("FREEDOM: ",freedom_types[freedom]);
+               print("SHUFFLE NEIGHBORS: ",shuffle_neighbours?"TRUE":"FALSE");
+               print("---------------------------------");
           }
           if(pressed(C)) {
                std::string csv = "";
@@ -437,25 +571,24 @@ int main() {
                }
           }
           if(pressed(R)) {
-               for(int i=0;i<(width*height);i++) {
-                    grid = randi(0,1);
+               // for(int i=0;i<(width*height);i++) {
+               //      grid = randi(0,1);
+               // }
+
+               for(int i = 0; i < grid.length(); i++) {
+               int x = i % width;
+               int y = i / width;
+               int dx = x - width/2;
+               int dy = y - height/2;
+               int r = 4; //radius
+               if(dx*dx + dy*dy <= r*r) {
+                    grid[i] = 16;  // inside blob
+               } else {
+                    grid[i] = 0;  // outside blob
+               }
                }
           }
-          if(pressed(G)) {
-               // for(int i = 0; i < grid.length(); i++) {
-               //     int x = i % width;
-               //     int y = i / width;
-               //     int dx = x - width/2;   
-               //     int dy = y - height/2;
-               //     int r = 8; //radius
-               //     if((dx*dx + dy*dy) <= r*r) {
-               //         grid[i] = 8;  // inside blob
-               //     } 
-               // }
-          }
-
           if(pressed(LEFT)||pressed(RIGHT)) {
-               max_bias = 2; //Total ammount of switch cases
                if(pressed(LEFT)) {
                     if(bias<=0) 
                          bias = max_bias;
@@ -466,31 +599,9 @@ int main() {
                          bias = 0;
                     else bias++;
                }
-               switch(bias) {
-                    case 0:
-                         bias_func = [&](list<int>& flips){
-                              //Do nothing, no bias
-                         };
-                         print("NO BIAS");
-                    break;
-                    case 1:
-                         bias_func = [&](list<int>& flips){
-                              flips.sort([&](int a, int b) {return grid[a] >= grid[b];});
-                         };
-                         print("BIAS TOWARDS ENERGY");
-                    break;
-                    case 2:
-                         bias_func = [&](list<int>& flips){
-                              flips.sort([&](int a, int b) {return grid[a] < grid[b];});
-                         };
-                         print("BIAS AWAY FROM ENERGY");
-                    break;
-                    default:
-                         break;
-               }
+               print("BIAS: ",bias_types[bias]);
           }
-          if(pressed(UP)||pressed(DOWN)) {
-               max_order = 4; //Total ammount of switch cases
+          if((pressed(UP)||pressed(DOWN))&&!held(LSHIFT)) {
                if(pressed(DOWN)) {
                     if (order<=0) {
                          order = max_order;
@@ -505,53 +616,44 @@ int main() {
                          order++;
                     }
                }
-               switch(order) {
-                    case 0:
-                         order_func = [](list<int>& iterate_order){
-                              //Do nothing, forward order
-                         };
-                         print("FORWARD ORDER");
-                    break;
-                    case 1:
-                         order_func = [](list<int>& iterate_order){
-                              list<int> n_ran;
-                              for(int i=iterate_order.length()-1;i>=0;i--) {
-                                   n_ran << iterate_order[i];
-                              }
-                              iterate_order = n_ran;
-                         };
-                         print("REVERSE ORDER");
-                    break;
-                    case 2:
-                         order_func = [](list<int>& iterate_order){
-                              iterate_order.shuffle();
-                         };
-                         print("RANDOM ORDER");
-                    break;
-                    case 3:
-                         order_func = [&](list<int>& iterate_order){
-                              iterate_order.sort([&](int a, int b) {return grid[a] > grid[b];}); //Towards high energy
-                         };
-                         print("PRIORITY ORDER");
-                    break;
-                    case 4:
-                         order_func = [](list<int>& iterate_order){
-                              list<int> first_ran;
-                              for(int i=iterate_order.length()-1;i>=iterate_order.length()/2;i--) {
-                              first_ran << iterate_order[i];
-                              }
-                              list<int> second_ran;
-                              for(int i=0;i<=iterate_order.length()/2;i++) {
-                              second_ran << iterate_order[i];
-                              }
-                              first_ran << second_ran;
-                              iterate_order = first_ran;
-                         };
-                         print("SPLIT ORDER");
-                    break;
-                    default:
-                         break;
+               print("ORDER: ",order_types[order]);
+          }
+          if((pressed(UP)||pressed(DOWN))&&held(LSHIFT)) {
+               max_freedom = 2; //Total ammount of switch cases
+               if(pressed(DOWN)) {
+                    if (freedom<=0) {
+                         freedom = max_freedom;
+                    } else {
+                         freedom--;
+                    }
                }
+               if(pressed(UP)) {
+                    if(freedom>=max_freedom) {
+                         freedom = 0;
+                    } else {
+                         freedom++;
+                    }
+               }
+               print("FREEDOM: ",freedom_types[freedom]);
+          }
+
+          if(pressed(NUM_1)) {
+               freedom = 0; //Torodial
+               order = 0; //Forward
+               bias = 1; //Towards energy
+               shuffle_neighbours = true;
+          }
+          if(pressed(NUM_2)) {
+               freedom = 0; //Torodial
+               order = 2; //Random
+               bias = 1; //Towards energy
+               shuffle_neighbours = true;
+          }
+          if(pressed(NUM_3)) {
+               freedom = 0; //Torodial
+               order = 0; //Forward
+               bias = 1; //Towards energy
+               shuffle_neighbours = false;
           }
 
           if(pressed(U)) {
