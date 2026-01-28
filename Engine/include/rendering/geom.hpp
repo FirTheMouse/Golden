@@ -11,6 +11,7 @@ namespace Golden {
         unsigned int instanceVBO = 0;
         unsigned int instancedVAO = 0;
         unsigned int instanceDataVBO = 0;
+        unsigned int instanceColorVBO = 0;
         int instanceCount = 0;
     public:
         //Default making just a white square
@@ -43,14 +44,14 @@ namespace Golden {
         void setupGeom();
         void draw();
 
-        void setupInstancedVAO(const list<glm::mat4>& transforms, const list<vec4>& instanceData);
-        void fullInstanceUpdate(const list<glm::mat4>& transforms, const list<vec4>& instanceData);
+        void setupInstancedVAO(const list<glm::mat4>& transforms, const list<vec4>& instanceData, const list<vec4>& colors);
+        void fullInstanceUpdate(const list<glm::mat4>& transforms, const list<vec4>& instanceData, const list<vec4>& colors);
 
-        void transformInstances(const list<glm::mat4>& transforms, const list<vec4>& instanceData) {
+        void transformInstances(const list<glm::mat4>& transforms, const list<vec4>& instanceData, const list<vec4>& colors) {
             if (instanceVBO == 0) {
-                setupInstancedVAO(transforms,instanceData);
+                setupInstancedVAO(transforms,instanceData, colors);
             } else {
-                fullInstanceUpdate(transforms,instanceData);
+                fullInstanceUpdate(transforms,instanceData, colors);
             }
         }
 

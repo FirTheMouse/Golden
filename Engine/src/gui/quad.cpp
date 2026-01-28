@@ -214,6 +214,10 @@ namespace Golden
         GET(scene->guiData,ID) = d;
         return *this;
     }
+    Quad& Quad::setColor(const vec4& d) {
+        GET(scene->guiColor,ID) = d;
+        return *this;
+    }
     Quad& Quad::setTexture(const unsigned int& t) {
         getGeom()->texture = t;
         return *this;

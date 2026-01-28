@@ -317,7 +317,7 @@ int main() {
      vec2 a_mov;
      float sensitivity = 8.0f;
      S_Tool s_tool;
-     s_tool.log_fps = false;
+     s_tool.log_fps = true;
      start::run(window,d,[&]{
           s_tool.tick();
           //l.end(); l.start();
@@ -349,8 +349,7 @@ int main() {
                          if(grid[i]>highest_val) highest_val = grid[i];
 
                          if(render2d) {
-                              if(enable_color)
-                                   scene->guiData[i] = color;
+                              scene->guiColor[i] = color;
                          }
                          else {
                               if(torus_mode) {

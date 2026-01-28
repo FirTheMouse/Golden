@@ -90,8 +90,8 @@ public:
 
     Quad& setData(const vec4& d);
     Quad& setTexture(const unsigned int& t);
-    void setColor(vec4 _color) {setData(_color);}
-    void setColor(glm::vec4 _color) {setData(vec4(_color));}
+    Quad& setColor(const vec4& _color);
+    Quad& setColor(glm::vec4 _color) {return setColor(vec4(_color));}
     void setUV(vec4 _uv) {setData(_uv);}
     void setUV(glm::vec4 _uv) {setData(vec4(_uv));}
     void setGeom(g_ptr<Geom> geomPtr) {

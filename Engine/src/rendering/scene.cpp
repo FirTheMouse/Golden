@@ -53,6 +53,7 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
             }
             geoms.push(quad->geom);
             quad->geom = nullptr;
+            quad->instanced = true;
         } else {
             geoms.push(make<Geom>());
         }
@@ -122,6 +123,7 @@ void Scene::updateScene(float tpf)
 
     guiInstancedTransforms.clear();
     guiInstancedData.clear();
+    guiInstancedColors.clear();
     instancedGeoms.clear();
 
     depthShader.use();
@@ -228,8 +230,16 @@ void Scene::updateScene(float tpf)
         instancedModels[i]->draw(instanceShader.getID());
     }
 
-    glDisable(GL_DEPTH_TEST);      // ignore depth
-    glDepthMask(GL_FALSE);         // don’t write depth
+    // glDisable(GL_DEPTH_TEST);      // ignore depth
+    // glDepthMask(GL_FALSE);         // don’t write depth
+    // glEnable(GL_BLEND);
+    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthRange(0.0, 0.1); 
+    glClear(GL_DEPTH_BUFFER_BIT);  // Clear depth
+    glDepthMask(GL_TRUE);           // ENABLE depth writing
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -280,6 +290,7 @@ void Scene::updateScene(float tpf)
             if(existing_instance_id!=-1) {
                 guiInstancedTransforms[existing_instance_id].push(guiTransforms[i]);
                 guiInstancedData[existing_instance_id].push(guiData[i]);
+                guiInstancedColors[existing_instance_id].push(guiColor[i]); 
             } else {
                 instancedGeoms.push(geoms[i]);
                 list<glm::mat4> temp(12);
@@ -288,8 +299,12 @@ void Scene::updateScene(float tpf)
                 list<vec4> temp2(12);
                 temp2 << guiData[i];
 
+                list<vec4> temp3(12);
+                temp3 << guiColor[i];
+
                 guiInstancedTransforms.push(temp);
                 guiInstancedData.push(temp2);
+                guiInstancedColors.push(temp3);
             }
             continue;
         } else if(useTex) {
@@ -309,11 +324,11 @@ void Scene::updateScene(float tpf)
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, texID);
         }
-
-        instancedGeoms[g]->transformInstances(guiInstancedTransforms[g],guiInstancedData[g]);
+        instancedGeoms[g]->transformInstances(guiInstancedTransforms[g],guiInstancedData[g],guiInstancedColors[g]);
         instancedGeoms[g]->draw();
     }
 
+    glDepthRange(0.0, 1.0);    
     glDepthMask(GL_TRUE);          // restore for 3-D, if needed
     glEnable(GL_DEPTH_TEST);
 }

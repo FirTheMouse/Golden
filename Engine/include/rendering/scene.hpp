@@ -254,8 +254,10 @@ public:
     //Could optimize this into a map<g_ptr<Model>,list<glm::mat4>> later, when it isn't 11am on Christmas.
     list<g_ptr<Model>> instancedModels;
 
+    //ENSURE YOU ADD THE CLEAR LOGIC IN THE UPDATE LOOP FOR EACH NEW INSTANCED LIST!!
     list<list<glm::mat4>> guiInstancedTransforms;
     list<list<vec4>> guiInstancedData;
+    list<list<vec4>> guiInstancedColors;
     list<g_ptr<Geom>> instancedGeoms;
 
 

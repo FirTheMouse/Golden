@@ -149,6 +149,22 @@ int main()  {
         "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
         "\nLegislature as a separate role, some are represented by a mayor or dean."
             ,{100,100});
+
+        auto g = make<Geom>();
+        for(int i=0;i<10;i++) {
+            auto q = make<Quad>(g);
+            scene->add(q);
+            q->scale({100,100});
+            q->setPosition(vec2(500+(i*10.0f),i*50.0f));
+            if(i<5) {
+                scene->guiColor[q->ID] = vec4(0.0f,0.3f,0.0f,1);
+                scene->guiTransforms[q->ID][3][3] = 0.1f;
+            }
+            else {
+                scene->guiColor[q->ID] = vec4(0.0f,0.0f,0.8f,1);
+                scene->guiTransforms[q->ID][3][3] = 1.0f;
+            }
+        }
     } else if (TESTING==1) {
         g_ptr<Geom> geom = make<Geom>();
         for(int i=0;i<10000;i++) {

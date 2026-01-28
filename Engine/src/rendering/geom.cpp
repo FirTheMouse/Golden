@@ -52,14 +52,20 @@ namespace Golden {
         }
     }
 
-    void Geom::setupInstancedVAO(const list<glm::mat4>& instanceTransforms, const list<vec4>& instanceData) {
+    void Geom::setupInstancedVAO(const list<glm::mat4>& instanceTransforms, const list<vec4>& instanceData, const list<vec4>& colors) {
         if (instancedVAO == 0) glGenVertexArrays(1, &instancedVAO);
         if (instanceVBO == 0) glGenBuffers(1, &instanceVBO);
         if (instanceDataVBO == 0) glGenBuffers(1, &instanceDataVBO);
+        if (instanceColorVBO == 0) glGenBuffers(1, &instanceColorVBO);
 
         std::vector<glm::vec4> std_data;
         for(auto i : instanceData) {
             std_data.push_back(i.toGlm());
+        }
+
+        std::vector<glm::vec4> std_colors;
+        for(auto c : colors) {
+            std_colors.push_back(c.toGlm());
         }
     
         glBindVertexArray(instancedVAO);
@@ -91,23 +97,39 @@ namespace Golden {
         // Instance data (vec4) - attribute 6
         glBindBuffer(GL_ARRAY_BUFFER, instanceDataVBO);
         glBufferData(GL_ARRAY_BUFFER, std_data.size() * sizeof(glm::vec4), 
-                     std_data.data(), GL_STATIC_DRAW);
-        
+                    std_data.data(), GL_STATIC_DRAW);
+
         glEnableVertexAttribArray(6);
-        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(vec4), (void*)0);
-        glVertexAttribDivisor(6, 1); // Per-instance
-    
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);  // stride = 0 means tightly packed
+        glVertexAttribDivisor(6, 1);
+
+        // Instance colors (vec4) - attribute 7
+        glBindBuffer(GL_ARRAY_BUFFER, instanceColorVBO);
+        glBufferData(GL_ARRAY_BUFFER, std_colors.size() * sizeof(glm::vec4), 
+                    std_colors.data(), GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(7);
+        glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);  // stride = 0
+        glVertexAttribDivisor(7, 1);
+
         glBindVertexArray(0);
         instance = true;
         instanceCount = instanceTransforms.size();
     }
     
-    void Geom::fullInstanceUpdate(const list<glm::mat4>& instanceTransforms, const list<vec4>& instanceData) {
+    void Geom::fullInstanceUpdate(const list<glm::mat4>& instanceTransforms, const list<vec4>& instanceData, const list<vec4>& colors) {
 
         std::vector<glm::vec4> std_data;
         for(auto i : instanceData) {
             std_data.push_back(i.toGlm());
         }
+
+        std::vector<glm::vec4> std_colors; 
+        for(auto c : colors) {
+            std_colors.push_back(c.toGlm());
+        }
+
+        glBindVertexArray(instancedVAO);
 
         // Update transform buffer
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
@@ -118,8 +140,14 @@ namespace Golden {
         glBindBuffer(GL_ARRAY_BUFFER, instanceDataVBO);
         glBufferData(GL_ARRAY_BUFFER, std_data.size() * sizeof(glm::vec4),
                      std_data.data(), GL_DYNAMIC_DRAW);
+
+        // Update color buffer 
+        glBindBuffer(GL_ARRAY_BUFFER, instanceColorVBO);
+        glBufferData(GL_ARRAY_BUFFER, std_colors.size() * sizeof(glm::vec4),
+                     std_colors.data(), GL_DYNAMIC_DRAW);
         
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
         instanceCount = instanceTransforms.size();
     }
     
