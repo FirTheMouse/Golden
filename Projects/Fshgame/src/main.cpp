@@ -105,7 +105,7 @@ int main()  {
     std::string IROOT = root()+"/Projects/Fshgame/assets/images/";
     Window window = Window(win.x()/2, win.y()/2, "GUI Testing");
     scene = make<Scene>(window,2);
-    Data d = make_config(scene,K);
+    Data d = make_config(scene,NUM_0);
     scene->tickEnvironment(0);
 
     g_ptr<Text> twig = nullptr;
@@ -540,7 +540,7 @@ int main()  {
     int instance_accumulator = 0;
 
     S_Tool s_tool;
-    s_tool.log_fps = true;
+    s_tool.log_fps = false;
     double m = 0;
     //The parent of selected
     g_ptr<Quad> sel = nullptr;
@@ -627,7 +627,7 @@ int main()  {
         }
 
         if(!block_input) {
-            if(held(MOUSE_LEFT)) {
+            if(held(G)) {
                 if(TESTING==2) {
                     //vec2 diff = boxes[1]->getPosition() - boxes[0]->getPosition(); 
                     boxes[0]->setCenter(scene->mousePos2d());
@@ -740,10 +740,26 @@ int main()  {
             }
 
             if(pressed(H)) {
-                twig->removeText(0,twig->chars.length());
+                // if(held(LSHIFT))
+                //     twig->removeText(0,twig->chars.length());
+                // else
+                //     twig->setText("womble");
+                
 
-                if(s_tool.frame%2==0)
-                    twig->setText("womble");
+                int anchors = 0;
+                list<g_ptr<Quad>> u_anchors;
+                for(auto c : twig->chars) {
+                    if(c->isAnchor) anchors+=1;
+                    if(c->opt_ptr) {
+                        if(!u_anchors.has(c->opt_ptr))
+                            u_anchors << c->opt_ptr;
+                    }
+                }
+                print("ACHORS: ",anchors);
+                print("UANCHORS: ",u_anchors.length());
+
+                // if(s_tool.frame%2==0)
+                //     twig->setText("womble");
                 // else
                 //     twig->setText("wibles");
                 // print(twig->chars.length());

@@ -1,6 +1,7 @@
 #pragma once
 
-#include<core.hpp>
+#include<util/ml_core.hpp>
+#include<gui/twig.hpp>
 
 namespace Eigen {
 
@@ -191,6 +192,7 @@ void run_mnist(g_ptr<Scene> scene, int epochs, int amt = -1) {
         randi(0, test_imgs->shape_[0] - 1)
     };
 
+    list<g_ptr<Text>> twigs;
     for(int i = 0; i < 3; i++) {
         int idx = indices[i];
         
@@ -221,8 +223,10 @@ void run_mnist(g_ptr<Scene> scene, int epochs, int amt = -1) {
         
         // Display text showing prediction
         print("Image ", i, ": Predicted ", predicted);
-        vec2 pos2(100.0f + pos_y, 350);
-        text::makeText(std::to_string(predicted), source_code, scene, pos2, 1);
+        vec2 pos2(100.0f + pos_y, 300);
+        g_ptr<Text> twig = make<Text>(source_code,scene);
+        twigs << twig;
+        twig->makeText(std::to_string(predicted),pos2);
     }
 }
 

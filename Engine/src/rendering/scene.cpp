@@ -57,6 +57,7 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
             geoms.push(make<Geom>());
         }
         guiData.push(vec4(1,1,1,1));
+        guiColor.push(vec4(1,1,1,1));
         guiTransforms.push(glm::mat4(1.0f));
         guiEndTransforms.push(glm::mat4(1.0f));
         quadAnimStates.push(AnimState());
@@ -271,6 +272,7 @@ void Scene::updateScene(float tpf)
 
         guiShader.setMat4("quad",glm::value_ptr(guiTransforms[i]));
         guiShader.setVec4("data", guiData[i].toGlm());
+        guiShader.setVec4("color", guiColor[i].toGlm());
         bool useTex = geoms[i]->texture != 0;
         guiShader.setInt("useTexture", useTex ? 1 : 0);
         if(geoms[i]->instance) {

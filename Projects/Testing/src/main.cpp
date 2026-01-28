@@ -138,14 +138,18 @@ namespace GDSL {
         
     // }
 
+    //These are fancier features, maybe I should make both a manual/simple demo and a fancy one?
+    //I'll just do fancy for now because its how I think and flatten it later.
     map<std::string,g_ptr<Value>> keywords;
 
     g_ptr<Value> make_value(const std::string& name, size_t size = 0) {
         return make<Value>(reg::new_type(name),size);
     }
 
-    void make_keyword(const std::string& name, size_t size = 0) {
-        keywords.put(name,make_value(name,size));
+    size_t make_keyword(const std::string& name, size_t size = 0) {
+        g_ptr<Value> val = make_value(name,size);
+        keywords.put(name,val);
+        return val->type;
     }
 
     void test_module(const std::string& path) {
@@ -156,26 +160,62 @@ namespace GDSL {
 
 
         size_t identifier_id = reg::new_type("IDENTIFIER");
-        size_t words_id = reg::new_type("WORDS");
-        size_t not_words_id = reg::new_type("NOT_WORDS");
-        a_functions.put(identifier_id,[words_id,not_words_id](a_context& ctx){
+        size_t words_id = make_keyword("words");   
+        a_functions.put(identifier_id,[words_id](a_context& ctx){
+            //Here keywords lets us skip the T_KEY T_CALL and just go straight to content -> value. This is so we 
+            //aren't storing type information on the tokens, and can instead put that in the a_node
             g_ptr<Value> value = keywords.getOrDefault(ctx.token->content,fallback_value);
-            if(value->type==0) {
-                
+            if(!value) {
+                //Trying out the default handeling as just keep pushing it in
+                //print("identifier_a_function::168 No keyword association for: ",ctx.token->content); //The default handeling here could instead be making it a literal_idenrtifier
             } else {
-
-            }
- 
-            if(ctx.state == 0) {
-                ctx.state = words_id;
+                if(ctx.state == 0) {
+                    ctx.state = value->type; //Switch state and start to gather
+                } else { //If an opp was already gathering, end and start a new node
+                    ctx.node->type = ctx.state;
+                    ctx.result << ctx.node;
+                    ctx.node = make<a_node>();
+                }
             }
             ctx.node->tokens << ctx.token;
         });
+        // t_functions.put(words_id,[](t_context& ctx){
+        //     parse_sub_nodes(ctx);
+        //     return ctx.result;
+        // });
+        // t_functions.put(identifier_id,[](t_context& ctx){
+        //     return ctx.result;
+        // });
+
+
+
+
+
+        //In essence, the a_stage accumulates tokens which will later be sorted into left/right/child by the t_stage
+        //So the default function is just saying 'fold in anything not flagged as an opp'
+        //An example would be: string name = "joe"
+        //Which tokenizes as: STRING_KEY IDENTIFIER EQUALS STRING_LITERAL
+        //The a_stage will turn that into: VAR_DECL[STRING_KEY, IDENTIFIER] ASSIGNMENT[STRING_LITERAL]
+        //So long as the token_to_opp points T_KEY -> VAR_DECL and EQUALS -> ASSIGNMENT
+        //NOTE TO SELF: The current Standard module for GDSLang does this manually with an unesseacry type_key_handler, so that's a bad example!
+        a_default_function = [](a_context& ctx){
+            uint32_t opp = token_to_opp.getOrDefault(ctx.token->getType(),(unsigned int)0);
+            if(opp!=0) {
+                //If we're already in an opperation, end the current one, start a new one
+                if(state_is_opp.getOrDefault(ctx.state,false)) {
+                    ctx.end();
+                }
+                ctx.state=opp;
+            }
+            else
+            print("parse_tokens::653 missing case for type ",TO_STRING(ctx.token->getType()));
+            ctx.node->tokens << ctx.token;
+        };
 
         size_t int_id = reg::new_type("INT");
         size_t float_id = reg::new_type("FLOAT");
 
-        make_keyword("words");        
+     
 
         size_t in_alpha_id = reg::new_type("IN_ALPHA");
         tokenizer_state_functions.put(in_alpha_id,[](tokenizer_context& ctx){
@@ -188,7 +228,7 @@ namespace GDSL {
         });
 
         size_t in_digit_id = reg::new_type("IN_DIGIT");
-        tokenizer_state_functions.put(in_digit_id,[in_alpha_id](tokenizer_context& ctx){
+        tokenizer_state_functions.put(in_digit_id,[in_alpha_id,float_id](tokenizer_context& ctx){
             char c = *(ctx.it);
             if(c==' ') {
                 ctx.state = 0; 
@@ -196,7 +236,7 @@ namespace GDSL {
             } else if(std::isalpha(c)) {
                 ctx.state = in_alpha_id;
             } else if(c=='.') {
-                ctx.token->type = 3;
+                ctx.token->type = float_id;
             }
             ctx.token->add(c);
         });
@@ -224,9 +264,9 @@ namespace GDSL {
         std::string code = readFile(path);
         list<g_ptr<Token>> tokens = tokenize(code);
         list<g_ptr<a_node>> nodes = parse_tokens(tokens);
-        // balance_precedence(nodes);
-        // g_ptr<s_node> root = parse_scope(nodes);
-        // parse_nodes(root);
+        balance_precedence(nodes);
+        g_ptr<s_node> root = parse_scope(nodes);
+        parse_nodes(root);
         // discover_symbols(root);
         // g_ptr<Frame> frame = resolve_symbols(root);
     }

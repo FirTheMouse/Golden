@@ -10,7 +10,7 @@
 #include <Eigen/Dense>
 
 #include<core/gpuType.hpp>
-#include<methods.hpp>
+#include<util/ml_methods.hpp>
 
 #ifdef __APPLE__
     #include <Accelerate/Accelerate.h>

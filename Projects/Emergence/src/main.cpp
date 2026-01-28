@@ -24,6 +24,8 @@ vec3 gridToTorus(int i, int width, int height, float mR, float mr) {
 
 int main() {
 
+
+
      std::string MROOT = root()+"/Projects/Emergence/assets/models/";
      std::string IROOT = root()+"/Projects/Emergence/assets/images/";
      std::string SROOT = root()+"/Projects/Emergence/src/";
@@ -33,6 +35,8 @@ int main() {
      scene->tickEnvironment(1000);
      scene->background_color = vec4(0,0,0,1);
      scene->camera.toIso();
+
+     // Eigen::run_mnist(scene,1000);
 
      g_ptr<Text> twig = nullptr;
 
@@ -209,7 +213,11 @@ int main() {
 
                if(shuffle_neighbours)
                     neighbours.shuffle();
-               desired_flips[i] = neighbours;
+
+               if(desired_flips.length()<i)
+                    desired_flips[i] = neighbours;
+               else
+                    desired_flips << neighbours;
           }
 
           for(int i : iterate_order) {
@@ -318,7 +326,7 @@ int main() {
           int total = 0;
           int highest_val = 0;
           for(int i=0;i<grid.length();i++) {
-
+                    if(i>=grid.length()) break;
                     if(render2d) {
                          if(i>=scene->quadActive.length()) break;
                          scene->quadActive[i] = grid[i]>=display_threshold;
@@ -661,6 +669,8 @@ int main() {
                if(shuffle_neighbours) print("SHUFFLING NEIGHBOURS");
                else print("DISABLED NEIGHBOUR SHUFFLING");
           }
+
+
           //print("Time 2: ",l.end()/1000000,"ms "); l.start();
      } );
 }

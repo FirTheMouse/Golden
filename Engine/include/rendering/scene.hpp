@@ -235,6 +235,7 @@ public:
     q_list<g_ptr<Quad>> quads;
     list<g_ptr<Geom>> geoms;
     q_list<vec4> guiData;
+    q_list<vec4> guiColor;
     q_list<glm::mat4> guiTransforms;
     q_list<glm::mat4> guiEndTransforms;
     q_list<P_State> quadPhysicsStates;

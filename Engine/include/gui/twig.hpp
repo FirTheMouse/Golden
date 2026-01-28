@@ -138,17 +138,22 @@ public:
         }
         auto q = scene->create<Quad>(pool_name);
         q->opt_char = c;
-        //Cleaning up just in case, because we do recycle throuhg pools
+        //Cleaning up just in case, because we do recycle through pools
         q->opt_x_offset = 0;
         q->opt_offset = vec2(0,0);
         q->opt_delta = vec2(0,0);
         q->parent = nullptr;
+        q->isAnchor = false;
+        q->opt_float = 0;
+        q->opt_float_2 = 0;
         q->children.clear();
         q->parents.clear();
 
         q->joint = [q](){
             g_ptr<Quad> anchorParent = q->opt_ptr;
-            if(!anchorParent) {
+            //This has no handeling for if we are the anchor, that's because anchors don't get jointed currently
+            //but when we want to attatch text to non-text quads, we'll need to handle this!
+            if(!anchorParent || !anchorParent->isAnchor) {
                 anchorParent = q->parent;
                 while(anchorParent && !anchorParent->isAnchor) {
                     if(anchorParent->parent) {
@@ -167,7 +172,7 @@ public:
             
             float totalAdvance = 0;
             float totalLineHeight = 0;
-            float lineHeight = 50.0f; // get from font
+            float lineHeight = 50.0f; //ADD: get from font
             if(q->opt_char=='\n') {
                 totalAdvance = -anchorParent->opt_x_offset;
                 totalLineHeight = q->parent->opt_float_2+lineHeight;
@@ -175,8 +180,14 @@ public:
                 totalAdvance = q->parent->opt_float+q->opt_x_offset;
                 totalLineHeight = q->parent->opt_float_2;
             }
-            q->opt_float = totalAdvance;
+            //SPECIAL HANDELING ALERT! This cursour behaviour should probably be provided via a flag in the future.
+            if(q->opt_char=='|') {
+                q->opt_float = q->parent->opt_float;
+            } else {
+                q->opt_float = totalAdvance;
+            }
             q->opt_float_2 = totalLineHeight;
+
             
             totalAdvance *= anchorScaleFactor.x();
             totalLineHeight *= anchorScaleFactor.y();
@@ -210,9 +221,6 @@ public:
             q->opt_x_offset = g.advance;
             q->opt_offset = g.bearing;
             q->opt_delta = g.size;
-            if(c=='|') {
-                q->opt_x_offset = 0.0f; //For the cursor
-            }
         } 
 
         return q;
@@ -237,6 +245,7 @@ public:
     }
 
     g_ptr<Quad> insertChar(char c,g_ptr<Quad> at) {
+        if(at==nullptr) return nullptr;
         auto q = makeChar(c);
         g_ptr<Quad> oldChild = at->children.empty() ? nullptr : at->children[0];
         q->parent = at;
@@ -259,7 +268,15 @@ public:
     }
 
     g_ptr<Quad> removeChar(g_ptr<Quad> at) {
+        if(at==nullptr) return nullptr;
         g_ptr<Quad> parent = at->parent;
+
+        // if(at->isAnchor) { 
+        //     print("Trying to remove an anchor");
+        //     if(!parent) print("No parent");
+        //     else print("Parent");
+
+        // }
 
         if(parent) {
             parent->children.erase(at);
@@ -274,16 +291,23 @@ public:
                 at->children[0]->parent = nullptr;
                 at->children[0]->isAnchor = true;
                 at->children[0]->setPosition(at->getPosition());
+                at->children[0]->opt_float = 0;
+                at->children[0]->opt_float_2 = 0;  
                 at->children.clear();
+            } else {
+                //There's no children to make the new anchor, i.e, the text is empty.
+                //This is repeated logic, it remains for now so-as to be explicit about the case.
+                chars.erase(at);
+                scene->recycle(at);
+                return nullptr;
             }
         }
 
         chars.erase(at);
         scene->recycle(at);
-        
-        // if(!chars.empty())
-        //     chars[0]->updateTransform();
 
+        if(!chars.empty())
+            chars[0]->updateTransform();
         return parent;
     }
 
@@ -291,30 +315,39 @@ public:
         return removeChar(chars[at]);
     }
 
-    void removeText(size_t at,size_t ammount) {
+    void removeText(int at,size_t ammount) {
+        if(at==-1||chars.empty()) return;
         for(size_t i=0;i<ammount;i++)
         {
-            if(chars.length()>i)
-                removeChar(at);
+            removeChar(at);
         }
     }
     void removeText(g_ptr<Quad> at,size_t ammount) {
         removeText(chars.find(at),ammount);
     }
 
-    void insertText(const std::string& content, size_t at) {
-        for(size_t i=0;i<content.length();i++)
-        {
-            insertChar(content.at(i),at++);
+    void insertText(const std::string& content, int at,vec2 pos = {0,0}) {
+        if(at==-1||chars.empty()) {
+            makeText(content,pos);
         }
+        else 
+            for(size_t i=0;i<content.length();i++)
+            {
+                insertChar(content.at(i),at++);
+            }
     }
-    void insertText(const std::string& content, g_ptr<Quad> at) {
-        insertText(content,chars.find(at));
+
+    void insertText(const std::string& content, g_ptr<Quad> at,vec2 pos = {0,0}) {
+        insertText(content,chars.find(at),pos);
     }
 
     void setText(const std::string& content) {
-        removeText(0,chars.length()-1);
-        insertText(content,0);
+        vec2 backup_pos = {0,0};
+        if(!chars.empty()) {
+            backup_pos = chars[0]->getPosition();
+            removeText(0,chars.length());
+        }
+        insertText(content,0,backup_pos);
     }
 
 };

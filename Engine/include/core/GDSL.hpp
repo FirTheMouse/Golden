@@ -147,6 +147,7 @@ class Token : public Object {
         bool parsed = false;
         bool dotted = false;
         uint32_t type;
+        //Potential optimization could be storing a content-hash if we use a lot of lookups
         std::string content;    
         uint32_t getType() {return type;}
         void setType(uint32_t _type) {type = _type;}
@@ -255,15 +256,18 @@ static std::string data_to_string(uint32_t type,void* data) {
 }
 
 
+//A value holds all the actaul worked-with information, from it's address in a Type (if Type is used) to the actual ptr to the data.
+//NOTE TO SELF: Should any map storing these be nuked before running? Given as they are smart pointers so if a map holds one it won't get deleted properly
+//from a memory managment standpoint these are pretty bad, but they're here more for the prototype stage, and eventually users should be able to easily replace them.
 class Value : public Object {
 public:
     Value(uint32_t _type) : type(_type) {}
     Value(uint32_t _type, size_t _size) : type(_type), size(_size) {}
     ~Value() {}
     uint32_t type = 0;
-    void* data;
+    void* data = nullptr;
     int address = -1;
-    size_t size;
+    size_t size = 0;
     int sub_size = -1;
 
     template<typename T>
@@ -305,7 +309,7 @@ public:
     }
 };
 
-g_ptr<Value> fallback_value;
+g_ptr<Value> fallback_value = nullptr;
 
 
 /// @brief BIG WARNING! These leak right now and we need to add cleanup for data in the future!
@@ -811,7 +815,6 @@ struct t_context {
     g_ptr<t_node> left = nullptr;
 };
 
-map<uint32_t, uint32_t> t_opp_conversion;
 //I *strongly* dislike how this is being used, and very much intened to clean it up
 map<uint32_t, std::function<g_ptr<t_node>(g_ptr<Token>)>> t_literal_handlers;
 auto t_literal_handler = [](t_context& ctx) -> g_ptr<t_node> {
@@ -826,7 +829,7 @@ map<uint32_t,std::function<g_ptr<t_node>(t_context& ctx)>> t_functions;
 //find the core relationship rather than the emergent property.
 static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nullptr) {
     g_ptr<t_node> result = make<t_node>();
-    result->type = t_opp_conversion.getOrDefault(node->type,(unsigned int)0);
+    result->type = node->type;
     
     if (node->tokens.size() == 2) {
         result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
@@ -912,19 +915,17 @@ static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_
     g_ptr<t_node> result = make<t_node>();
     t_context ctx(result,node,root);
     ctx.left = left;
+    //ARCHIVE NOTES GOLDEN 0.3.1:
+    //Could make a default function that's just t_parse_epxression so we avoid the double lookup
+    //and also for user customization of course!
     if(t_functions.hasKey(node->type)) {
         auto func = t_functions.get(node->type);
         result = func(ctx);
     }
-    else {
-        if(state_is_opp.getOrDefault(node->type,false)) {
-            result = t_parse_expression(node,left);
-            if(!result) {
-                print("NULL RETURNED: ",TO_STRING(node->type));
-            }
-        }
-        else {
-            print("parse_a_node::940 missing parsing code for a_node type: ",TO_STRING(node->type)); 
+    else { //ARCHIVE NOTES GOLDEN 0.3.1: Removed a state_is_opp check
+        result = t_parse_expression(node,left);
+        if(!result) {
+            print("parse_a_nodes::925 NULL RETURNED: ",TO_STRING(node->type));
         }
     }
     return result;

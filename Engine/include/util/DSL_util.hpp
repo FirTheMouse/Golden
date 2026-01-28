@@ -5,6 +5,9 @@
 
 namespace GDSL 
 {
+
+    map<size_t,size_t> t_opp_conversion;
+
     namespace helper_tokenizer_module 
     {
         static void initialize(char end_char = ';') {

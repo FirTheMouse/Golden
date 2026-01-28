@@ -13,10 +13,12 @@ namespace Golden
     {
         bool pressed(KeyCode code) {return Input::get().keyJustPressed(code);}
         bool held(KeyCode code) {return Input::get().keyPressed(code);}
+        bool pressed(int code) {return Input::get().keyJustPressed(code);}
+        bool held(int code) {return Input::get().keyPressed(code);}
         const char n_pressed = '\t';
         int currently_pressed_keycode() {
-            list<int> pressed = Input::get().justPressed();
-            return pressed.empty() ? -1 : pressed[0];
+            list<int> pressedKeys = Input::get().pressed();
+            return pressedKeys.empty() ? -1 : pressedKeys[0];
         }
         char currently_pressed() {
             char c = n_pressed;
@@ -140,6 +142,8 @@ namespace Golden
             }
         };
 
+
+
         class TextEditor : public Object {
         private:
             std::string clipboard;
@@ -150,7 +154,10 @@ namespace Golden
             g_ptr<Quad> selectionStart = nullptr;
             g_ptr<Quad> selectionEnd = nullptr;
 
+            list<g_ptr<Quad>> debug;
+
             int last_keycode = 0;
+            int true_last_keycode = 0;
             
             float pause = 0;
         
@@ -174,12 +181,12 @@ namespace Golden
                 if(cursor)
                     twig->removeChar(cursor);
 
-                int at = 0;
-                if(sel) {
-                    at = twig->chars.find(sel);
-                }
+                // int at = 0;
+                // if(sel) {
+                //     at = twig->chars.find(sel);
+                // }
                 
-                cursor = twig->insertChar('|',at);
+                cursor = twig->insertChar('|',sel);
             }
 
             void click_move(g_ptr<Quad> sel = nullptr) {
@@ -192,43 +199,107 @@ namespace Golden
                 move_cursour(sel);
             }
 
+            struct KeyState {
+                KeyState() {}
+                float timer = 0.0f;
+                bool wasPressed = false;
+            }; 
+            map<int,KeyState> keyStates;
+            bool shouldTrigger(int keycode,float repeat_delay = 0.6f,float repeat_rate = 0.05f) {
+                if(!held(keycode)) {
+                    keyStates.remove(keycode);  // Clean up released keys
+                    return false;
+                }
+
+                auto& state = keyStates.getOrPut(keycode, KeyState{});
+
+                if(pressed(keycode)) {
+                    state.timer = repeat_delay;
+                    state.wasPressed = true;
+                    return true;
+                }
+                
+                if(state.timer <= 0) {
+                    state.timer = repeat_rate;
+                    return true;
+                }
+
+                return false;
+            } 
+
+
+
+            map<int,float> keyPause;
+
             void tick(float tpf) {
                 if(!twig) return;
 
-                char current_char = currently_pressed();
-                int current_keycode = currently_pressed_keycode();
+                //Debug boxes to show the cursour's parent and child
+                    // if(cursor) {
+                    //     for(int i=0;i<3;i++) {
+                    //         g_ptr<Quad> ind;
+                    //         if(i>=debug.length()) {
+                    //             ind = make<Quad>();
+                    //             twig->scene->add(ind);
+                    //             debug << ind;
+                    //         }
+                    //         else 
+                    //             ind = debug[i];
+                    //         ind->scale({10,10});
+                    //         g_ptr<Quad> next = nullptr;
+                    //         if(i==0) {
+                    //             next = cursor->parent;
+                    //             ind->setColor(vec4(0,0,1,1));
+                    //         }
+                    //         else if(i==1) {
+                    //             if(cursor->parent) {
+                    //                 next = cursor->parent->parent;
+                    //                 ind->setColor(vec4(0,0,1,1));
+                    //             }
+                    //         }
+                    //         else if(i==2) {
+                    //             next = cursor->children[0];
+                    //             ind->setColor(vec4(1,0,0,1));
+                    //         }
 
-                auto checkArrow = [&](KeyCode key, g_ptr<Quad> next) {
-                    bool proceed = false;
-                    if(pressed(key)) {
-                        pause = 0.6f;
-                        proceed = true;
-                    } else if(pause <= 0 && held(key)) {
-                        proceed = true;
+                    //         if(next) {
+                    //             ind->setPosition(next->getPosition().addY(next->opt_offset.y()));
+                    //         }
+                    //     }
+                    // } else {
+                    //     for(auto d : debug) {
+                    //         twig->scene->recycle(d);
+                    //     }
+                    // }
+
+                if(!cursor->children.empty()&&shouldTrigger(RIGHT,0.4f,0.02f)) {
+                    if(held(LSHIFT)) {  
+                        if(!selectionStart) 
+                            selectionStart = cursor->parent;
+                        selectionEnd = cursor->children[0];
+                    } 
+                    move_cursour(cursor->children[0]);
+                }
+
+                if(cursor->parent&&shouldTrigger(LEFT,0.4f,0.02f)) {
+                    if(held(LSHIFT)) {  
+                        if(!selectionEnd) 
+                            selectionEnd = cursor->parent;
+                        selectionStart = cursor->parent->parent;
                     }
-
-                    if(proceed) {
-                        if(held(LSHIFT)) {
-                            if(key==RIGHT) {       
-                                if(!selectionStart||last_keycode==LEFT) 
-                                    selectionStart = cursor->parent;
-                                selectionEnd = cursor->children[0];
-                            }
-                            else if(key==LEFT) {
-                                if(!selectionEnd||last_keycode==RIGHT) 
-                                    selectionEnd = cursor->parent;
-                                selectionStart = cursor->parent->parent;
-                            }
-                        } 
-                        move_cursour(next);
-                    }
-                };
-
-                checkArrow(RIGHT,cursor->children[0]);
-                checkArrow(LEFT,cursor->parent->parent);
-                pause -= tpf;
+                    move_cursour(cursor->parent->parent);
+                }
 
 
+                g_ptr<Quad> at = cursor->parent;
+                // if(!at&&!twig->chars.empty()) 
+                //     at = twig->chars[0];
+
+                if(shouldTrigger(BACKSPACE,0.5f,0.03f)) {
+                    twig->removeChar(at);
+                }
+
+                int main_current_keycode = currently_pressed_keycode();
                 if(held(CMD)) {
                     if(held(CMD) && pressed(C)) {
                         if(selectionStart && selectionEnd) {
@@ -247,25 +318,45 @@ namespace Golden
             
                     if(held(CMD) && pressed(V)) {
                         g_ptr<Quad> last = cursor;
-                        twig->insertText(clipboard,cursor->parent->parent);
+                        twig->insertText(clipboard,at);
                         clearSelection();
                     }
                 }
-                else {
-                    if(current_keycode==BACKSPACE) {
-                        twig->removeChar(cursor->parent->parent);
-                    }
-                    else if(current_char!=n_pressed) {
-                        twig->insertChar(current_char,cursor->parent->parent);
+                else if(main_current_keycode!=-1) {
+                    list<int> pressedKeys = Input::get().pressed();
+                    for(auto current_keycode : pressedKeys) {
+                        char current_char = n_pressed;
+                        keycodeToChar(current_keycode,held(LSHIFT),current_char);
+                        bool proceed = false;
+                        proceed = shouldTrigger(current_keycode);
+                        if(proceed) {
+                            if(current_char!=n_pressed) {
+                                if(cursor->parent) {
+                                    twig->insertChar(current_char,at);
+                                } else { //Fallback for empty boxes or when the cursor needs to make the anchor
+                                    g_ptr<Quad> n_anchor = twig->insertChar(current_char,0);
+                                    move_cursour(n_anchor);
+                                }
+
+                            }
+                        }
                     }
 
-                    if(current_keycode!=-1&&!held(LSHIFT)) {
+                    if(main_current_keycode!=-1&&!held(LSHIFT)) {
                         clearSelection();
                     }
+                    true_last_keycode = main_current_keycode;
+                    if(main_current_keycode!=-1)
+                        last_keycode = main_current_keycode;
+
                 }
 
-                if(current_char!=n_pressed)
-                    last_keycode = current_keycode;
+                for(auto key : keyStates.keySet()) {
+                    KeyState& state = keyStates.get(key);
+                    if(state.timer>=0)
+                        state.timer -= tpf;
+                }
+                    
             }
         };
 
