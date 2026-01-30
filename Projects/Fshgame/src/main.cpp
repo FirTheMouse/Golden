@@ -4,6 +4,7 @@
 #include<util/string_generator.hpp>
 #include<util/logger.hpp>
 #include<core/physics.hpp>
+#include<util/meshBuilder.hpp>
 
 #include<gui/twig.hpp>
 #include<util/DSL_util.hpp>
@@ -111,6 +112,7 @@ int main()  {
     g_ptr<Text> twig = nullptr;
 
     list<g_ptr<Quad>> boxes;
+    list<g_ptr<Single>> cubes;
 
     scene->enableInstancing();
     Physics phys(scene);
@@ -125,7 +127,7 @@ int main()  {
 
     int TESTING = 0;
     if(TESTING == 0) {
-        g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
+        g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",8);
         twig = make<Text>(font,scene);
         boxes << twig->makeText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
@@ -148,23 +150,126 @@ int main()  {
         "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
         "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
         "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
+        "\nThe Administrative Council deals with immediate and federal functions, and typically abstains from the majority of" 
+        "\nlaws except in special or contested cases. It is rare for the full Administrative Council to even assemble,"
+        "\nand of all the bodies they are the least active."
+        "\nThe Popular Assembly is responsible for representing the will of the people, they tend to be more invested"
+        "\nin the approval of laws than the proposal, yet they do propose. Laws can be passed to the Popular Assembly"
+        "\nvia petition, or by any single member. Representatives of the assembly are elected by popular election in electoral"
+        "\nsubdivisions of the districts."
+        "\nThe Legislature is the primary and most active body of the government, responsible for the proposal of most laws."
+        "\nIts members are a mix of elected and unelected, representatives from the academy are selected by the academies"
+        "\n(some using an electoral process), city representatives are chosen by city government (sometimes electorally),"
+        "\nand district representatives are elected by popular vote. Some cities or academies have representatives to the "
+        "\nLegislature as a separate role, some are represented by a mayor or dean."
+        "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
+        "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
+        "\nfrom the major districts, academies, and cities."
+        "\nThe three bodies all operate together to pass laws, with any one being able to propose a law,"
+        "\nbut needing the approval of all others to pass it (except in special cases), There are certain"
+        "\njurisdictions where approval is weighted, for instance, laws relating to a specific city are given greater"
+        "\nweight for disapproval by the representing minority of the Legislature. The general functions of the bodies are each separate:"
             ,{100,100});
-
-        auto g = make<Geom>();
-        for(int i=0;i<10;i++) {
-            auto q = make<Quad>(g);
-            scene->add(q);
-            q->scale({100,100});
-            q->setPosition(vec2(500+(i*10.0f),i*50.0f));
-            if(i<5) {
-                scene->guiColor[q->ID] = vec4(0.0f,0.3f,0.0f,1);
-                scene->guiTransforms[q->ID][3][3] = 0.1f;
-            }
-            else {
-                scene->guiColor[q->ID] = vec4(0.0f,0.0f,0.8f,1);
-                scene->guiTransforms[q->ID][3][3] = 1.0f;
-            }
-        }
+        // auto g = make<Geom>();
+        // for(int i=0;i<10;i++) {
+        //     auto q = make<Quad>(g);
+        //     scene->add(q);
+        //     q->scale({100,100});
+        //     q->setPosition(vec2(500+(i*10.0f),i*50.0f));
+        //     if(i<5) {
+        //         scene->guiColor[q->ID] = vec4(0.0f,0.3f,0.0f,1);
+        //         //scene->guiTransforms[q->ID][3][3] = 0.1f;
+        //         q->setDepth(0.1f);
+        //     }
+        //     else {
+        //             scene->guiColor[q->ID] = vec4(0.0f,0.0f,0.8f,1);
+        //             // scene->guiTransforms[q->ID][3][3] = 1.0f;
+        //             q->setDepth(1.0f);
+        //         }
+        // }
     } else if (TESTING==1) {
         g_ptr<Geom> geom = make<Geom>();
         for(int i=0;i<10000;i++) {
@@ -536,7 +641,131 @@ int main()  {
         print("Done!");
     }
     else if(TESTING==9) {
+        // g_ptr<Quad> box = make<Quad>();
+        // scene->add(box);
+        // box->scale({50,50});
+        // box->setCenter({200,200});
+        // boxes << box;
 
+
+        // g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
+        // twig = make<Text>(font,scene);
+        // g_ptr<Quad> txt = twig->makeText(
+        // "0/0",{100,100})[0];
+        // boxes << txt;
+
+        // box->children << txt;
+        // txt->parent = box;
+
+        // Create arm segments
+        g_ptr<Quad> hand = make<Quad>();
+        scene->add(hand);
+        hand->scale({10, 10});
+        hand->setColor(vec4(0, 0, 1, 1));
+        boxes << hand;  // hand is boxes[0] - follows cursor with G
+
+        g_ptr<Quad> shoulder = make<Quad>();
+        scene->add(shoulder);
+        shoulder->scale({20, 20});
+        shoulder->setCenter({400, 300});
+        shoulder->setColor(vec4(1, 0, 0, 1));
+        boxes << shoulder;
+
+        g_ptr<Quad> elbow = make<Quad>();
+        scene->add(elbow);
+        elbow->scale({15, 15});
+        elbow->setColor(vec4(0, 1, 0, 1));
+        boxes << elbow;
+
+        // Setup hierarchy
+        shoulder->children << elbow;
+        elbow->parent = shoulder;
+        elbow->children << hand;
+        hand->parent = elbow;
+
+        // Store bone lengths
+        float upperArmLen = 100.0f;
+        float forearmLen = 80.0f;
+        elbow->opt_float = upperArmLen;
+        hand->opt_float = forearmLen;
+
+        // Hand joint - no constraint, moves freely (you control it with G)
+        hand->joint = [hand](){
+            if(hand->parent) {
+                hand->unlockJoint = true;
+                hand->parent->updateTransform();
+                hand->unlockJoint = false;
+            }
+            return true;
+        };
+
+        // Elbow joint - solves 2-bone IK
+        elbow->joint = [elbow](){
+            g_ptr<Quad> shoulder = elbow->parent;
+            g_ptr<Quad> hand = elbow->children[0];
+            
+            shoulder->updateTransform(false);
+            hand->updateTransform(false);
+            
+            vec2 shoulderPos = shoulder->getPosition();
+            vec2 handPos = hand->getPosition();
+            
+            float upperArmLen = elbow->opt_float;
+            float forearmLen = hand->opt_float;
+            
+            vec2 toHand = handPos - shoulderPos;
+            float distToHand = toHand.length();
+            
+            // Clamp if unreachable
+            if(distToHand > upperArmLen + forearmLen) {
+                distToHand = upperArmLen + forearmLen;
+                toHand = toHand.normalized() * distToHand;
+            }
+            
+            // Handle fully extended case
+            if(distToHand >= upperArmLen + forearmLen - 0.01f) {
+                elbow->position = shoulderPos + toHand.normalized() * upperArmLen;
+                return true;
+            }
+            
+            // Law of cosines for elbow angle
+            float a = upperArmLen;
+            float b = forearmLen;
+            float c = distToHand;
+            
+            float shoulderAngle = acos((a*a + c*c - b*b) / (2.0f*a*c));
+            
+            vec2 direction = toHand.normalized();
+            float baseAngle = atan2(direction.y(), direction.x());
+            
+            // Place elbow (using positive angle for "elbow down" configuration)
+            float elbowAngle = baseAngle + shoulderAngle;
+            elbow->position = shoulderPos + vec2(cos(elbowAngle), sin(elbowAngle)) * upperArmLen;
+            
+            return true;
+        };
+        
+    }
+    else if (TESTING==10) {
+        g_ptr<Single> cube = make<Single>(make<Model>(makeTestBox(1.0f)));
+        scene->add(cube);
+
+        g_ptr<Single> cube2 = make<Single>(make<Model>(makeTestBox(1.0f)));
+        scene->add(cube2);
+        cube2->setPosition(vec3(10,0,0));
+
+        cubes << cube2;
+        cubes << cube;
+
+        cube->parent = cube2;
+        cube2->children << cube;
+
+        cube->joint = [cube]() {
+                g_ptr<Single> parent = cube->parent;
+                vec3 offset = cube->getPosition() - parent->getPosition();
+                cube->position = parent->position + offset;
+                return true;
+            };
     }
 
     if(TESTING==6) {
@@ -556,7 +785,7 @@ int main()  {
     int instance_accumulator = 0;
 
     S_Tool s_tool;
-    s_tool.log_fps = false;
+    s_tool.log_fps = true;
     double m = 0;
     //The parent of selected
     g_ptr<Quad> sel = nullptr;
@@ -567,10 +796,13 @@ int main()  {
 
     if(!boxes.empty()) sel = boxes[0];
 
+    // s_tool.log = [](){
+    //     print("Joints/sec: ",std::to_string(totalJointCalls.load()));
+    //     totalJointCalls = 0;
+    // };
+
     bool block_input = false;
     start::run(window,d,[&]{
-
-
         if(TESTING==0) {
             editor->tick(s_tool.tpf);
             if(pressed(ESCAPE)) {
@@ -580,6 +812,7 @@ int main()  {
 
             if(editor->twig) block_input = true;
         }
+
         // m = std::sin(s_tool.frame)*100;
         // //test->setPosition(vec2(m,m));
         //    box->move(vec2(m,m));
@@ -621,7 +854,7 @@ int main()  {
             phys.updatePhysics();
         }
 
-        if(pressed(MOUSE_RIGHT)||(TESTING==0&&pressed(MOUSE_LEFT))) {
+        if(pressed(MOUSE_RIGHT)||(TESTING==0&&held(MOUSE_LEFT))) {
             sel = scene->nearestElement();
             sub_sel = sel;
             if(sel) {
@@ -637,8 +870,13 @@ int main()  {
                     editor->open(twig,sub_sel);
                     block_input = true;
                 }
-                else
-                    editor->click_move(sub_sel);
+                else {
+                    if(pressed(MOUSE_LEFT)) {
+                        editor->click_move(sub_sel->parent);
+                    } else { //If just held
+                        editor->move_cursour(sub_sel->parent);
+                    }
+                }
             }
         }
 
@@ -654,8 +892,8 @@ int main()  {
                 else if(TESTING==6) {
                     boxes[0]->setLinearVelocity(boxes[0]->direction(scene->mousePos2d()));
                 } 
-                else if(TESTING==7) {
-
+                else if(TESTING==10) {
+                    cubes[0]->setPosition(scene->getMousePos());
                 }
                 else if (!boxes.empty()||sel) {
                     if(sel) 
@@ -760,6 +998,7 @@ int main()  {
                 //     twig->removeText(0,twig->chars.length());
                 // else
                 //     twig->setText("womble");
+
                 
 
                 int anchors = 0;
@@ -782,7 +1021,6 @@ int main()  {
                 // print(scene->quads.length());
             }
         }
-    
        s_tool.tick();
     });
 

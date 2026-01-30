@@ -28,6 +28,7 @@ public:
     vec2 position = vec2(0,0);
     vec2 scaleVec = vec2(1,1);
     float rotation = 0.0f; // Radians, around Z-axis (right-hand rule)
+    float depth = 0.8f;
 
     vec2 endPosition = vec2(0,0);
     vec2 endScale = vec2(1,1);
@@ -87,11 +88,13 @@ public:
     unsigned int getTexture();
     CollisionLayer& getLayer();
     BoundingBox getWorldBounds() override;
+    float getDepth();
 
     Quad& setData(const vec4& d);
     Quad& setTexture(const unsigned int& t);
     Quad& setColor(const vec4& _color);
     Quad& setColor(glm::vec4 _color) {return setColor(vec4(_color));}
+    Quad& setDepth(float dep, bool update = true);
     void setUV(vec4 _uv) {setData(_uv);}
     void setUV(glm::vec4 _uv) {setData(vec4(_uv));}
     void setGeom(g_ptr<Geom> geomPtr) {

@@ -127,6 +127,7 @@ namespace Golden
             int frames = 0;
             float pause = 0.0f;
             bool log_fps = false;
+            std::function<void()> log = nullptr;
 
             void tick() {
                 auto end = std::chrono::high_resolution_clock::now();
@@ -134,8 +135,11 @@ namespace Golden
                 tpf = delta.count(); last = end; frame++; frames++;
                 frametime+=tpf; frame++;
                 if(frametime>=1) {
-                    if(log_fps)
+                    if(log_fps) {
                         std::cout << frames << " FPS" << std::endl;
+                    }
+                    if(log)
+                        log();
                     frametime=0;
                     frames=0;
                 }
@@ -148,6 +152,11 @@ namespace Golden
         private:
             std::string clipboard;
         public:
+
+            TextEditor() {
+                higlight = make<Quad>();
+            }
+
             g_ptr<Quad> cursor = nullptr;
             g_ptr<Text> twig = nullptr;
 
@@ -155,6 +164,8 @@ namespace Golden
             g_ptr<Quad> selectionEnd = nullptr;
 
             list<g_ptr<Quad>> debug;
+
+            g_ptr<Quad> higlight = nullptr;
 
             int last_keycode = 0;
             int true_last_keycode = 0;
@@ -164,7 +175,13 @@ namespace Golden
             void clearSelection() {
                 selectionStart = nullptr;
                 selectionEnd = nullptr;
-                //Add charachter unhilghiting
+                if(higlight&&twig->scene) {
+                    if(!higlight->scene) { 
+                        twig->scene->add(higlight);
+                    }
+                    twig->scene->deactivate(higlight);
+                }
+
             }
 
 
@@ -176,22 +193,34 @@ namespace Golden
                 cursor = nullptr;
             }
 
-            void move_cursour(g_ptr<Quad> sel = nullptr) {
+            int hovered_index = -1;
+            void move_cursour(int idx) {
                 if(!twig) return;
-                if(cursor)
-                    twig->removeChar(cursor);
-
-                // int at = 0;
-                // if(sel) {
-                //     at = twig->chars.find(sel);
-                // }
-                
-                cursor = twig->insertChar('|',sel);
+                if(cursor) {
+                    twig->removeChar(cursor);   
+                }             
+                if(idx!=-1) {
+                    hovered_index = idx; //+1; //Maybe add 1 for ergonmoics?
+                    cursor = twig->insertChar('|',idx);
+                }
             }
 
+            void move_cursour(g_ptr<Quad> sel = nullptr) {
+                if(!twig) return;  
+                if(sel) {
+                    if(cursor&&cursor->parent) {
+                        if(sel==cursor->parent) return;
+                    }
+                    move_cursour(twig->chars.find(sel));
+                }
+            }
+
+            int clicked_index = -1;
             void click_move(g_ptr<Quad> sel = nullptr) {
-                //clearSelection();
-                move_cursour(sel);
+                if(sel) {
+                    clicked_index = twig->chars.find(sel);
+                    move_cursour(clicked_index);
+                }
             }
 
             void open(g_ptr<Text> _twig, g_ptr<Quad> sel = nullptr) {
@@ -226,7 +255,46 @@ namespace Golden
 
                 return false;
             } 
+            
+            void highlightSection(g_ptr<Quad> from, g_ptr<Quad> to) {
+                if(from) {
+                    if(!higlight->scene) { //Need to add repoing suppourt if multi-scene text editors become a thing.
+                        twig->scene->add(higlight);
+                    }
+                    if(!higlight->isActive()) {
+                        twig->scene->reactivate(higlight);
+                    }
+                    higlight->setColor(vec4(0.7f,0.8f,0.9f,0.9f));
+                    if(to) { //Add vertical distance for multi-line higlighting
+                        higlight->scale(vec2(std::abs(from->getPosition().x()-to->getPosition().x()),cursor->getScale().y()));
+                    } else {
+                        higlight->scale(cursor->getScale());
+                    }
+                    higlight->setPosition(from->getPosition().setY(cursor->getPosition().y()));
+                    higlight->setDepth(1.0f);
+                } 
+            }
 
+            void opperateOnSelection(std::function<void(g_ptr<Quad>)> func) {
+                if(selectionEnd&&selectionStart) {
+                    bool inSelection = false;
+                    for(int i=twig->chars.length();i>=0;i--) {
+                        g_ptr<Quad> c = twig->chars[i];
+                        if(c==cursor) continue;
+                        if(c==selectionEnd) {
+                            inSelection = true;
+                        }
+                        else if(inSelection) {
+                            func(c);
+                        }
+
+                        if (c==selectionStart) {
+                            inSelection = false;
+                            break;
+                        }
+                    }
+                }
+            }
 
 
             map<int,float> keyPause;
@@ -270,55 +338,105 @@ namespace Golden
                     //     for(auto d : debug) {
                     //         twig->scene->recycle(d);
                     //     }
+                    // }3
+                //Debug for mouse click poses
+                    // for(int i=0;i<2;i++) {
+                    //     g_ptr<Quad> ind;
+                    //     if(i>=debug.length()) {
+                    //         ind = make<Quad>();
+                    //         twig->scene->add(ind);
+                    //         debug << ind;
+                    //     }
+                    //     else {
+                    //         ind = debug[i];
+                    //         if(!ind->isActive())
+                    //             twig->scene->reactivate(ind);
+                    //     }
+                        
+                    //     ind->scale({10,10});
+                    //     g_ptr<Quad> next = nullptr;
+                    //     if(i==0&&clicked_index!=-1){
+                    //         next = twig->chars[clicked_index];
+                    //         ind->setColor(vec4(0,1,0,1));
+                    //     }
+                    //     else if(i==1&&hovered_index!=-1) {
+                    //         next = twig->chars[hovered_index];
+                    //         ind->setColor(vec4(1,0,0,1));
+                    //     }
+
+                    //     if(next) {
+                    //         ind->setPosition(next->getPosition().addY(next->opt_offset.y()));
+                    //     } else {
+                    //         twig->scene->deactivate(ind);
+                    //     }
                     // }
 
                 if(!cursor->children.empty()&&shouldTrigger(RIGHT,0.4f,0.02f)) {
                     if(held(LSHIFT)) {  
                         if(!selectionStart) 
-                            selectionStart = cursor->parent;
-                        selectionEnd = cursor->children[0];
+                            selectionStart = cursor->children[0];
+                        if(!cursor->children[0]->children.empty())
+                            selectionEnd = cursor->children[0]->children[0];
+                        highlightSection(selectionStart,selectionEnd);
                     } 
                     move_cursour(cursor->children[0]);
                 }
 
                 if(cursor->parent&&shouldTrigger(LEFT,0.4f,0.02f)) {
                     if(held(LSHIFT)) {  
-                        if(!selectionEnd) 
-                            selectionEnd = cursor->parent;
-                        selectionStart = cursor->parent->parent;
+                        if(!selectionEnd&&!cursor->children.empty()) 
+                            selectionEnd = cursor->children[0];
+                        selectionStart = cursor->parent;
+                        highlightSection(selectionStart,selectionEnd);
                     }
                     move_cursour(cursor->parent->parent);
                 }
 
+                if(held(MOUSE_LEFT) && clicked_index != -1 && hovered_index != -1) {
+                    if(hovered_index<clicked_index) {
+                        selectionStart = twig->chars[hovered_index];
+                        selectionEnd = twig->chars[clicked_index];
+                    } else {
+                        selectionStart = twig->chars[clicked_index];
+                        selectionEnd = twig->chars[hovered_index];
+                    }
+                    highlightSection(selectionStart,selectionEnd);
+                }
 
                 g_ptr<Quad> at = cursor->parent;
                 // if(!at&&!twig->chars.empty()) 
                 //     at = twig->chars[0];
 
                 if(shouldTrigger(BACKSPACE,0.5f,0.03f)) {
-                    twig->removeChar(at);
+                    if(selectionEnd&&selectionStart) {
+                        opperateOnSelection([&](g_ptr<Quad> c){twig->removeChar(c);});
+                        clearSelection();
+                    } else {
+                        twig->removeChar(at);
+                    }
                 }
 
                 int main_current_keycode = currently_pressed_keycode();
                 if(held(CMD)) {
-                    if(held(CMD) && pressed(C)) {
-                        if(selectionStart && selectionEnd) {
-                            std::string copied;
-                            g_ptr<Quad> walker = selectionStart;
-                            while(walker && walker != selectionEnd) {
-                                if(walker->opt_char != '|') {
-                                    copied += walker->opt_char;
-                                }
-                                walker = walker->children.empty() ? nullptr : walker->children[0];
-                            }
-                            clipboard = copied;
+                    bool and_x = shouldTrigger(X);
+                    if(held(CMD) && (shouldTrigger(C) || and_x)) {
+                        list<char> chars;
+                        opperateOnSelection([&](g_ptr<Quad> c){chars << c->opt_char;});
+                        chars.reverse();
+                        clipboard = "";
+                        for(auto c : chars)
+                            clipboard+=(c);
+
+                        if(and_x) {
+                            opperateOnSelection([&](g_ptr<Quad> c){twig->removeChar(c);});
+                            clearSelection();
                         }
-                        clearSelection();
                     }
-            
-                    if(held(CMD) && pressed(V)) {
-                        g_ptr<Quad> last = cursor;
-                        twig->insertText(clipboard,at);
+                    if(held(CMD) && shouldTrigger(V)) {
+                        if(selectionStart && selectionEnd) {
+                            opperateOnSelection([&](g_ptr<Quad> c){twig->removeChar(c);});
+                        }
+                        twig->insertText(clipboard,cursor->parent);
                         clearSelection();
                     }
                 }
@@ -342,7 +460,7 @@ namespace Golden
                         }
                     }
 
-                    if(main_current_keycode!=-1&&!held(LSHIFT)) {
+                    if(main_current_keycode!=-1&&main_current_keycode!=MOUSE_LEFT&&!held(LSHIFT)) {
                         clearSelection();
                     }
                     true_last_keycode = main_current_keycode;
@@ -517,25 +635,30 @@ namespace Golden
             bool disable_click = config.check("disable_click");
 
             bool has_exit_key = exit_key!=-1;
+            float lastTime = glfwGetTime();
+
             while (!window.shouldClose()) {
+                float currentTime = glfwGetTime();
+                float deltaTime = currentTime - lastTime;
+                lastTime = currentTime;
                 if(has_exit_key)
                     if(Input::get().keyJustPressed(exit_key)) return;
                 if(scene&&!disable_click) {
-                    if(auto g = scene->nearestElement())
-                    {
-                        if(helper::pressed(MOUSE_LEFT))
-                        {
-                            g->run("onClick");
-                            scene->fireSlots(g);
-                        }
-                    }
+                    // if(auto g = scene->nearestElement())
+                    // {
+                    //     if(helper::pressed(MOUSE_LEFT))
+                    //     {
+                    //         g->run("onClick");
+                    //         scene->fireSlots(g);
+                    //     }
+                    // }
                 }
                 gameLogic();
-                if(scene) scene->updateScene(1.0f);
+                if(scene) scene->updateScene(1.0f); //Switch to deltaTime when I'm ready to fix camera
                 if(scene) scene->advanceSlots();
                 window.swapBuffers();
                 window.pollEvents();
-            }
+        }
             glfwTerminate();
         }
     }

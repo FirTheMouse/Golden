@@ -2,9 +2,11 @@
 #include <util/meshBuilder.hpp>
 //#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
 namespace Golden
 {
 
+    #define TIMERS 0
 
 unsigned int loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
 {
@@ -99,6 +101,11 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
 
 void Scene::updateScene(float tpf)
 {
+
+#if TIMERS 
+    Line overall;
+    overall.start();
+#endif
     sceneTime+=tpf;
     Input::get().decayScroll();
     double xpos, ypos;
@@ -126,6 +133,19 @@ void Scene::updateScene(float tpf)
     guiInstancedColors.clear();
     instancedGeoms.clear();
 
+#if TIMERS
+    double gather_time = 0;
+    double depth_render_time = 0;
+    double render_time = 0;
+    double instance_render_time = 0;
+    double a,b,c;
+    Line l;
+
+
+    static int FRAME;
+    FRAME++;
+#endif
+
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
     for (size_t i = 0; i < singles.length(); ++i) {
@@ -134,6 +154,9 @@ void Scene::updateScene(float tpf)
         if(culled[i]) continue;
 
         if(models[i]->instance) {
+#if TIMERS 
+l.start();
+#endif
             int existing_instance_id = instancedModels.find(models[i]);
             if(existing_instance_id!=-1) {
                 instancedTransforms[existing_instance_id].push(transforms[i]);
@@ -143,7 +166,13 @@ void Scene::updateScene(float tpf)
                 temp << transforms[i];
                 instancedTransforms.push(temp);
             }
+#if TIMERS
+gather_time += l.end();
+#endif
         } else {
+#if TIMERS 
+l.start();
+#endif
             depthShader.setMat4("model", glm::value_ptr(transforms[i]));
             bool hasBones = models[i]->boneDirty.length()>0;
             depthShader.setInt("hasSkeleton", hasBones ? 1 : 0);
@@ -153,7 +182,11 @@ void Scene::updateScene(float tpf)
                 models[i]->uploadBoneMatrices(depthShader.getID());
             }
             models[i]->draw(depthShader.getID());
+#if TIMERS
+depth_render_time += l.end();
+#endif
         }
+
     }
 
     instanceDepthShader.use();
@@ -200,9 +233,7 @@ void Scene::updateScene(float tpf)
 
     singleShader.use();
 
-    float gather_time = 0;
-    float render_time = 0;
-    double a,b,c;
+
 
     for (size_t i = 0; i < singles.length(); ++i) {
         if(i>=singles.length()) continue;
@@ -210,6 +241,9 @@ void Scene::updateScene(float tpf)
         if(culled[i]) continue;
 
         if(!models[i]->instance) {
+#if TIMERS 
+l.start();
+#endif
             singleShader.setMat4("model", glm::value_ptr(transforms[i]));
             bool hasBones = models[i]->boneDirty.length()>0;
             singleShader.setInt("hasSkeleton", hasBones ? 1 : 0);
@@ -218,6 +252,9 @@ void Scene::updateScene(float tpf)
                 models[i]->uploadBoneMatrices(singleShader.getID());
             }
             models[i]->draw(singleShader.getID());
+#if TIMERS 
+render_time += l.end();
+#endif
         } else {
             //Catch for instanced models that were already gathered here?
         }
@@ -225,15 +262,26 @@ void Scene::updateScene(float tpf)
 
     instanceShader.use();
     for (size_t i = 0; i < instancedModels.size(); ++i) {
+#if TIMERS 
+l.start();
+#endif
         //No checks here, may need to introduce them later if this becomes a weak point
         instanceShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
         instancedModels[i]->draw(instanceShader.getID());
+#if TIMERS 
+instance_render_time += l.end();
+#endif
     }
 
-    // glDisable(GL_DEPTH_TEST);      // ignore depth
-    // glDepthMask(GL_FALSE);         // don’t write depth
-    // glEnable(GL_BLEND);
-    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+#if TIMERS
+if(FRAME%60==0) {
+    print("-------------\nFRAME: ",FRAME);
+    print("gather_time: ",gather_time/1000000,"ms");
+    print("depth_render_time: ",depth_render_time/1000000,"ms");
+    print("render_time: ",render_time/1000000,"ms");
+    print("instance_render_time: ",instance_render_time/1000000,"ms");
+}
+#endif
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -331,6 +379,12 @@ void Scene::updateScene(float tpf)
     glDepthRange(0.0, 1.0);    
     glDepthMask(GL_TRUE);          // restore for 3-D, if needed
     glEnable(GL_DEPTH_TEST);
+
+    #if TIMERS
+    if(FRAME%60==0) {
+        print("Overall frame time: ",overall.end()/1000000,"ms");
+    }
+    #endif
 }
 
 void Scene::tickEnvironment(int time)

@@ -9,14 +9,6 @@ class Single : virtual public S_Object
 {
 protected:
     bool checkGet(int typeId);
-
-    vec3 position = vec3(0,0,0);
-    vec3 scaleVec = vec3(1,1,1);
-    glm::quat rotation = glm::quat(1,0,0,0);
-
-    vec3 endPosition = vec3(0,0,0);
-    vec3 endScale = vec3(1,1,1);
-    glm::quat endRotation = glm::quat(1,0,0,0);
 public:
     Single() {}
     virtual void remove() override;
@@ -41,6 +33,29 @@ public:
     }
     
     g_ptr<Model> getModel();
+
+    vec3 position = vec3(0,0,0);
+    vec3 scaleVec = vec3(1,1,1);
+    glm::quat rotation = glm::quat(1,0,0,0);
+
+    vec3 endPosition = vec3(0,0,0);
+    vec3 endScale = vec3(1,1,1);
+    glm::quat endRotation = glm::quat(1,0,0,0);
+
+    g_ptr<Single> parent;
+    list<g_ptr<Single>> children;
+
+    //Snap is a turing-complet stateful transform propagation system, the child should always own the joint!
+    list<g_ptr<Single>> parents;
+    std::function<bool()> joint = nullptr;
+    std::function<bool()> physicsJoint = nullptr;
+    bool unlockJoint = false;
+    //This is meant to be used for Snap to add break-points in parent chains, but it doesn't have to be
+    bool isAnchor = false;
+
+    list<int> opt_ints;
+    list<float> opt_floats;
+
 
     virtual glm::mat4& getTransform();
     virtual glm::mat4& getEndTransform();
@@ -98,7 +113,7 @@ public:
     void show();
     bool culled();
 
-    void updateTransform();
+    void updateTransform(bool joined = true);
     void updateEndTransform();
 
 };

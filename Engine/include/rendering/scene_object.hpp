@@ -47,8 +47,8 @@ struct AnimState {
 };
 
 struct CollisionLayer {
-    uint32_t layer;
-    uint32_t mask;
+    uint32_t layer = 0;
+    uint32_t mask = 0;
 
     CollisionLayer(uint32_t entityLayer = 1, uint32_t collisionMask = 1) 
     : layer(entityLayer), mask(collisionMask) {}
@@ -98,7 +98,7 @@ class S_Object : virtual public Object {
 protected:
 
 public:
-    Scene* scene;
+    Scene* scene = nullptr;
 
     S_Object() {}
     virtual void remove();

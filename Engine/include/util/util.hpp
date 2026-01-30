@@ -126,6 +126,36 @@ public:
 
 };
 
+namespace Log {
+    class Line {
+        public:
+            // explicit Line(std::string label) 
+            //     : label_(std::move(label)), start_(std::chrono::steady_clock::now()) {}
+
+            Line() {}
+        
+            ~Line() {
+                // auto end = std::chrono::steady_clock::now();
+                // auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_).count();
+                // std::cout << label_ << " : " << duration << " ns\n";
+            }
+
+        std::string label_;
+        std::chrono::steady_clock::time_point start_;
+
+        void start() {
+            start_ = std::chrono::steady_clock::now();
+        }
+
+        double end() {
+            auto end = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_).count();
+            return (double)duration;
+        }
+        
+        };
+}
+
 inline std::string readFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file) throw std::runtime_error("Could not open file: " + filename);

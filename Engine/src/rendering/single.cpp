@@ -326,11 +326,27 @@ void Single::hide() {scene->culled.get(ID)=true;}
 void Single::show() {scene->culled.get(ID)=false;}
 bool Single::culled() {return scene->culled.get(ID);}
 
-void Single::updateTransform() {
+void Single::updateTransform(bool joined) {
+
+    glm::mat4& mat = getTransform();
+
+    if(joined) {
+        bool doUpdate = true;
+        if(!unlockJoint && (!parents.empty()||parent) && joint) {
+            doUpdate = joint();
+        }
+
+        if(!children.empty()) {
+            for(auto c : children) c->updateTransform();
+        }
+
+        if(!doUpdate) return;
+    }
+
     glm::mat4 scaleMat = glm::scale(glm::mat4(1.0f), scaleVec.toGlm());
     glm::mat4 rotMat = glm::mat4_cast(rotation);
     glm::mat4 transMat = glm::translate(glm::mat4(1.0f), position.toGlm());
-    getTransform() = transMat * rotMat * scaleMat;
+    mat = transMat * rotMat * scaleMat;
 }
 
 void Single::updateEndTransform() {

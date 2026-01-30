@@ -114,14 +114,126 @@ public:
     }
 };
 
+//The (potentially) more performant version of the text joint, I use the one with the getters because it's more instructive to 
+//users who want to see how Snap can be used.
+  //   q->joint = [q](){
+        //     g_ptr<Quad> anchorParent = q->opt_ptr;
 
+        //     //Handeling for the anchor's parents
+        //     if(q->isAnchor && (!q->parents.empty()||q->parent)) {
+        //         g_ptr<Quad> worldParent = nullptr;
+        //         if(!q->parents.empty())
+        //             worldParent = q->parents[0];
+        //         else if(q->parent) 
+        //             worldParent = q->parent;
+                
+        //         // Derive offset in PARENT'S local space by un-rotating it
+        //         vec2 worldOffset = q->getPosition() - worldParent->getPosition();
+                
+        //         float oldRotation = worldParent->getRotation();
+        //         float cos_r = std::cos(-oldRotation);  // Negative to un-rotate
+        //         float sin_r = std::sin(-oldRotation);
+        //         vec2 localOffset = vec2(
+        //             worldOffset.x() * cos_r - worldOffset.y() * sin_r,
+        //             worldOffset.x() * sin_r + worldOffset.y() * cos_r
+        //         );
+                
+        //         // Derive relative transforms
+        //         float relativeRotation = q->getRotation() - oldRotation;
+        //         vec2 relativeScale = q->getScale() / worldParent->getScale();
+                
+        //         // Scale the local offset
+        //         vec2 scaledOffset = localOffset * worldParent->scaleVec / worldParent->getScale();
+                
+        //         // Rotate back to world space with parent's NEW rotation
+        //         cos_r = std::cos(worldParent->rotation);
+        //         sin_r = std::sin(worldParent->rotation);
+        //         vec2 rotatedOffset = vec2(
+        //             scaledOffset.x() * cos_r - scaledOffset.y() * sin_r,
+        //             scaledOffset.x() * sin_r + scaledOffset.y() * cos_r
+        //         );
+                
+        //         q->position = worldParent->position + rotatedOffset;
+        //         q->scaleVec = relativeScale * worldParent->scaleVec;
+        //         q->rotation = worldParent->rotation + relativeRotation;
+                
+        //         return true;
+        //     }
+
+
+        //     //Normal handeling for other bits of text
+        //     if(!anchorParent || !anchorParent->isAnchor) {
+        //         anchorParent = q->parent;
+        //         while(anchorParent && !anchorParent->isAnchor) {
+        //             if(anchorParent->parent) {
+        //                 anchorParent = anchorParent->parent;
+        //             } else {
+        //                 anchorParent->isAnchor = true;
+        //                 break;
+        //             }
+        //         }
+        //         q->opt_ptr = anchorParent;
+        //     }
+            
+        //     vec2 anchorScaleFactor = anchorParent->scaleVec / anchorParent->opt_delta;
+        //     float anchorRotation = anchorParent->rotation;
+        //     vec2 anchorPos = anchorParent->position;
+            
+        //     float totalAdvance = 0;
+        //     float totalLineHeight = 0;
+        //     float lineHeight = 50.0f; //ADD: get from font
+        //     if(q->opt_char=='\n') {
+        //         totalAdvance = -anchorParent->opt_x_offset;
+        //         totalLineHeight = q->parent->opt_float_2+lineHeight;
+        //     } else {
+        //         totalAdvance = q->parent->opt_float+q->opt_x_offset;
+        //         totalLineHeight = q->parent->opt_float_2;
+        //     }
+        //     //SPECIAL HANDLING ALERT! This cursour behaviour should probably be provided via a flag in the future.
+        //     if(q->opt_char=='|') {
+        //         q->opt_float = q->parent->opt_float;
+        //     } else {
+        //         q->opt_float = totalAdvance;
+        //     }
+        //     q->opt_float_2 = totalLineHeight;
+
+            
+        //     totalAdvance *= anchorScaleFactor.x();
+        //     totalLineHeight *= anchorScaleFactor.y();
+            
+        //     float yOffset = (q->opt_offset.y() - anchorParent->opt_offset.y()) * anchorScaleFactor.y() + totalLineHeight;
+        //     vec2 localOffset = vec2(totalAdvance, yOffset);
+
+            
+        //     // Rotate around anchor
+        //     float cos_r = std::cos(anchorRotation);
+        //     float sin_r = std::sin(anchorRotation);
+        //     vec2 rotatedOffset;
+
+        //     rotatedOffset = vec2(
+        //         localOffset.x() * cos_r - localOffset.y() * sin_r,
+        //         localOffset.x() * sin_r + localOffset.y() * cos_r
+        //     );
+            
+        //     q->position = anchorPos + rotatedOffset;
+        //     q->scaleVec = q->opt_delta * anchorScaleFactor;
+        //     q->rotation = anchorRotation;
+            
+        //     return true;
+        // };
+  
+// static std::atomic<int> totalJointCalls{0};
+    
 class Text : public Object {
 public:
     g_ptr<Font> font = nullptr;
     g_ptr<Scene> scene = nullptr;
     list<g_ptr<Quad>> chars;
+    float lineHeight = 0;
 
-    Text(g_ptr<Font> _font, g_ptr<Scene> _scene) : scene(_scene), font(_font) {}
+    Text(g_ptr<Font> _font, g_ptr<Scene> _scene) : scene(_scene), font(_font) {
+        lineHeight = font->lineHeight;
+    }
 
     g_ptr<Quad> makeChar(char c)
     {
@@ -140,6 +252,7 @@ public:
         q->opt_char = c;
         //Cleaning up just in case, because we do recycle through pools
         q->opt_x_offset = 0;
+        q->opt_y_offset = lineHeight;
         q->opt_offset = vec2(0,0);
         q->opt_delta = vec2(0,0);
         q->parent = nullptr;
@@ -151,8 +264,52 @@ public:
 
         q->joint = [q](){
             g_ptr<Quad> anchorParent = q->opt_ptr;
-            //This has no handeling for if we are the anchor, that's because anchors don't get jointed currently
-            //but when we want to attatch text to non-text quads, we'll need to handle this!
+
+            // totalJointCalls.fetch_add(1, std::memory_order_relaxed);
+        
+            //Handling for the anchor's parents
+            if(q->isAnchor && (!q->parents.empty()||q->parent)) {
+                g_ptr<Quad> worldParent = nullptr;
+                if(!q->parents.empty())
+                    worldParent = q->parents[0];
+                else if(q->parent) 
+                    worldParent = q->parent;
+                
+                // Derive offset in PARENT'S local space by un-rotating it
+                vec2 worldOffset = q->getPosition() - worldParent->getPosition();
+                
+                float oldRotation = worldParent->getRotation();
+                float cos_r = std::cos(-oldRotation);  // Negative to un-rotate
+                float sin_r = std::sin(-oldRotation);
+                vec2 localOffset = vec2(
+                    worldOffset.x() * cos_r - worldOffset.y() * sin_r,
+                    worldOffset.x() * sin_r + worldOffset.y() * cos_r
+                );
+                
+                // Derive relative transforms
+                float relativeRotation = q->getRotation() - oldRotation;
+                vec2 relativeScale = q->getScale() / worldParent->getScale();
+                
+                // Scale the local offset
+                vec2 scaledOffset = localOffset * worldParent->scaleVec / worldParent->getScale();
+                
+                // Rotate back to world space with parent's NEW rotation
+                cos_r = std::cos(worldParent->rotation);
+                sin_r = std::sin(worldParent->rotation);
+                vec2 rotatedOffset = vec2(
+                    scaledOffset.x() * cos_r - scaledOffset.y() * sin_r,
+                    scaledOffset.x() * sin_r + scaledOffset.y() * cos_r
+                );
+                
+                q->position = worldParent->position + rotatedOffset;
+                q->scaleVec = relativeScale * worldParent->scaleVec;
+                q->rotation = worldParent->rotation + relativeRotation;
+                
+                return true;
+            }
+        
+        
+            //Normal handling for other bits of text
             if(!anchorParent || !anchorParent->isAnchor) {
                 anchorParent = q->parent;
                 while(anchorParent && !anchorParent->isAnchor) {
@@ -165,43 +322,44 @@ public:
                 }
                 q->opt_ptr = anchorParent;
             }
+
+            anchorParent->updateTransform(false);
             
-            vec2 anchorScaleFactor = anchorParent->scaleVec / anchorParent->opt_delta;
-            float anchorRotation = anchorParent->rotation;
-            vec2 anchorPos = anchorParent->position;
+            // Use getters to read anchor's computed world transform
+            vec2 anchorScaleFactor = anchorParent->getScale() / anchorParent->opt_delta;
+            float anchorRotation = anchorParent->getRotation();
+            vec2 anchorPos = anchorParent->getPosition();
             
             float totalAdvance = 0;
             float totalLineHeight = 0;
-            float lineHeight = 50.0f; //ADD: get from font
+            float pxHeight = anchorParent->opt_y_offset;
             if(q->opt_char=='\n') {
                 totalAdvance = -anchorParent->opt_x_offset;
-                totalLineHeight = q->parent->opt_float_2+lineHeight;
+                totalLineHeight = q->parent->opt_float_2+pxHeight;
             } else {
                 totalAdvance = q->parent->opt_float+q->opt_x_offset;
                 totalLineHeight = q->parent->opt_float_2;
             }
-            //SPECIAL HANDELING ALERT! This cursour behaviour should probably be provided via a flag in the future.
+            //SPECIAL HANDLING ALERT! This cursor behaviour should probably be provided via a flag in the future.
             if(q->opt_char=='|') {
                 q->opt_float = q->parent->opt_float;
             } else {
                 q->opt_float = totalAdvance;
             }
             q->opt_float_2 = totalLineHeight;
-
+        
             
             totalAdvance *= anchorScaleFactor.x();
             totalLineHeight *= anchorScaleFactor.y();
             
             float yOffset = (q->opt_offset.y() - anchorParent->opt_offset.y()) * anchorScaleFactor.y() + totalLineHeight;
             vec2 localOffset = vec2(totalAdvance, yOffset);
-
+        
             
             // Rotate around anchor
             float cos_r = std::cos(anchorRotation);
             float sin_r = std::sin(anchorRotation);
-            vec2 rotatedOffset;
-
-            rotatedOffset = vec2(
+            vec2 rotatedOffset = vec2(
                 localOffset.x() * cos_r - localOffset.y() * sin_r,
                 localOffset.x() * sin_r + localOffset.y() * cos_r
             );

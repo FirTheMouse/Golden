@@ -434,6 +434,18 @@ public:
             push(temp_vec[i]);
         }
     }
+    
+    inline void reverse() {
+        T* left = ptr;
+        T* right = ptr + size_;
+        
+        if (left >= right) return;
+        --right;
+        
+        while (left < right) {
+            std::swap(*left++, *right--);
+        }
+    }
 
     template<typename TT>
     /// @brief Compares two lists and returns true if they are equivalent.

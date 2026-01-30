@@ -385,27 +385,31 @@ public:
 
     void deactivate(const g_ptr<S_Object>& sobj)
     {
-        sobj->stop();
-        if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
-        {
-            GET(quadActive,sobj->ID) = false;
-        }
-        else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
-        {
-            GET(active,sobj->ID) = false;
+        if(sobj) {
+            sobj->stop();
+            if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
+            {
+                GET(quadActive,sobj->ID) = false;
+            }
+            else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
+            {
+                GET(active,sobj->ID) = false;
+            }
         }
     }
 
     void reactivate(const g_ptr<S_Object>& sobj)
     {
-        sobj->resurrect();
-        if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
-        {
-            GET(quadActive,sobj->ID) = true;
-        }
-        else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
-        {
-            GET(active,sobj->ID) = true;
+        if(sobj) {
+            sobj->resurrect();
+            if(auto quad = g_dynamic_pointer_cast<Quad>(sobj))
+            {
+                GET(quadActive,sobj->ID) = true;
+            }
+            else if(auto obj = g_dynamic_pointer_cast<Single>(sobj))
+            {
+                GET(active,sobj->ID) = true;
+            }
         }
     }
 

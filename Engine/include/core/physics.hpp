@@ -99,8 +99,12 @@ public:
         list<g_ptr<S_Object>> entities;
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
-            if(!scene->active[i]) continue;
-            if(p_state_collides(scene->physicsStates[i])) {
+            //May need to add these back, but doing this so we can do queries even on free singles.
+            // if(!scene->active[i]) continue;
+            // if(p_state_collides(scene->physicsStates[i])) {
+            //     entities << scene->singles[i];
+            // }
+            if(GET(scene->physicsStates,i)!=P_State::NONE) {
                 entities << scene->singles[i];
             }
         }
@@ -111,8 +115,11 @@ public:
         list<g_ptr<S_Object>> entities;
         for (size_t i = 0; i < scene->guiTransforms.length(); ++i) {
             if(i>=scene->guiTransforms.length()) continue;
-            if(!scene->quadActive[i]) continue;
-            if(p_state_collides(scene->quadPhysicsStates[i])) {
+            // if(!scene->quadActive[i]) continue;
+            // if(p_state_collides(scene->quadPhysicsStates[i])) {
+            //     entities << scene->quads[i];
+            // }
+            if(GET(scene->quadPhysicsStates,i)!=P_State::NONE) {
                 entities << scene->quads[i];
             }
         }
@@ -596,11 +603,44 @@ public:
         enableQuadCollisons = false;
     }
 
+#define TIMERS 0
+
     void updatePhysics()
-    {       
+    {  
+
+#if TIMERS
+Log::Line overall; overall.start();
+Log::Line l; l.start();
+double joints3d_time = 0;
+double preloop3d_time = 0;
+double tree3d_time = 0;
+double velocity3d_time = 0;
+static int FRAME;
+FRAME++;
+
+map<std::string,double> dtype_joint_times;
+
+#endif
+
+        //Resolve the physics joints first
+        for (size_t i = 0; i < scene->active.length(); ++i) {
+            g_ptr<Single> single = GET(scene->singles, i);
+            if(single->physicsJoint) {
+                #if TIMERS
+                Log::Line s; s.start();
+                #endif
+                single->physicsJoint(); // modifies velocities
+                #if TIMERS
+                dtype_joint_times.getOrPut(single->dtype,0) += s.end();
+                #endif
+            }
+        }
+
+#if TIMERS
+joints3d_time += l.end(); l.start();
+#endif
 
         //This is the pre-loop check for global varients, like gravity and drag and such
-
         //3d preloop
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
@@ -616,6 +656,10 @@ public:
                 }
             }
         }
+
+#if TIMERS
+preloop3d_time += l.end();
+#endif
 
         for (size_t i = 0; i < scene->quadActive.length(); ++i) {
             g_ptr<Quad> quad = GET(scene->quads, i);
@@ -640,7 +684,9 @@ public:
             }
         }
 
-
+#if TIMERS
+l.start();
+#endif
         if(collisonMethod==SAMPLE_METHOD::AABB) {
             if(!treeBuilt3d) {
                 buildTree3d();
@@ -653,6 +699,9 @@ public:
         else if (collisonMethod==SAMPLE_METHOD::NAIVE) {
             handle3dCollison(naive_generate3dCollisonPairs());
         }
+#if TIMERS
+tree3d_time += l.end();
+#endif
 
         if(quadCollisonMethod==SAMPLE_METHOD::AABB) {
             if(!treeBuilt2d) {
@@ -669,6 +718,9 @@ public:
             }
         } 
 
+#if TIMERS
+l.start();
+#endif
         //3d physics pass
         for (size_t i = 0; i < scene->transforms.length(); ++i) {
             if(i>=scene->transforms.length()) continue;
@@ -731,6 +783,9 @@ public:
         }
 
         
+#if TIMERS
+velocity3d_time += l.end();
+#endif
 
         //2d physics pass
         for (size_t i = 0; i < scene->quadActive.length(); ++i) {
@@ -825,8 +880,21 @@ public:
             }
         }
 
+#if TIMERS
+if(FRAME%60==0) {
+    print("---------------------\nFrame: ",FRAME);
+    double overall_time = overall.end();
+    print("joints3d_time: ",joints3d_time/1000000,"ms");
+    for(auto e : dtype_joint_times.entrySet()) {
+        print("     ",e.key,": ",e.value/1000000,"ms");
+    }
+    print("preloop3d_time: ",preloop3d_time/1000000,"ms");
+    print("tree3d_time: ",tree3d_time/1000000,"ms");
+    print("velocity3d_time: ",velocity3d_time/1000000,"ms");
+    print("overall_time: ",overall_time/1000000,"ms");
+}
+#endif
 
-    
 
     }
 
