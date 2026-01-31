@@ -59,6 +59,11 @@ public:
     list<float> opt_floats;
     vec3 opt_vec_3;
     vec3 opt_vec3_2;
+    vec3 opt_vec_3_3;
+
+    //This is mainly intended for debug
+    list<double> timers;
+    list<std::string> timer_labels;
 
 
     virtual glm::mat4& getTransform();

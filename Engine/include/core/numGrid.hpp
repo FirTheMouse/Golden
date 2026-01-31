@@ -132,6 +132,65 @@ namespace Golden
             return around;
         }
 
+    // Returns distance to first hit, or max_dist if no hit
+    // exclude_ids: list of object IDs to ignore (e.g., the caster itself)
+    float raycast(const vec3& origin, const vec3& direction, float max_dist, 
+                const list<int>& exclude_ids = list<int>{}) {
+        
+        vec3 dir = direction.normalized();
+        float step_size = cellSize * 0.5f; // Half cell for finer sampling
+        int max_steps = (int)(max_dist / step_size) + 1;
+        
+        // Convert exclude list to set for O(1) lookup
+        static thread_local list<int> seen_flags;
+        if(seen_flags.length() < 100000) { // Adjust based on max object count
+            seen_flags = list<int>(100000, 0);
+        }
+        
+        // Mark exclusions with current raycast ID (generation counter)
+        static int raycast_generation = 0;
+        raycast_generation++;
+        for(int exclude_id : exclude_ids) {
+            if(exclude_id < seen_flags.length()) {
+                seen_flags[exclude_id] = raycast_generation;
+            }
+        }
+        
+        for(int step = 0; step < max_steps; step++) {
+            float dist = step * step_size;
+            vec3 sample_point = origin + dir * dist;
+            
+            int cell_idx = toIndex(sample_point);
+            if(cell_idx < 0 || cell_idx >= cells.length()) {
+                return max_dist; // Out of bounds
+            }
+            
+            // Check if cell has any objects
+            if(!cells[cell_idx].empty()) {
+                // Check each object in cell
+                for(int obj_id : cells[cell_idx]) {
+                    // Skip excluded objects
+                    if(obj_id < seen_flags.length() && 
+                    seen_flags[obj_id] == raycast_generation) {
+                        continue;
+                    }
+                    
+                    // Found a hit!
+                    return dist;
+                }
+            }
+        }
+        
+        return max_dist; // No hit
+    }
+
+    // Overload for simple case with single exclusion (the caster)
+    float raycast(const vec3& origin, const vec3& direction, float max_dist, int exclude_id) {
+        list<int> exclusions;
+        exclusions.push(exclude_id);
+        return raycast(origin, direction, max_dist, exclusions);
+    }
+
 
         // Add to NumGrid class
         list<int> findPath(int startIdx, int goalIdx, std::function<bool(int)> isWalkable) {

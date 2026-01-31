@@ -2,6 +2,7 @@
 
 #include<rendering/scene.hpp>
 #include<core/thread.hpp>
+#include<core/numGrid.hpp>
 
 namespace Golden
 {
@@ -19,13 +20,15 @@ public:
 class Physics : public Object
 {
 public:
-    g_ptr<Scene> scene;
-    g_ptr<Thread> thread;
+    g_ptr<Scene> scene = nullptr;
+    g_ptr<Thread> thread = nullptr;
 
-    g_ptr<aabb_node> treeRoot3d;
-    g_ptr<aabb_node> treeRoot2d;
+    g_ptr<aabb_node> treeRoot3d = nullptr;
+    g_ptr<aabb_node> treeRoot2d = nullptr;
     bool treeBuilt3d = false;
     bool treeBuilt2d = false;
+
+    g_ptr<NumGrid> grid = nullptr;
 
     Physics() {
         thread = make<Thread>();
@@ -442,6 +445,125 @@ public:
         }
         return collisionPairs;
     }
+  
+      list<std::pair<g_ptr<Single>, g_ptr<Single>>> GRID_generate3dCollisionPairs() {
+        list<std::pair<g_ptr<Single>, g_ptr<Single>>> collisionPairs;
+        
+        // Pre-allocate based on typical pair count (reduces reallocation)
+        collisionPairs.reserve(6000);
+        
+        // Reusable deduplication array
+        static list<int> seen_flags;
+        if(seen_flags.length() < scene->singles.length()) {
+            seen_flags = list<int>(scene->singles.length(), -1);
+        }
+        
+        // Cache these arrays to avoid repeated lookups
+        auto& active = scene->active;
+        auto& physicsStates = scene->physicsStates;
+        auto& singles = scene->singles;
+        
+        for (size_t i = 0; i < scene->transforms.length(); ++i) {
+            if (!active[i] || !p_state_collides(physicsStates[i])) continue;
+            
+            g_ptr<Single> entityA = singles[i];
+            BoundingBox boundsA = entityA->getWorldBounds();
+            
+            // Query grid for cells around this entity's bounds
+            list<int> cells = grid->cellsAround(boundsA);
+            
+            // Early bounds check parameters (hoist out of loop)
+            vec3 minA = boundsA.min;
+            vec3 maxA = boundsA.max;
+            
+            // Collect unique candidate IDs using flag-based deduplication
+            for(auto cell : cells) {
+                auto& cell_contents = grid->cells[cell];
+                
+                for(auto candidate_id : cell_contents) {
+                    // Skip if already processed for this entity
+                    if(seen_flags[candidate_id] == (int)i) continue;
+                    seen_flags[candidate_id] = (int)i;
+                    
+                    // Skip self
+                    if(candidate_id == (int)i) continue;
+                    
+                    // Skip inactive or non-colliding entities (bounds check first)
+                    if(candidate_id >= singles.length()) continue;
+                    if(!active[candidate_id]) continue;
+                    if(!p_state_collides(physicsStates[candidate_id])) continue;
+                    
+                    g_ptr<Single> entityB = singles[candidate_id];
+                    
+                    // Early AABB rejection (before expensive layer checks)
+                    BoundingBox boundsB = entityB->getWorldBounds();
+                    if(maxA.x() < boundsB.min.x() || minA.x() > boundsB.max.x()) continue;
+                    if(maxA.z() < boundsB.min.z() || minA.z() > boundsB.max.z()) continue;
+                    if(maxA.y() < boundsB.min.y() || minA.y() > boundsB.max.y()) continue;
+                    
+                    // Check collision layers (only if AABB passes)
+                    CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
+                    CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
+                    if (!layersA.canCollideWith(layersB)) continue;
+                    
+                    // Passed all tests - add pair
+                    collisionPairs.push(std::pair{entityA, entityB});
+                }
+            }
+        }
+        
+        return collisionPairs;
+    }
+    // list<std::pair<g_ptr<Single>, g_ptr<Single>>> GRID_generate3dCollisionPairs() {
+    //     list<std::pair<g_ptr<Single>, g_ptr<Single>>> collisionPairs;
+        
+    //     // Reusable deduplication array (static to avoid reallocation)
+    //     static list<int> seen_flags;
+    //     if(seen_flags.length() < scene->singles.length()) {
+    //         seen_flags = list<int>(scene->singles.length(), -1);
+    //     }
+        
+    //     for (size_t i = 0; i < scene->transforms.length(); ++i) {
+    //         if (!scene->active[i] || !p_state_collides(scene->physicsStates[i])) continue;
+            
+    //         g_ptr<Single> entityA = scene->singles[i];
+    //         BoundingBox boundsA = entityA->getWorldBounds();
+            
+    //         // Query grid for cells around this entity's bounds
+    //         list<int> cells = grid->cellsAround(boundsA);
+            
+    //         // Collect unique candidate IDs using flag-based deduplication
+    //         for(auto cell : cells) {
+    //             for(auto candidate_id : grid->cells[cell]) {
+    //                 // Skip if already processed for this entity
+    //                 if(seen_flags[candidate_id] == (int)i) continue;
+    //                 seen_flags[candidate_id] = (int)i;
+                    
+    //                 // Skip self
+    //                 if(candidate_id == (int)i) continue;
+                    
+    //                 // Skip inactive or non-colliding entities
+    //                 if(candidate_id >= scene->singles.length()) continue;
+    //                 if(!scene->active[candidate_id]) continue;
+    //                 if(!p_state_collides(scene->physicsStates[candidate_id])) continue;
+                    
+    //                 g_ptr<Single> entityB = scene->singles[candidate_id];
+                    
+    //                 // Check collision layers
+    //                 CollisionLayer& layersA = scene->collisonLayers.get(entityA->ID);
+    //                 CollisionLayer& layersB = scene->collisonLayers.get(entityB->ID);
+    //                 if (!layersA.canCollideWith(layersB)) continue;
+                    
+    //                 // Narrow-phase AABB test
+    //                 if (boundsA.intersects(entityB->getWorldBounds())) {
+    //                     collisionPairs.push(std::pair{entityA, entityB});
+    //                 }
+    //             }
+    //         }
+    //     }
+        
+    //     return collisionPairs;
+    // }
     list<std::pair<g_ptr<Single>, g_ptr<Single>>> naive_generate3dCollisonPairs() {
         list<std::pair<g_ptr<Single>, g_ptr<Single>>> collisionPairs;
         
@@ -655,7 +777,7 @@ public:
     bool quadScaleAroundCenter = true;
 
     enum SAMPLE_METHOD {
-        NCOL, NAIVE, AABB //GRID <- Add this later!
+        NCOL, NAIVE, AABB, GRID
     };
 
     SAMPLE_METHOD collisonMethod = SAMPLE_METHOD::AABB;
@@ -685,28 +807,7 @@ public:
         enableQuadCollisons = false;
     }
 
-#define TIMERS 0
-
-inline std::string green(const std::string& text) {
-    return "\x1b[32m"+text+"\x1b[0m";
-}
-inline std::string yellow(const std::string& text) {
-    return "\x1b[33m"+text+"\x1b[0m";
-}
-inline std::string red(const std::string& text) {
-    return "\x1b[31m"+text+"\x1b[0m";
-}
-
-std::string ftime(double t) 
-{
-    if(t >= 100000000) {
-        return red(std::to_string(t/1000000000.0)+"s");
-    } else if(t >= 100000) {
-        return yellow(std::to_string(t/1000000.0)+"ms");
-    } else { 
-        return  green(std::to_string(t/1000.0)+"ns");
-    } 
-}
+#define TIMERS 1
 
     void updatePhysics()
     {  
@@ -717,6 +818,10 @@ Log::Line l; l.start();
 double joints3d_time = 0;
 double preloop3d_time = 0;
 double tree3d_time = 0;
+double update_tree_time = 0;
+double generate_pairs_time = 0;
+int pairs_len = 0;
+double handle_collison_time = 0;
 double velocity3d_time = 0;
 static int FRAME;
 FRAME++;
@@ -792,18 +897,40 @@ l.start();
         if(collisonMethod==SAMPLE_METHOD::AABB) {
             if(!treeBuilt3d) {
                 buildTree3d();
+#if TIMERS
+tree3d_time += l.end(); l.start();
+#endif
                 treeBuilt3d = true;
             } else {
                 updateTreeInPlace(treeRoot3d);
-                handle3dCollison(AABB_generate3dCollisonPairs());
+#if TIMERS
+update_tree_time += l.end(); l.start();
+#endif
             }
+                auto col_pairs = AABB_generate3dCollisonPairs();
+#if TIMERS
+generate_pairs_time += l.end(); l.start();
+pairs_len = col_pairs.length();
+#endif
+                handle3dCollison(col_pairs);
+#if TIMERS
+handle_collison_time += l.end();
+#endif
+        } else if(collisonMethod==SAMPLE_METHOD::GRID) {
+
+                auto col_pairs = GRID_generate3dCollisionPairs();
+#if TIMERS
+generate_pairs_time += l.end(); l.start();
+pairs_len = col_pairs.length();
+#endif
+                handle3dCollison(col_pairs);
+#if TIMERS
+handle_collison_time += l.end();
+#endif
         } 
         else if (collisonMethod==SAMPLE_METHOD::NAIVE) {
             handle3dCollison(naive_generate3dCollisonPairs());
         }
-#if TIMERS
-tree3d_time += l.end();
-#endif
 
         if(quadCollisonMethod==SAMPLE_METHOD::AABB) {
             if(!treeBuilt2d) {
@@ -852,34 +979,6 @@ l.start();
             }
             else if(p_state_uses_velocity(p))
             {
-                // glm::mat4& transform = GET(scene->transforms,i);
-                // Velocity& velocity = GET(scene->velocities,i);
-                // float velocityScale = 1.0f;
-
-                // if(velocity.length()==0) goto c_check;
-
-                // // --- Position ---
-                // glm::vec3 pos = glm::vec3(transform[3]);
-                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
-                // transform[3] = glm::vec4(pos, 1.0f);
-                
-                // // --- Rotation ---
-                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
-                // if (glm::length(rotVel) > 0.0001f) {
-                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                //     transform = transform * rotationDelta; // Apply rotation in object space
-                // }
-                
-                // // --- Scale ---
-                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
-                // if (glm::length(scaleChange) > 0.0001f) {
-                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                //     transform = transform * scaleDelta; // Apply after rotation
-                // }
-
                 g_ptr<Single> single = GET(scene->singles, i);
                 Velocity& velocity = GET(scene->velocities, i);
                 float dt = thread->getSpeed();
@@ -940,37 +1039,7 @@ velocity3d_time += l.end();
                 }
             }
             else if(p_state_uses_velocity(p))
-            {
-                // glm::mat4& transform = GET(scene->guiTransforms,i);
-                // Velocity& velocity = GET(scene->quadVelocities,i);
-                // float velocityScale = 1.0f;
-
-                // //Add checking for if the velocity in this regard is just all zero in the future
-                // //To optimize
-
-                // // --- Position ---
-                // glm::vec3 pos = glm::vec3(transform[3]);
-                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
-                // transform[3] = glm::vec4(pos, 1.0f);
-                
-                // // --- Rotation ---
-                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
-                // if (glm::length(rotVel) > 0.0001f) {
-                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                //     transform = transform * rotationDelta; // Apply rotation in object space
-                // }
-                
-                // // --- Scale ---
-                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
-                // if (glm::length(scaleChange) > 0.0001f) {
-                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                //     transform = transform * scaleDelta; // Apply after rotation
-                // }
-
-          
+            {          
                 g_ptr<Quad> quad = GET(scene->quads, i);
                 Velocity& velocity = GET(scene->quadVelocities, i);
                 float dt = thread->getSpeed();
@@ -1014,7 +1083,10 @@ if(FRAME%60==0) {
         print("     ",e.key,": ",e.value.x()," over ",ftime(e.value.y())," (",ftime(e.value.y()/e.value.x())," per)");
     }
     print("preloop3d_time: ",ftime(preloop3d_time));
-    print("tree3d_time: ",ftime(tree3d_time));
+    if(tree3d_time!=0) print("tree_build_time: ",ftime(tree3d_time));
+    if(update_tree_time!=0) print("update_tree_time: ",ftime(update_tree_time));
+    print("generate_pairs_time: ",ftime(generate_pairs_time)," (generated ",pairs_len,")");
+    print("handle_collison_time: ",ftime(handle_collison_time));
     print("velocity3d_time: ",ftime(velocity3d_time));
     print("overall_time: ",ftime(overall_time));
 }
@@ -1028,6 +1100,64 @@ if(FRAME%60==0) {
 
 }
 
+//Manual 3d velocity
+// glm::mat4& transform = GET(scene->transforms,i);
+                // Velocity& velocity = GET(scene->velocities,i);
+                // float velocityScale = 1.0f;
+
+                // if(velocity.length()==0) goto c_check;
+
+                // // --- Position ---
+                // glm::vec3 pos = glm::vec3(transform[3]);
+                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
+                // transform[3] = glm::vec4(pos, 1.0f);
+                
+                // // --- Rotation ---
+                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(rotVel) > 0.0001f) {
+                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+                //     transform = transform * rotationDelta; // Apply rotation in object space
+                // }
+                
+                // // --- Scale ---
+                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(scaleChange) > 0.0001f) {
+                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+                //     transform = transform * scaleDelta; // Apply after rotation
+                // }
+
+    //Manual 2d velocity
+                 // glm::mat4& transform = GET(scene->guiTransforms,i);
+                // Velocity& velocity = GET(scene->quadVelocities,i);
+                // float velocityScale = 1.0f;
+
+                // //Add checking for if the velocity in this regard is just all zero in the future
+                // //To optimize
+
+                // // --- Position ---
+                // glm::vec3 pos = glm::vec3(transform[3]);
+                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
+                // transform[3] = glm::vec4(pos, 1.0f);
+                
+                // // --- Rotation ---
+                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(rotVel) > 0.0001f) {
+                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+                //     transform = transform * rotationDelta; // Apply rotation in object space
+                // }
+                
+                // // --- Scale ---
+                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(scaleChange) > 0.0001f) {
+                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+                //     transform = transform * scaleDelta; // Apply after rotation
+                // }
 
 
     //This should be moved into Single's own methods eventually, just like it is for Quad.

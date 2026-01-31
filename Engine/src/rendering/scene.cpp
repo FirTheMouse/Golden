@@ -103,7 +103,7 @@ void Scene::updateScene(float tpf)
 {
 
 #if TIMERS 
-    Line overall;
+    Log::Line overall;
     overall.start();
 #endif
     sceneTime+=tpf;
@@ -139,7 +139,7 @@ void Scene::updateScene(float tpf)
     double render_time = 0;
     double instance_render_time = 0;
     double a,b,c;
-    Line l;
+    Log::Line l;
 
 
     static int FRAME;

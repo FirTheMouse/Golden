@@ -5,6 +5,10 @@ file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
 
 add_library(GoldenEngine STATIC ${ENGINE_SOURCES})
 
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(GoldenEngine PRIVATE -march=native -mtune=native)
+endif()
+
 target_compile_definitions(GoldenEngine PUBLIC GLFW_INCLUDE_NONE)
 
 target_include_directories(GoldenEngine PUBLIC

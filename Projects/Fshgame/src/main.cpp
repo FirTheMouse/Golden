@@ -609,9 +609,9 @@ int main()  {
             box->scale({100,100});
             box->setColor(vec4(1,0,0,1));
             if(ctx.node->children.length()<2) print("WARNING: at least two args required for make_quad_pos!");
-            float x = get_arg<int>(ctx, 0);
-            float y = get_arg<int>(ctx, 1);
-            box->setPosition({x, y});
+            // float x = get_arg<int>(ctx, 0);
+            // float y = get_arg<int>(ctx, 1);
+            // box->setPosition({x, y});
             return ctx.node;
         });
 

@@ -126,6 +126,27 @@ public:
 
 };
 
+static inline std::string green(const std::string& text) {
+    return "\x1b[32m"+text+"\x1b[0m";
+}
+static inline std::string yellow(const std::string& text) {
+    return "\x1b[33m"+text+"\x1b[0m";
+}
+static inline std::string red(const std::string& text) {
+    return "\x1b[31m"+text+"\x1b[0m";
+}
+
+static std::string ftime(double t) 
+{
+    if(t >= 100000000) {
+        return red(std::to_string(t/1000000000.0)+"s");
+    } else if(t >= 100000) {
+        return yellow(std::to_string(t/1000000.0)+"ms");
+    } else { 
+        return  green(std::to_string(t/1000.0)+"ns");
+    } 
+}
+
 namespace Log {
     class Line {
         public:
@@ -153,7 +174,7 @@ namespace Log {
             return (double)duration;
         }
         
-        };
+    };
 }
 
 inline std::string readFile(const std::string& filename) {
