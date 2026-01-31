@@ -220,6 +220,7 @@ class vec3 {
         vec3 operator-(const vec3& rhs) const { return vec3(impl - rhs.impl); }
         vec3 operator*(float scalar) const { return vec3(impl * scalar); }
         vec3 operator*(const vec3& rhs) const { return vec3(impl * rhs.impl); }
+        vec3 operator*=(const vec3& rhs) {impl*=rhs.impl; return vec3(impl); }
         vec3 operator/(const vec3& rhs) const { return vec3(impl / rhs.impl); }
         vec3 operator/(float scalar) const { return vec3(impl / scalar); }
         bool operator==(const vec3& rhs) const {return impl == rhs.impl;}
@@ -679,6 +680,24 @@ public:
             max.z(0.0f);
         }
         return *this;
+    }
+
+    vec3 closestPoint(const vec3& point) const {
+        return vec3(
+            std::clamp(point.x(), min.x(), max.x()),
+            std::clamp(point.y(), min.y(), max.y()),
+            dim == DIM_2D ? 0.0f : std::clamp(point.z(), min.z(), max.z())
+        );
+    }
+
+    float distance(const vec3& point) const {
+        vec3 closest = closestPoint(point);
+        return (point - closest).length();
+    }
+
+    float distance(const BoundingBox& other) const {
+        vec3 closest = closestPoint(other.getCenter());
+        return other.distance(closest);
     }
 
     BoundingBox& expand(const BoundingBox& other) {

@@ -54,7 +54,11 @@ public:
     bool isAnchor = false;
 
     list<int> opt_ints;
+    list<int> opt_idx_cache;
+    list<int> opt_idx_cache_2;
     list<float> opt_floats;
+    vec3 opt_vec_3;
+    vec3 opt_vec3_2;
 
 
     virtual glm::mat4& getTransform();

@@ -324,6 +324,88 @@ public:
         }
     }
 
+    float raycast(vec3 origin, vec3 direction, float max_dist, g_ptr<aabb_node> root = nullptr) {
+        if(!root) root = treeRoot3d;
+        if(!root) {
+            return max_dist;
+        }
+        
+        direction = direction.normalized();
+        float nearest_hit = max_dist;
+        
+        int nodes_tested = 0;
+        int hits_found = 0;
+        
+        // Ray-AABB intersection using slab method
+        auto ray_aabb_intersect = [](vec3 origin, vec3 dir, BoundingBox box) -> float {
+            float tmin = -std::numeric_limits<float>::infinity();
+            float tmax = std::numeric_limits<float>::infinity();
+            
+            // X slab
+            if(std::abs(dir.x()) > 0.0001f) {
+                float t1 = (box.min.x() - origin.x()) / dir.x();
+                float t2 = (box.max.x() - origin.x()) / dir.x();
+                tmin = std::max(tmin, std::min(t1, t2));
+                tmax = std::min(tmax, std::max(t1, t2));
+            } else if(origin.x() < box.min.x() || origin.x() > box.max.x()) {
+                return -1.0f; // Ray parallel and outside slab
+            }
+            
+            // Y slab
+            if(std::abs(dir.y()) > 0.0001f) {
+                float t1 = (box.min.y() - origin.y()) / dir.y();
+                float t2 = (box.max.y() - origin.y()) / dir.y();
+                tmin = std::max(tmin, std::min(t1, t2));
+                tmax = std::min(tmax, std::max(t1, t2));
+            } else if(origin.y() < box.min.y() || origin.y() > box.max.y()) {
+                return -1.0f;
+            }
+            
+            // Z slab
+            if(std::abs(dir.z()) > 0.0001f) {
+                float t1 = (box.min.z() - origin.z()) / dir.z();
+                float t2 = (box.max.z() - origin.z()) / dir.z();
+                tmin = std::max(tmin, std::min(t1, t2));
+                tmax = std::min(tmax, std::max(t1, t2));
+            } else if(origin.z() < box.min.z() || origin.z() > box.max.z()) {
+                return -1.0f;
+            }
+            
+            // No intersection
+            if(tmax < tmin || tmax < 0) return -1.0f;
+            
+            return tmin > 0 ? tmin : tmax;
+        };
+        
+        std::function<void(g_ptr<aabb_node>)> traverse = [&](g_ptr<aabb_node> node) {
+            if(!node) return;
+            
+            nodes_tested++;
+            float t = ray_aabb_intersect(origin, direction, node->aabb);
+            
+            // Early rejection only if ray misses entirely
+            if(t < 0) return;
+            
+            if(node->entity) {
+                // Leaf node - check distance limit here
+                if(t >= nearest_hit) return;
+                
+                float hit_t = ray_aabb_intersect(origin, direction, node->entity->getWorldBounds());
+                if(hit_t > 0 && hit_t < nearest_hit) {
+                    hits_found++;
+                    nearest_hit = hit_t;
+                }
+            } else {
+                // Internal node - always traverse children if ray intersects, regardless of distance
+                traverse(node->left);
+                traverse(node->right);
+            }
+        };
+        
+        traverse(root);
+        return nearest_hit;
+    }
+
     struct collisionData3d {
         g_ptr<Single> first;
         g_ptr<Single> second;
@@ -605,6 +687,27 @@ public:
 
 #define TIMERS 0
 
+inline std::string green(const std::string& text) {
+    return "\x1b[32m"+text+"\x1b[0m";
+}
+inline std::string yellow(const std::string& text) {
+    return "\x1b[33m"+text+"\x1b[0m";
+}
+inline std::string red(const std::string& text) {
+    return "\x1b[31m"+text+"\x1b[0m";
+}
+
+std::string ftime(double t) 
+{
+    if(t >= 100000000) {
+        return red(std::to_string(t/1000000000.0)+"s");
+    } else if(t >= 100000) {
+        return yellow(std::to_string(t/1000000.0)+"ms");
+    } else { 
+        return  green(std::to_string(t/1000.0)+"ns");
+    } 
+}
+
     void updatePhysics()
     {  
 
@@ -618,8 +721,7 @@ double velocity3d_time = 0;
 static int FRAME;
 FRAME++;
 
-map<std::string,double> dtype_joint_times;
-
+map<std::string,vec2> dtype_joint_profiles;
 #endif
 
         //Resolve the physics joints first
@@ -631,7 +733,7 @@ map<std::string,double> dtype_joint_times;
                 #endif
                 single->physicsJoint(); // modifies velocities
                 #if TIMERS
-                dtype_joint_times.getOrPut(single->dtype,0) += s.end();
+                dtype_joint_profiles.getOrPut(single->dtype,vec2(0,0)) += vec2(1,s.end());
                 #endif
             }
         }
@@ -750,33 +852,56 @@ l.start();
             }
             else if(p_state_uses_velocity(p))
             {
-                glm::mat4& transform = GET(scene->transforms,i);
-                Velocity& velocity = GET(scene->velocities,i);
-                float velocityScale = 1.0f;
+                // glm::mat4& transform = GET(scene->transforms,i);
+                // Velocity& velocity = GET(scene->velocities,i);
+                // float velocityScale = 1.0f;
 
-                if(velocity.length()==0) goto c_check;
+                // if(velocity.length()==0) goto c_check;
 
-                // --- Position ---
-                glm::vec3 pos = glm::vec3(transform[3]);
-                pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
-                transform[3] = glm::vec4(pos, 1.0f);
+                // // --- Position ---
+                // glm::vec3 pos = glm::vec3(transform[3]);
+                // pos += vec3(velocity.position * thread->getSpeed() * velocityScale).toGlm();
+                // transform[3] = glm::vec4(pos, 1.0f);
                 
-                // --- Rotation ---
-                glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
-                if (glm::length(rotVel) > 0.0001f) {
-                    glm::mat4 rotationDelta = glm::mat4(1.0f);
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
-                    rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
-                    transform = transform * rotationDelta; // Apply rotation in object space
+                // // --- Rotation ---
+                // glm::vec3 rotVel = vec3(velocity.rotation * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(rotVel) > 0.0001f) {
+                //     glm::mat4 rotationDelta = glm::mat4(1.0f);
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.y, glm::vec3(0, 1, 0)); // yaw
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.x, glm::vec3(1, 0, 0)); // pitch
+                //     rotationDelta = glm::rotate(rotationDelta, rotVel.z, glm::vec3(0, 0, 1));
+                //     transform = transform * rotationDelta; // Apply rotation in object space
+                // }
+                
+                // // --- Scale ---
+                // glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
+                // if (glm::length(scaleChange) > 0.0001f) {
+                //     glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
+                //     transform = transform * scaleDelta; // Apply after rotation
+                // }
+
+                g_ptr<Single> single = GET(scene->singles, i);
+                Velocity& velocity = GET(scene->velocities, i);
+                float dt = thread->getSpeed();
+                
+                if(velocity.length() == 0) goto c_check;
+                
+                // Position
+                single->position += velocity.position * dt;
+                
+                // Rotation
+                vec3 rotVel = velocity.rotation * dt;
+                if(rotVel.length() > 0.0001f) {
+                    glm::quat deltaQuat = glm::quat(rotVel.toGlm()); // Euler to quat
+                    single->rotation = single->rotation * deltaQuat;
                 }
                 
-                // --- Scale ---
-                glm::vec3 scaleChange = vec3(velocity.scale * thread->getSpeed() * velocityScale).toGlm();
-                if (glm::length(scaleChange) > 0.0001f) {
-                    glm::mat4 scaleDelta = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f) + scaleChange);
-                    transform = transform * scaleDelta; // Apply after rotation
-                }
+                // Scale
+                vec3 scaleChange = velocity.scale * dt;
+                if(scaleChange.length() > 0.0001f) {
+                    single->scaleVec *= (vec3(1.0f) + scaleChange);
+                }                
+                single->updateTransform();
             }
 
             c_check:;
@@ -885,13 +1010,13 @@ if(FRAME%60==0) {
     print("---------------------\nFrame: ",FRAME);
     double overall_time = overall.end();
     print("joints3d_time: ",joints3d_time/1000000,"ms");
-    for(auto e : dtype_joint_times.entrySet()) {
-        print("     ",e.key,": ",e.value/1000000,"ms");
+    for(auto e : dtype_joint_profiles.entrySet()) {
+        print("     ",e.key,": ",e.value.x()," over ",ftime(e.value.y())," (",ftime(e.value.y()/e.value.x())," per)");
     }
-    print("preloop3d_time: ",preloop3d_time/1000000,"ms");
-    print("tree3d_time: ",tree3d_time/1000000,"ms");
-    print("velocity3d_time: ",velocity3d_time/1000000,"ms");
-    print("overall_time: ",overall_time/1000000,"ms");
+    print("preloop3d_time: ",ftime(preloop3d_time));
+    print("tree3d_time: ",ftime(tree3d_time));
+    print("velocity3d_time: ",ftime(velocity3d_time));
+    print("overall_time: ",ftime(overall_time));
 }
 #endif
 

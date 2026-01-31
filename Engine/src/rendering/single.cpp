@@ -332,7 +332,7 @@ void Single::updateTransform(bool joined) {
 
     if(joined) {
         bool doUpdate = true;
-        if(!unlockJoint && (!parents.empty()||parent) && joint) {
+        if(!unlockJoint && joint) {
             doUpdate = joint();
         }
 

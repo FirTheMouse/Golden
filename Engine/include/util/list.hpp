@@ -270,7 +270,14 @@ public:
     template<typename TT>
     void insert(TT&& value,size_t index)
     {
-        if (index > size_) throw std::out_of_range("list::insert::212 Insert index out of bounds!");
+        if (index > size_) {
+            if(index==0&&size_==0) {
+                push(value);
+                return;
+            } else {
+                throw std::out_of_range("list::insert::212 Insert index, "+std::to_string(index)+" out of size: "+std::to_string(size_));
+            }
+        }
         push(value);
         for (std::size_t i = size_ - 1; i > index; --i) {
             ptr[i] = std::move(ptr[i - 1]);
@@ -413,10 +420,11 @@ public:
         return ptr[randi(0,size_-1)];
     }
 
+
     inline void shuffle() {
         for(int i = size_ - 1; i > 0; i--) {
             int j = randi(0, i);
-            int temp = ptr[i];
+            T& temp = ptr[i];
             ptr[i] = ptr[j];
             ptr[j] = temp;
         }
