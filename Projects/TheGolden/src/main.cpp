@@ -174,9 +174,7 @@ int main() {
           q->physicsJoint = [q](){
                q->opt_floats[0] *= q->opt_floats[1]; // Decay per frame
                float attraction = q->opt_floats[0];
-               q->setScale({(float)(1*attraction>0?attraction:1),(float)(1*attraction>0?1:-attraction),(float)(1*attraction>0?attraction:1)});
-
-
+               //q->setScale({(float)(1*attraction>0?attraction:1),(float)(1*attraction>0?1:-attraction),(float)(1*attraction>0?attraction:1)});
                if(q->opt_floats[0] < 0.01f && q->opt_floats[0] > -0.01f) scene->recycle(q);
                return true;
           };
@@ -188,8 +186,11 @@ int main() {
           g_ptr<Single> agent = scene->create<Single>("agent");
           int f = i;
           vec3 pos((float)(f%width),0,(float)(f/width)+50);
+          vec3 goal_pos((float)(f%width),0,(float)(f/width)-30.0f);
+          goals << goal_pos;
+
           agent->setPosition(pos);
-          agent->setPhysicsState(P_State::FREE);
+          agent->setPhysicsState(P_State::GHOST);
           agent->opt_ints << randi(1,10); // [0]
           agent->opt_ints << i; // [1] = ITR id
           agent->opt_ints << 0; // [2] = Accumulator
@@ -198,9 +199,6 @@ int main() {
           agent->opt_floats << randf(4,6); // [1] = speed
           agent->opt_vec3_2 = vec3(0,0,0); //Progress
           agents << agent;
-
-          vec3 goal_pos((float)(f%width),0,(float)(f/width)-30.0f);
-          goals << goal_pos;
 
           g_ptr<Single> marker = scene->create<Single>("crumb");
           marker->setPosition(goal_pos);
@@ -247,7 +245,6 @@ int main() {
           }
           debug << d_boxes;
 
-          // In your agent setup, replace the physicsJoint with:
           agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
                int id = agent->opt_ints[1];
                g_ptr<Single> goal_crumb = crumbs[id][0];
@@ -272,53 +269,169 @@ int main() {
                     agent->opt_ints[2] = 0;
                }
                }
-          
+               
                float desired_speed = agent->opt_floats[1];
                
-               // A* pathfinding
-               auto isWalkable = [](int idx) {
-               // for(int id : grid->cells[idx]) {
-               //      if(scene->singles[id]->dtype == "wall") return false;
-               // }
-               // return true;
-               return grid->cells[idx].empty();
-               };
-               
-               // Recompute path every 60 frames or if we don't have one
-               list<int>& path = agent->opt_idx_cache_2; // Reuse another cache field for path
-               if(agent->opt_ints[3] % 60 == 0 || path.empty()) {
-               path = grid->findPath(
-                    grid->toIndex(agent->getPosition()),
-                    grid->toIndex(goal),
-                    isWalkable
-               );
+               // Track progress for frustration
+               if(agent->opt_ints[3] % 60 == 0) {
+                   vec3 last_pos = agent->opt_vec3_2;
+                   float progress = agent->getPosition().distance(last_pos);
+                   agent->opt_floats[2] = progress; // Store recent progress
+                   agent->opt_vec3_2 = agent->getPosition();
                }
+               
+               float frustration = (agent->opt_floats[2] < 1.0f) ? 1.0f : 0.0f; // Stuck?
+               
+               if(frustration > 0.5f) {
+                   // STUCK - use short-range A* to escape
+                   list<int>& escape_path = agent->opt_idx_cache_2;
+                   if(escape_path.empty()) {
+                       // Find path to position 10 units toward goal
+                       vec3 intermediate = agent->getPosition() + 
+                                          (goal - agent->getPosition()).normalized() * 10.0f;
+                       
+                       escape_path = grid->findPath(
+                           grid->toIndex(agent->getPosition()),
+                           grid->toIndex(intermediate),
+                           [agent](int idx) {
+                               if(grid->cells[idx].empty()) return true;
+                               return grid->cells[idx].length() == 1 && grid->cells[idx].has(agent->ID);
+                           }
+                       );
+                   }
+                   
+                   if(!escape_path.empty()) {
+                       // Follow escape path
+                       vec3 waypoint = grid->indexToLoc(escape_path[0]);
+                       if(agent->getPosition().distance(waypoint) < grid->cellSize) {
+                           escape_path.removeAt(0);
+                       }
+                       if(!escape_path.empty()) {
+                           vec3 direction = (grid->indexToLoc(escape_path[0]) - agent->getPosition()).normalized().nY();
+                           agent->faceTo(agent->getPosition() + direction);
+                           agent->setLinearVelocity(direction * desired_speed);
+                       }
+                   }
+               } else {
+                   // NORMAL - use raycast gap-finding
+                   agent->opt_idx_cache_2.clear(); // Clear any old A* path
+                   
+                   vec3 forward = agent->facing().nY().normalized();
+                   vec3 right = vec3(forward.z(), 0, -forward.x());
+                   vec3 to_goal = (goal - agent->getPosition()).normalized().nY();
+                   
+                   float angle_step = 30.0f;
+                   int num_samples = 6;
+                   
+                   vec3 chosen_direction = forward;
+                   float best_score = 0.0f;
+                   
+                   for(int i = 0; i < num_samples; i++) {
+                       float angle_deg = i * angle_step;
+                       float angle_rad = angle_deg * 3.14159f / 180.0f;
+                       
+                       for(int side = (i == 0 ? 0 : -1); side <= 1; side += 2) {
+                           vec3 dir = (forward * cos(angle_rad) + right * (sin(angle_rad) * side)).normalized();
+                           float hit_dist = phys->raycast(agent->getPosition(), dir, 10.0f);
+                           float openness = hit_dist / 10.0f;
+                           
+                           float forward_bias = (dir.dot(forward) + 1.0f) * 0.5f;
+                           float goal_bias = (dir.dot(to_goal) + 1.0f) * 0.5f;
+                           
+                           float score = openness * (1.0f + forward_bias * 0.7f + goal_bias * 0.3f);
+                           
+                           if(score > best_score) {
+                               best_score = score;
+                               chosen_direction = dir;
+                               if(i == 0 && openness > 0.8f) break;
+                           }
+                       }
+                       if(i == 0 && best_score > 0.8f * 2.0f) break;
+                   }
+                   
+                   agent->faceTo(agent->getPosition() + chosen_direction);
+                   agent->setLinearVelocity(chosen_direction * desired_speed);
+               }
+               
                agent->opt_ints[3]++;
-               
-               if(!path.empty()) {
-               // Get next waypoint
-               vec3 waypoint = grid->indexToLoc(path[0]);
-               float waypoint_dist = agent->getPosition().distance(waypoint);
-               
-               // Reached waypoint, advance to next
-               if(waypoint_dist < grid->cellSize) {
-                    path.removeAt(0);
-                    if(!path.empty()) {
-                         waypoint = grid->indexToLoc(path[0]);
-                    }
-               }
-               
-               // Move toward current waypoint
-               vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
-               agent->faceTo(agent->getPosition() + direction);
-               agent->setLinearVelocity(direction * desired_speed);
-               
-               // Debug: show waypoint
-               debug[id][0]->setPosition(waypoint.addY(2.0f));
-               }
-               
                return true;
-          };
+           };
+
+          // agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
+          //      int id = agent->opt_ints[1];
+          //      g_ptr<Single> goal_crumb = crumbs[id][0];
+          //      vec3 goal = goal_crumb->getPosition();
+          //      float goal_dist = agent->distance(goal_crumb);
+               
+          //      // Goal reached behavior
+          //      if(goal_dist <= 1.0f) {
+          //      if(agent->opt_ints[2] < 650) {
+          //           if(goal_crumb->isActive()) {
+          //                scene->deactivate(goal_crumb);
+          //                agent->setLinearVelocity(vec3(0,0,0));
+          //           }
+          //           if(agent->opt_ints[2] % 100 == 0)
+          //                agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
+          //           agent->opt_ints[2]++;
+          //           return true;
+          //      } else {
+          //           vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
+          //           scene->reactivate(goal_crumb);
+          //           crumbs[id][0]->setPosition(new_goal);
+          //           agent->opt_ints[2] = 0;
+          //      }
+          //      }
+          
+          //      float desired_speed = agent->opt_floats[1];
+               
+          //      // A* pathfinding
+          //      auto isWalkable = [agent](int idx) {
+          //           if(grid->cells[idx].empty()) return true;
+          //           if(grid->cells[idx].length() == 1 && grid->cells[idx].has(agent->ID)) return true;
+          //           return false; // Occupied by walls or other agents
+          //       };
+               
+          //      list<int>& path = agent->opt_idx_cache_2;
+          //      if(agent->opt_ints[3] % 300 == id % 300  || path.empty()) {
+          //           path = grid->findPath(
+          //                grid->toIndex(agent->getPosition()),
+          //                grid->toIndex(goal),
+          //                isWalkable
+          //           );
+          //           if(path.empty()) {
+          //                vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
+          //                scene->reactivate(goal_crumb);
+          //                crumbs[id][0]->setPosition(new_goal);
+          //                return true;
+          //           }
+          //      }
+          //     // debug[id][1]->setPosition(goal.addY(2.0f));
+          //      agent->opt_ints[3]++;
+               
+          //      if(!path.empty()) {
+          //           // Get next waypoint
+          //           vec3 waypoint = grid->indexToLoc(path[0]);
+          //           float waypoint_dist = agent->getPosition().distance(waypoint);
+                    
+          //           // Reached waypoint, advance to next
+          //           if(waypoint_dist < grid->cellSize) {
+          //                path.removeAt(0);
+          //                if(!path.empty()) {
+          //                     waypoint = grid->indexToLoc(path[0]);
+          //                }
+          //           }
+                    
+          //           // Move toward current waypoint
+          //           vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
+          //           agent->faceTo(agent->getPosition() + direction);
+          //           agent->setLinearVelocity(direction * desired_speed);
+                    
+          //           // Debug: show waypoint
+          //          //debug[id][0]->setPosition(waypoint.addY(2.0f));
+          //      }
+               
+          //      return true;
+          // };
 
           // agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
           //      int& frame = agent->opt_ints[3];
@@ -648,15 +761,15 @@ int main() {
      // test_origin->setPhysicsState(P_State::NONE);
      // test_origin->setColor({1, 0, 0, 1}); // Red marker
 
-     list<g_ptr<Single>> ray_markers;
-     for(int i = 0; i < 1000; i++) {
-          g_ptr<Single> marker = make<Single>(c_model);
-          scene->add(marker);
-          marker->setPhysicsState(P_State::NONE);
-          marker->scale({0.5f,12,0.5f});
-          ray_markers << marker;
-          scene->deactivate(marker);
-     }
+     // list<g_ptr<Single>> ray_markers;
+     // for(int i = 0; i < 10000; i++) {
+     //      g_ptr<Single> marker = make<Single>(c_model);
+     //      scene->add(marker);
+     //      marker->setPhysicsState(P_State::NONE);
+     //      marker->scale({0.5f,12,0.5f});
+     //      ray_markers << marker;
+     //      scene->deactivate(marker);
+     // }
 
      g_ptr<Thread> run_thread = make<Thread>();
      run_thread->run([&](ScriptContext& ctx){
@@ -669,22 +782,24 @@ int main() {
      start::run(window,d,[&]{
           s_tool.tick();
           goal = scene->getMousePos();
-
-          int used_markers = 0;
-          for(int i=0;i<grid->cells.length();i++) {
-               if(!grid->cells[i].empty()) {
-                    for(auto idx : grid->cells[i]) {
-                         ray_markers[used_markers++]->setPosition(grid->indexToLoc(i));
-                    }
-               }
+          if(pressed(Q)) {
+               scene->camera.setTarget(agents[0]->getPosition()+vec3(0,20,20));
           }
-          for(int i=0;i<ray_markers.length();i++) {
-               if(i<=used_markers) {
-                    scene->reactivate(ray_markers[i]);
-               } else if(ray_markers[i]->isActive()) {
-                    scene->deactivate(ray_markers[i]);
-               }
-          }
+          // int used_markers = 0;
+          // for(int i=0;i<grid->cells.length();i++) {
+          //      if(!grid->cells[i].empty()) {
+          //           for(auto idx : grid->cells[i]) {
+          //                ray_markers[used_markers++]->setPosition(grid->indexToLoc(i));
+          //           }
+          //      }
+          // }
+          // for(int i=0;i<ray_markers.length();i++) {
+          //      if(i<=used_markers) {
+          //           scene->reactivate(ray_markers[i]);
+          //      } else if(ray_markers[i]->isActive()) {
+          //           scene->deactivate(ray_markers[i]);
+          //      }
+          // }
 
           // list<vec3> test_dirs = {
           //      vec3(1,0,0), vec3(1,0,1).normalized(), vec3(0,0,1), 

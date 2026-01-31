@@ -148,7 +148,11 @@ namespace Golden
             fScore[startIdx] = (float)cellDistance(startIdx, goalIdx);
             openSet.push(startIdx);
             
-            while(!openSet.empty()) {
+            int iterations = 0;
+            int max_iterations = 100000; // Safety limit
+            
+            while(!openSet.empty() && iterations < max_iterations) {
+                iterations++;
                 // Find node with lowest fScore
                 int current = openSet[0];
                 float lowestF = fScore.getOrDefault(current, std::numeric_limits<float>::max());
@@ -194,6 +198,11 @@ namespace Golden
                     gScore[neighbor] = tentativeG;
                     fScore[neighbor] = tentativeG + (float)cellDistance(neighbor, goalIdx);
                 }
+            }
+
+            if(iterations >= max_iterations) {
+                //print("A* exceeded iteration limit!");
+                return list<int>{}; // Failed to find path
             }
             
             return list<int>{};
