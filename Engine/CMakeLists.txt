@@ -35,6 +35,21 @@ target_include_directories(eigen INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen-5.0.0
 )
 
+if(APPLE)
+    target_compile_definitions(GoldenEngine PUBLIC 
+        ACCELERATE_NEW_LAPACK
+        ACCELERATE_LAPACK_ILP64
+    )
+    target_link_libraries(GoldenEngine PUBLIC "-framework Accelerate")
+    
+    # Enable Objective-C++ for any .mm files
+    set_source_files_properties(
+        ${ENGINE_SOURCES}
+        PROPERTIES
+        COMPILE_FLAGS "-x objective-c++ -fobjc-arc"
+    )
+endif()
+
 add_library(tinygltf INTERFACE)
 target_include_directories(tinygltf INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/tinygltf

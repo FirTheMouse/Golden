@@ -359,7 +359,7 @@ void Single::updateEndTransform() {
 
 
 Single& Single::faceTo(const vec3& targetPos) {
-    vec3 currentPos = getPosition();
+    vec3 currentPos = position; // Use stored position directly
     vec3 toTarget = targetPos - currentPos;
 
     toTarget.addY(-toTarget.y()); // flatten to XZ plane
@@ -367,49 +367,33 @@ Single& Single::faceTo(const vec3& targetPos) {
 
     float angle = atan2(toTarget.x(), toTarget.z());
 
-    glm::mat4& mat = getTransform();
-
-    // Decompose current matrix into position, rotation, and scale
-    glm::vec3 position = glm::vec3(mat[3]);
-    glm::vec3 scale{
-        glm::length(glm::vec3(mat[0])),
-        glm::length(glm::vec3(mat[1])),
-        glm::length(glm::vec3(mat[2]))
-    };
-
-    // Create rotation matrix around Y
-    glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0, 1, 0));
-
-    // Apply scale after rotation
-    rotation[0] *= scale.x;
-    rotation[1] *= scale.y;
-    rotation[2] *= scale.z;
-
-    // Final transform: scaled & rotated, with position
-    mat = rotation;
-    mat[3] = glm::vec4(position, 1.0f);
+    // Update the rotation quaternion directly
+    rotation = glm::quat(glm::vec3(0, angle, 0)); // Y-axis rotation
+    
+    // Let updateTransform rebuild the matrix
+    updateTransform();
 
     return *this;
 }
 
 Single& Single::faceTowards(const vec3& direction, const vec3& up) {
     glm::vec3 dir = glm::normalize(direction.toGlm());
-    glm::vec3 right = glm::normalize(glm::cross(up.toGlm(), dir));
+    glm::vec3 upVec = up.toGlm();
+    
+    // Build rotation quaternion from look direction
+    glm::vec3 right = glm::normalize(glm::cross(upVec, dir));
     glm::vec3 newUp = glm::cross(dir, right);
-
-    glm::mat4& mat = getTransform();
-    glm::vec3 position = glm::vec3(mat[3]);
-    glm::vec3 scale{
-        glm::length(glm::vec3(mat[0])),
-        glm::length(glm::vec3(mat[1])),
-        glm::length(glm::vec3(mat[2]))
-    };
-
-    mat = glm::mat4(1.0f);
-    mat[0] = glm::vec4(right * scale.x, 0.0f);
-    mat[1] = glm::vec4(newUp * scale.y, 0.0f);
-    mat[2] = glm::vec4(dir * scale.z, 0.0f); // Z is forward
-    mat[3] = glm::vec4(position, 1.0f);
+    
+    glm::mat3 rotMatrix;
+    rotMatrix[0] = right;
+    rotMatrix[1] = newUp;
+    rotMatrix[2] = dir;
+    
+    // Convert rotation matrix to quaternion
+    rotation = glm::quat_cast(rotMatrix);
+    
+    // Let updateTransform rebuild the matrix
+    updateTransform();
 
     return *this;
 }

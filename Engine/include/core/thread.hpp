@@ -68,7 +68,7 @@ auto SPSOutput = std::chrono::steady_clock::now();
         {
             if(logSPS)
             {
-            print("SPS ",sliceCounter);
+            print(name," SPS ",sliceCounter);
             }
             sliceCounter=0;
             SPSOutput = currentTime;

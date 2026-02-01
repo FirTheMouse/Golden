@@ -162,7 +162,7 @@ int main()
 
     //Launch projects here, set to the name of the project
     std::string p1 = "TheGolden";
-    std::string p2 = "GDSL";
+    std::string p2 = "FirML";
     std::string p3 = "Fshgame";
     std::string p4 = "FirChess";
     

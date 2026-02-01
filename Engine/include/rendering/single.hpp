@@ -49,6 +49,7 @@ public:
     list<g_ptr<Single>> parents;
     std::function<bool()> joint = nullptr;
     std::function<bool()> physicsJoint = nullptr;
+    std::function<void()> threadUpdate = nullptr;
     bool unlockJoint = false;
     //This is meant to be used for Snap to add break-points in parent chains, but it doesn't have to be
     bool isAnchor = false;
@@ -60,10 +61,14 @@ public:
     vec3 opt_vec_3;
     vec3 opt_vec3_2;
     vec3 opt_vec_3_3;
+    vec3 opt_vec_3_4;
 
     //This is mainly intended for debug
     list<double> timers;
     list<std::string> timer_labels;
+
+    list<double> timers2;
+    list<std::string> timer_labels2;
 
 
     virtual glm::mat4& getTransform();

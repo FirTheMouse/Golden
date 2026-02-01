@@ -1,7 +1,7 @@
 #include<core/helper.hpp>
 #include<core/physics.hpp>
 #include<util/meshBuilder.hpp>
-#include <set>
+#include<util/ml_util.hpp>
 using namespace Golden;
 using namespace helper;
 
@@ -108,7 +108,7 @@ list<int> removeFromGrid(g_ptr<Single> q) {
 void make_maze(g_ptr<Model> wall_model) {
      float maze_size = 50.0f;
      float wall_thickness = 1.0f;
-     float wall_height = 3.0f;
+     float wall_height = 1.0f;
      int grid_rows = 10;
      int grid_cols = 10;
      float cell_size = maze_size / grid_rows;
@@ -167,10 +167,10 @@ void make_maze(g_ptr<Model> wall_model) {
      }
 }
 
-#define GTIMERS 0
+#define GTIMERS 1
 
 int main() {
-     Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.5");
+     Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.6");
 
      scene = make<Scene>(window,2);
      Data d = make_config(scene,K);
@@ -179,7 +179,7 @@ int main() {
 
      scene->enableInstancing();
 
-     int amt = 10;
+     int amt = 10000;
      float agents_per_unit = 0.3f;
      float total_area = amt / agents_per_unit;
      float side_length = std::sqrt(total_area);
@@ -258,20 +258,20 @@ int main() {
      //      box->opt_floats << 0.2f;
      // }
      
-     // int grass_count = (int)(side_length * side_length * 0.02f); // 2% grass coverage
-     // for(int i = 0; i < grass_count; i++) {
-     //     g_ptr<Single> box = make<Single>(grass_model);
-     //     scene->add(box);
-     //     box->dtype = "grass";
-     //     float s = randf(3, 8);
-     //     vec3 pos(randf(-side_length/2, side_length/2), 0, randf(-side_length/2, side_length/2));
-     //     box->setPosition(pos);
-     //     box->setScale({1.3, s, 1.3});
-     //     box->setPhysicsState(P_State::FREE);
-     //     box->opt_ints << randi(1, 10);
-     //     box->opt_floats << -1.0f;
-     //     addToGrid(box);
-     // }
+     int grass_count = (int)(side_length * side_length * 0.02f); // 2% grass coverage
+     for(int i = 0; i < grass_count; i++) {
+         g_ptr<Single> box = make<Single>(grass_model);
+         scene->add(box);
+         box->dtype = "grass";
+         float s = randf(3, 8);
+         vec3 pos(randf(-side_length/2, side_length/2), 0, randf(-side_length/2, side_length/2));
+         box->setPosition(pos);
+         box->setScale({1.3, s, 1.3});
+         box->setPhysicsState(P_State::FREE);
+         box->opt_ints << randi(1, 10);
+         box->opt_floats << -1.0f;
+         addToGrid(box);
+     }
      
 
      //make_maze(b_model);
@@ -285,27 +285,19 @@ int main() {
           scene->add(q);
           q->scale(0.5f);
           q->setPhysicsState(P_State::GHOST);
-          q->opt_ints.clear();
-          q->opt_floats.clear();
+          q->opt_ints = list<int>(4,0);
+          q->opt_floats = list<float>(2,0);
           q->opt_vec_3 = vec3(0,0,0);
 
-          phys->treeBuilt3d = false;
+          //If you want to update a crumb each frame
+          // q->physicsJoint = [q](){
 
-          q->opt_ints << randi(1,10); // [0]
-          q->opt_ints << 0; // [1] = ITR id
-          q->opt_ints << 0; // [2] = Accumulator
-          q->opt_ints << 0; // [3] = Accumulator 2
-          q->opt_floats << 0.0f; // [0] = attraction
-          q->opt_floats << 0.999; // [1] = decay
-          q->physicsJoint = [q](){
-               q->opt_floats[0] *= q->opt_floats[1]; // Decay per frame
-               float attraction = q->opt_floats[0];
-               //q->setScale({(float)(1*attraction>0?attraction:1),(float)(1*attraction>0?1:-attraction),(float)(1*attraction>0?attraction:1)});
-               if(q->opt_floats[0] < 0.01f && q->opt_floats[0] > -0.01f) scene->recycle(q);
-               return true;
-          };
+          //      return true;
+          // };
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
+
+
 
      int width = (int)std::sqrt(amt);
      float spacing = side_length / width;
@@ -327,6 +319,8 @@ int main() {
           agent->opt_ints << i; // [1] = ITR id
           agent->opt_ints << 0; // [2] = Accumulator
           agent->opt_ints << 0; // [3] = Accumulator 2
+          agent->opt_ints << 0; // [4] = Accumulator 3
+          agent->opt_ints << 0; // [5] = Accumulator 4
           agent->opt_floats << -0.4f; // [0] = attraction
           agent->opt_floats << randf(4,6); // [1] = speed
           agent->opt_vec3_2 = vec3(0,0,0); //Progress
@@ -383,15 +377,15 @@ int main() {
 
 
 
-          agent->physicsJoint = [agent, &agents, &crumbs, &debug, phys]() {
-#if GTIMERS
-Log::Line overall;
-Log::Line l;
-list<double>& timers = agent->timers;
-list<std::string>& timer_labels = agent->timer_labels;
-timers.clear(); timer_labels.clear();
-overall.start();
-#endif
+          agent->physicsJoint = [agent, &agents, &crumbs, &debug, phys, side_length]() {
+               #if GTIMERS
+               Log::Line overall;
+               Log::Line l;
+               list<double>& timers = agent->timers;
+               list<std::string>& timer_labels = agent->timer_labels;
+               timers.clear(); timer_labels.clear();
+               overall.start();
+               #endif
                //Always setup getters for sketchpad properties because chances are they'll change later
                //Plus it helps with clarity to name them
                int id = agent->opt_ints[1];
@@ -404,17 +398,22 @@ overall.start();
                //This is just for testing
                vec3 goal = goal_crumb->getPosition();
                if(agent->distance(goal_crumb) <= 1.0f) {
-               if(spin_accum < 650) {
+               if(spin_accum < 5) {
                     if(goal_crumb->isActive()) {
                          scene->deactivate(goal_crumb);
                          agent->setLinearVelocity(vec3(0,0,0));
                     }
-                    if(spin_accum % 100 == 0)
+                    if(spin_accum % 2 == 0)
                          agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
                          spin_accum++;
                     return true;
                } else {
-                    vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
+                    // vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
+                    vec3 new_goal(
+                         randf(-side_length/2, side_length/2), 
+                         0, 
+                         randf(-side_length/2, side_length/2)
+                    );
                     scene->reactivate(goal_crumb);
                     goal_crumb->setPosition(new_goal);
                     spin_accum = 0;
@@ -426,10 +425,9 @@ overall.start();
                //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
                list<int>& path = agent->opt_idx_cache_2;
                bool enable_astar = false;
-               bool use_field = true;
-               int interval = 30; 
+               int pathing_interval = 30; 
                //A* Unit
-                    if(enable_astar && (on_frame % (interval*20) == id % (interval*20)  || path.empty())) {
+                    if(enable_astar && (on_frame % (pathing_interval*20) == id % (pathing_interval*20)  || path.empty())) {
                          path = grid->findPath(
                               grid->toIndex(agent->getPosition()),
                               grid->toIndex(goal),
@@ -440,253 +438,377 @@ overall.start();
                               }
                          );
                          if(path.empty()) {
-                              vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
-                              scene->reactivate(goal_crumb);
-                              crumbs[id][0]->setPosition(new_goal);
+                              print("UNABLE TO FIND A PATH!");
+                              // vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
+                              // scene->reactivate(goal_crumb);
+                              // crumbs[id][0]->setPosition(new_goal);
                               return true;
                          }
                     }
 
-                    if(!path.empty()) {
-                         vec3 waypoint = grid->indexToLoc(path[0]);
-                         float waypoint_dist = agent->getPosition().distance(waypoint);
-                         if(waypoint_dist < grid->cellSize) {
-                              path.removeAt(0);
-                              if(!path.empty()) {
-                                   waypoint = grid->indexToLoc(path[0]);
-                              }
+               vec3 goal_loc = agent->opt_vec_3_4;
+
+               if(!path.empty()) {
+                    #if GTIMERS
+                    l.start();
+                    #endif
+                    vec3 waypoint = grid->indexToLoc(path[0]);
+                    float waypoint_dist = agent->getPosition().distance(waypoint);
+                    if(waypoint_dist < grid->cellSize) {
+                         path.removeAt(0);
+                         if(!path.empty()) {
+                              waypoint = grid->indexToLoc(path[0]);
                          }
-                         vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
-                         agent->faceTo(agent->getPosition() + direction);
-                         agent->setLinearVelocity(direction * desired_speed);
                     }
-                    else if(on_frame % interval == id % interval) {
-                         vec3 net_force(0,0,0);
-                         vec3 current_velocity = agent->getVelocity().position;
-                         float actual_speed = current_velocity.length();
-                         float speed_ratio = actual_speed / std::max(desired_speed, 0.1f);
-                    if(use_field) {
-                         #if GTIMERS
-                         l.start();
-                         #endif
+                    vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
+                    agent->faceTo(agent->getPosition() + direction);
+                    agent->setLinearVelocity(direction * desired_speed);
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "navigate_path";
+                    #endif
+               }
+               else if(on_frame % pathing_interval == id % pathing_interval) {
+                    vec3 net_force(0,0,0);
+                    vec3 current_velocity = agent->getVelocity().position;
+                    float actual_speed = current_velocity.length();
+                    float speed_ratio = actual_speed / std::max(desired_speed, 0.1f);
+                    #if GTIMERS
+                    l.start();
+                    #endif
+                    
+                    // Tunable parameters
+                    int num_rays = 24; // Start conservative, tune up to find budget
+                    float ray_distance = 10.0f;
+                    float cone_width = 180.0f; // Degrees of forward arc to sample
+                    
+                    // Get goal direction for biasing
+                    vec3 to_goal = agent->direction(goal_crumb).nY();
+                    vec3 forward = to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
+                    vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "raycast_setup"; l.start();
+                    #endif
+                    
+                    // Cast rays in a forward-biased cone
+                    float best_openness = 0.0f;
+                    vec3 best_direction = forward;
+                    
+                    float start_angle = -cone_width / 2.0f;
+                    float angle_step = cone_width / (num_rays - 1);
+                    
+                    for(int i = 0; i < num_rays; i++) {
+                    float angle_deg = start_angle + i * angle_step;
+                    float angle_rad = angle_deg * 3.14159f / 180.0f;
+                    
+                    // Direction in the sampling cone
+                    vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                    
+                    // Raycast to find openness in this direction
+                    float hit_dist = grid->raycast(
+                         agent->getPosition(),
+                         ray_dir,
+                         ray_distance,
+                         agent->ID
+                    );
+                    
+                    // Weight by distance + bias toward goal
+                    float goal_alignment = ray_dir.dot(to_goal.normalized());
+                    float score = hit_dist * (1.0f + goal_alignment * 0.5f); // 50% bias toward goal
+                    
+                    if(score > best_openness) {
+                         best_openness = score;
+                         best_direction = ray_dir;
+                    }
+                    }
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "raycast_sampling"; l.start();
+                    #endif
+                    
+                    // If we found decent openness, move that direction
+                    if(best_openness > 1.0f) { // At least 1 unit of clearance
+                    net_force = best_direction * std::min(best_openness / ray_distance, 1.0f);
+                    } else {
+                    // Too enclosed - add random exploration
+                    net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
+                    }
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
+                    #endif
+                         //my_debug[1]->setPosition((agent->getPosition()+net_force).addY(5.0f));
+     
+                         // print(id,": Net force: ",net_force.to_string());
+     
+                         // float exploration_strength = (speed_ratio < 0.5f) ? 1.0f : 0.3f;
+                         // vec3 exploration(randf(-1.0f, 1.0f), 0, randf(-1.0f, 1.0f));
+                         // vec3 environmental_force = (net_force + exploration * exploration_strength);
 
-
-                         //Could use the vector sum tracker instead, expeirment with approaches
-                              vec3 last_pos = agent->opt_vec_3;
-                              float progress = agent->getPosition().distance(last_pos);
-                              agent->opt_vec_3 = agent->getPosition(); 
-                              
-                              float repel_radius = 8.0f;
-                              BoundingBox query_bounds = agent->getWorldBounds();
-                              query_bounds.expand(BoundingBox(
-                                   agent->position - vec3(repel_radius),
-                                   agent->position + vec3(repel_radius)
-                              ));
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "query_setup"; l.start();
-                         #endif
-
-                         list<g_ptr<Single>> nearby;
-                         if(!use_grid) {
-                              list<g_ptr<S_Object>> queryResults;
-                              phys->queryTree(phys->treeRoot3d, query_bounds, queryResults);
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "tree_query"; l.start();
-                              #endif
-                              for(auto q : queryResults) {
-                                   if(g_ptr<Single> obj = g_dynamic_pointer_cast<Single>(q)) 
-                                        nearby << obj;
-                              }
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "query_convert"; l.start();
-                              #endif                         
+                    vec3 environmental_force = net_force; //Just trying no exploration for now
+                    if(environmental_force.length() > 0.01f) {
+                         environmental_force = environmental_force.normalized();
+                         
+                         // Blend with momentum (if we're already moving)
+                         vec3 final_direction;
+                         if(current_velocity.length() > 0.1f) {
+                              final_direction = (current_velocity.normalized() * 0.7f + environmental_force * 0.3f).normalized();
                          } else {
-                              list<int> around = grid->cellsAround(query_bounds);
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "grid_query"; l.start();
-                              #endif
-                              static list<int> seen_flags;
-                              seen_flags = list<int>(scene->singles.length(), -1);
-                              int current_agent_id = agent->ID;
-                              for(auto cell : around) {
-                              for(auto i : grid->cells[cell]) {
-                                   if(seen_flags[i] != current_agent_id) {
-                                        seen_flags[i] = current_agent_id;
-                                        if(i < scene->singles.length() && scene->active[i]) {
-                                             nearby << scene->singles[i];
-                                        }
-                                   }
-                              }
-                              }
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "unpack_cells"; l.start();
-                              #endif
+                              final_direction = environmental_force;
                          }
-
-                              for(auto c : my_crumbs) {
-                                   if(c->opt_floats[0]>=10.0f) { //Only distantly remember attractive crumbs (and possibly repulsive as well)
-                                        nearby << c;
-                                   }
-                              }
-                              // First pass: accumulate desired direction from attractors only
-                              vec3 desired_direction(0, 0, 0);
-                              float attractor_weight = 0.0f;
-                              for(auto obj : nearby) {
-                                   if(obj == agent) continue;
-                                   float score = obj->opt_floats[0];
-                                   if(score <= 0) continue; // Only attractors
-                                   
-                                   vec3 to_obj = agent->direction(obj).nY();
-                                   float dist = agent->distance(obj);
-                                   float influence = score / std::max(dist, 0.1f); // Distance-weighted attraction
-                                   
-                                   desired_direction += to_obj * influence;
-                                   attractor_weight += influence;
-                              }
-                              
-                              if(attractor_weight > 0.01f) {
-                                   desired_direction = desired_direction.normalized() * std::min(attractor_weight, 5.0f); // Keep some magnitude
-                              }
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "attractor_pass"; l.start();
-                         #endif
-          
-                              //my_debug[0]->setPosition((agent->getPosition()+desired_direction).addY(5.0f));
-                              //print(id,": Desired direction: ",desired_direction.to_string());
+                         //print(id,": Final direction: ",net_force.to_string());
                          
-                              // Second pass: let repulsors deflect from desired direction
-                              net_force = desired_direction;
-                              float force_budget = 1.0f;
-                              
-                              for(auto obj : nearby) {
-                                   if(obj == agent) continue;
-                                   float score = obj->opt_floats[0];
-                                   if(score >= 0) continue; // Only repulsors
-                                   
-                                   // Distance to surface, not center!
-                                   BoundingBox objBounds = obj->getWorldBounds();
-                                   float dist = objBounds.distance(agent->getPosition());
-                                   dist = std::max(dist, 0.1f); // Avoid division by zero
-                                   
-                                   // Direction away from closest point on surface
-                                   vec3 closest = objBounds.closestPoint(agent->getPosition());
-                                   vec3 away_from_obj = (agent->getPosition() - closest).normalized().nY();
-                                   
-                                   float repulsion_strength = abs(score) / (dist * dist);
-                                   
-                                   net_force += away_from_obj * repulsion_strength * force_budget;
-                                   force_budget *= 0.8f;
-                              }
-          
-                              if(net_force.length() > 5.0f) {
-                                   net_force = net_force.normalized() * 5.0f;
-                              }
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "repulsor_pass"; l.start();
-                         #endif
+                         vec3 velocity = final_direction * desired_speed;
+                         agent->faceTo(agent->getPosition() + velocity);
+                         agent->setLinearVelocity(velocity);
                     }
-                    else { //If not using force, i.e, brute force raycasts
-                         #if GTIMERS
-                         l.start();
-                         #endif
-                         
-                         // Tunable parameters
-                         int num_rays = 24; // Start conservative, tune up to find budget
-                         float ray_distance = 10.0f;
-                         float cone_width = 180.0f; // Degrees of forward arc to sample
-                         
-                         // Get goal direction for biasing
-                         vec3 to_goal = agent->direction(goal_crumb).nY();
-                         vec3 forward = to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
-                         vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
-                         
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "raycast_setup"; l.start();
-                         #endif
-                         
-                         // Cast rays in a forward-biased cone
-                         float best_openness = 0.0f;
-                         vec3 best_direction = forward;
-                         
-                         float start_angle = -cone_width / 2.0f;
-                         float angle_step = cone_width / (num_rays - 1);
-                         
-                         for(int i = 0; i < num_rays; i++) {
-                             float angle_deg = start_angle + i * angle_step;
-                             float angle_rad = angle_deg * 3.14159f / 180.0f;
-                             
-                             // Direction in the sampling cone
-                             vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-                             
-                             // Raycast to find openness in this direction
-                             float hit_dist = grid->raycast(
-                                 agent->getPosition(),
-                                 ray_dir,
-                                 ray_distance,
-                                 agent->ID
-                             );
-                             
-                             // Weight by distance + bias toward goal
-                             float goal_alignment = ray_dir.dot(to_goal.normalized());
-                             float score = hit_dist * (1.0f + goal_alignment * 0.5f); // 50% bias toward goal
-                             
-                             if(score > best_openness) {
-                                 best_openness = score;
-                                 best_direction = ray_dir;
-                             }
-                         }
-                         
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "raycast_sampling"; l.start();
-                         #endif
-                         
-                         // If we found decent openness, move that direction
-                         if(best_openness > 1.0f) { // At least 1 unit of clearance
-                             net_force = best_direction * std::min(best_openness / ray_distance, 1.0f);
-                         } else {
-                             // Too enclosed - add random exploration
-                             net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
-                         }
-                         
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
-                         #endif
-                    }
-                              //my_debug[1]->setPosition((agent->getPosition()+net_force).addY(5.0f));
-          
-                              // print(id,": Net force: ",net_force.to_string());
-          
-                              // float exploration_strength = (speed_ratio < 0.5f) ? 1.0f : 0.3f;
-                              // vec3 exploration(randf(-1.0f, 1.0f), 0, randf(-1.0f, 1.0f));
-                              // vec3 environmental_force = (net_force + exploration * exploration_strength);
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "velocity_application";
+                    #endif
+               }
 
-                         vec3 environmental_force = net_force; //Just trying no exploration for now
-                         if(environmental_force.length() > 0.01f) {
-                              environmental_force = environmental_force.normalized();
-                              
-                              // Blend with momentum (if we're already moving)
-                              vec3 final_direction;
-                              if(current_velocity.length() > 0.1f) {
-                                   final_direction = (current_velocity.normalized() * 0.7f + environmental_force * 0.3f).normalized();
-                              } else {
-                                   final_direction = environmental_force;
-                              }
-                              //print(id,": Final direction: ",net_force.to_string());
-                              
-                              vec3 velocity = final_direction * desired_speed;
-                              agent->faceTo(agent->getPosition() + velocity);
-                              agent->setLinearVelocity(velocity);
-                         }
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "velocity_application";
-                         timers << overall.end(); timer_labels << "overall";
-                         #endif
-                    }
+               #if GTIMERS
+               timers << overall.end(); timer_labels << "overall";
+               #endif
                
                return true;
+          };
+
+          agent->threadUpdate = [agent, &agents, &crumbs, &debug, phys, side_length](){
+               #if GTIMERS
+               Log::Line overall;
+               Log::Line l;
+               list<double>& timers = agent->timers2;
+               list<std::string>& timer_labels = agent->timer_labels2;
+               timers.clear(); timer_labels.clear();
+               overall.start();
+               #endif
+               //Always setup getters for sketchpad properties because chances are they'll change later
+               //Plus it helps with clarity to name them
+               int id = agent->opt_ints[1];
+               list<g_ptr<Single>>& my_crumbs = crumbs[id];
+               list<g_ptr<Single>>& my_debug = debug[id];
+               g_ptr<Single> goal_crumb = my_crumbs[0];
+               int& spin_accum = agent->opt_ints[2];
+               int& on_frame = agent->opt_ints[3];
+
+               // int eval_interval = 600; 
+               // if(on_frame % eval_interval == id % eval_interval) {
+               //     #if GTIMERS
+               //     l.start();
+               //     #endif
+                   
+               //     // ===== CONFIGURABLE CRUMB CATEGORIES =====
+               //     struct CrumbCategory {
+               //         int count;
+               //         int num_rows;
+               //         std::string name;
+               //     };
+                   
+               //     static CrumbCategory categories[] = {
+               //         {100, 4,   "circles"}, 
+               //         {200, 8,   "buildings"}, 
+               //         {600, 8,  "items"}, 
+               //         {50,  60, "agents"} 
+               //     };
+               //     static const int num_categories = 4;
+               //     static const int num_cols = 10;
+                   
+               //     // Calculate total crumbs
+               //     static int total_crumbs = 0;
+               //     for(int cat = 0; cat < num_categories; cat++) {
+               //         total_crumbs += categories[cat].count;
+               //     }
+                   
+               //     // Pre-allocate all crumb data (one-time initialization)
+               //     static list<list<float>> category_matrices;
+               //     static bool initialized = false;
+               //     if(!initialized) {
+               //         category_matrices.resize(num_categories);
+                       
+               //         for(int cat = 0; cat < num_categories; cat++) {
+               //             int matrix_size = categories[cat].num_rows * num_cols;
+               //             category_matrices[cat].resize(categories[cat].count * matrix_size);
+                           
+               //             // Fill with random data
+               //             for(int i = 0; i < category_matrices[cat].length(); i++) {
+               //                 category_matrices[cat][i] = randf(-1, 1);
+               //             }
+                           
+               //             // Embed positions in column 1, rows 0-2 for all crumbs
+               //             for(int c = 0; c < categories[cat].count; c++) {
+               //                 int offset = c * matrix_size;
+               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 0] = randf(-100, 100); // pos.x
+               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 1] = 0.0f;             // pos.y  
+               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 2] = randf(-100, 100); // pos.z
+               //             }
+               //         }
+               //         initialized = true;
+               //     }
+                   
+               //     #if GTIMERS
+               //     timers << l.end(); timer_labels << "init_check"; l.start();
+               //     #endif
+                   
+               //     // Agent's own state - needs to be tall enough for biggest category
+               //     static int max_rows = 0;
+               //     if(max_rows == 0) {
+               //         for(int cat = 0; cat < num_categories; cat++) {
+               //             if(categories[cat].num_rows > max_rows) {
+               //                 max_rows = categories[cat].num_rows;
+               //             }
+               //         }
+               //     }
+                   
+               //     int agent_matrix_size = max_rows * num_cols;
+               //     float agent_matrix[agent_matrix_size];
+               //     for(int i = 0; i < agent_matrix_size; i++) {
+               //         agent_matrix[i] = randf(-1, 1);
+               //     }
+                   
+               //     #if GTIMERS
+               //     timers << l.end(); timer_labels << "agent_matrix_init"; l.start();
+               //     #endif
+                   
+               //     // Evaluate each category separately (batched)
+               //     list<float> all_scores;
+               //     all_scores.resize(total_crumbs);
+               //     int score_offset = 0;
+                   
+               //     for(int cat = 0; cat < num_categories; cat++) {
+               //         int cat_rows = categories[cat].num_rows;
+               //         int cat_matrix_size = cat_rows * num_cols;
+               //         int cat_count = categories[cat].count;
+                       
+               //         float result_matrix[cat_matrix_size];
+                       
+               //         #if GTIMERS
+               //         std::string timer_name = categories[cat].name + "_eval";
+               //         l.start();
+               //         #endif
+                       
+               //         for(int c = 0; c < cat_count; c++) {
+               //             // Matrix multiply: agent[cat_rows × num_cols] × crumb[cat_rows × num_cols]
+               //             cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+               //                        cat_rows, num_cols, num_cols,
+               //                        1.0f,
+               //                        agent_matrix, num_cols,
+               //                        &category_matrices[cat][c * cat_matrix_size], num_cols,
+               //                        0.0f,
+               //                        result_matrix, num_cols);
+                           
+               //             // Compute trace for attraction
+               //             float trace = 0.0f;
+               //             for(int i = 0; i < cat_rows; i++) {
+               //                 trace += result_matrix[i * num_cols + i];
+               //             }
+                           
+               //             // Extract position from crumb column 1, rows 0-2
+               //             vec3 crumb_pos(
+               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 0],
+               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 1],
+               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 2]
+               //             );
+                           
+               //             // Distance modulation
+               //             vec3 delta = crumb_pos - agent->getPosition();
+               //             float dist_sq = delta.dot(delta);
+               //             if(dist_sq < 0.01f) dist_sq = 0.01f;
+                           
+               //             all_scores[score_offset + c] = trace / dist_sq;
+               //         }
+                       
+               //         #if GTIMERS
+               //         timers << l.end(); timer_labels << timer_name;
+               //         #endif
+                       
+               //         score_offset += cat_count;
+               //     }
+                   
+               //     #if GTIMERS
+               //     l.start();
+               //     #endif
+                   
+               //     // Optional: Find best crumb across all categories
+               //     float best_score = all_scores[0];
+               //     int best_idx = 0;
+               //     for(int i = 1; i < all_scores.length(); i++) {
+               //         if(all_scores[i] > best_score) {
+               //             best_score = all_scores[i];
+               //             best_idx = i;
+               //         }
+               //     }
+                   
+               //     #if GTIMERS
+               //     timers << l.end(); timer_labels << "best_crumb_search";
+               //     #endif
+               // }
+
+               int eval_interval = 600; 
+               if(on_frame % eval_interval == id % eval_interval) {
+                    #if GTIMERS
+                    l.start();
+                    #endif
+                    
+                    // ===== CONFIGURABLE CRUMB CATEGORIES =====
+                    struct CrumbCategory {
+                         int count;
+                         int num_rows;
+                         std::string name;
+                    };
+                    
+                    static CrumbCategory categories[] = {
+                         {100, 4,   "circles"},
+                         {200, 8,   "buildings"},
+                         {600, 8,   "items"},
+                         {50,  32,  "agents"}
+                    };
+                    static const int num_categories = 4;
+                    static const int num_cols = 10;
+                    
+                    // Calculate total crumbs
+                    static int total_crumbs = 0;
+                    for(int cat = 0; cat < num_categories; cat++) {
+                         total_crumbs += categories[cat].count;
+                    }
+                    
+                    // Pre-allocate all crumb data (one-time initialization)
+                    static list<list<float>> category_matrices;
+                    static bool initialized = false;
+                    if(!initialized) {
+                         category_matrices.resize(num_categories);
+                         
+                         for(int cat = 0; cat < num_categories; cat++) {
+                              int matrix_size = categories[cat].num_rows * num_cols;
+                              category_matrices[cat].resize(categories[cat].count * matrix_size);
+                              
+                              // Fill with random data
+                              for(int i = 0; i < category_matrices[cat].length(); i++) {
+                                   category_matrices[cat][i] = randf(-1, 1);
+                              }
+                              
+                              // Embed positions in column 1, rows 0-2 for all crumbs
+                              for(int c = 0; c < categories[cat].count; c++) {
+                                   int offset = c * matrix_size;
+                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 0] = randf(-100, 100);
+                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 1] = 0.0f;
+                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 2] = randf(-100, 100);
+                              }
+                         }
+                         initialized = true;
+                    }
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "init_check"; l.start();
+                    #endif
+               
+           
+               }
+               agent->opt_vec_3_4 = vec3(randf(-10,10),0,randf(-10,10));
+
+               #if GTIMERS
+               timers << overall.end(); timer_labels << "overall";
+               #endif
           };
      }
      vec3 cam_pos(0, side_length * 0.8f, side_length * 0.8f);
@@ -699,15 +821,30 @@ overall.start();
      // test_origin->setPhysicsState(P_State::NONE);
      // test_origin->setColor({1, 0, 0, 1}); // Red marker
 
-     list<g_ptr<Single>> ray_markers;
-     for(int i = 0; i < 10000; i++) {
-          g_ptr<Single> marker = make<Single>(c_model);
-          scene->add(marker);
-          marker->setPhysicsState(P_State::NONE);
-          marker->scale({0.5f,12,0.5f});
-          ray_markers << marker;
-          scene->deactivate(marker);
-     }
+     // list<g_ptr<Single>> ray_markers;
+     // for(int i = 0; i < 10000; i++) {
+     //      g_ptr<Single> marker = make<Single>(c_model);
+     //      scene->add(marker);
+     //      marker->setPhysicsState(P_State::NONE);
+     //      marker->scale({0.5f,12,0.5f});
+     //      ray_markers << marker;
+     //      scene->deactivate(marker);
+     // }
+
+     // list<g_ptr<Single>> walls;
+     // int on_wall = 0;
+     // for(int i=0;i<3;i++) {
+     //      auto w = make<Single>(b_model);
+     //      scene->add(w);
+     //      w->setPhysicsState(P_State::PASSIVE);
+     //      walls << w;   w->opt_idx_cache = addToGrid(w);
+     //      w->joint = [w](){
+     //           for(auto i : w->opt_idx_cache) {grid->cells[i].erase(w->ID);}
+     //           w->updateTransform(false);
+     //           w->opt_idx_cache = addToGrid(w);
+     //           return false;
+     //      };
+     // }
 
      S_Tool phys_logger;
      #if GTIMERS
@@ -725,6 +862,7 @@ overall.start();
      };
      #endif
      g_ptr<Thread> run_thread = make<Thread>();
+     run_thread->name = "Physics";
      run_thread->run([phys,&phys_logger,&agents](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
@@ -738,6 +876,32 @@ overall.start();
      },0.008f);
      run_thread->logSPS = true;
 
+     S_Tool update_logger;
+     #if GTIMERS
+     update_logger.log = [agents](){
+          map<std::string,double> times;
+          for(auto a : agents) {
+               for(int i=0;i<a->timers2.length();i++) {
+                    times.getOrPut(a->timer_labels2[i],0) += a->timers2[i];
+               }
+          }
+          print("------------\n AGENT UPDATE TIMES");
+          for(auto e : times.entrySet()) {
+               print(e.key,": ",ftime(e.value));
+          }
+     };
+     #endif
+     g_ptr<Thread> update_thread = make<Thread>();
+     update_thread->name = "Update";
+     update_thread->run([&update_logger,&agents](ScriptContext& ctx){
+          update_logger.tick();
+          for(auto a : agents) {
+               if(a->threadUpdate&&a->isActive())
+                    a->threadUpdate();
+          }
+     },0.008f);
+     update_thread->logSPS = true;
+
      S_Tool s_tool;
      s_tool.log_fps = true;
      start::run(window,d,[&]{
@@ -745,20 +909,52 @@ overall.start();
           if(pressed(Q)) {
                scene->camera.setTarget(agents[0]->getPosition()+vec3(0,20,20));
           }
-          int used_markers = 0;
-          for(int i=0;i<grid->cells.length();i++) {
-               if(!grid->cells[i].empty()) {
-                    ray_markers[used_markers++]->setPosition(grid->indexToLoc(i));
-               }
-          }
-          print("USED: ",used_markers);
-          for(int i=0;i<ray_markers.length();i++) {
-               if(i<=used_markers) {
-                    scene->reactivate(ray_markers[i]);
-               } else if(ray_markers[i]->isActive()) {
-                    scene->deactivate(ray_markers[i]);
-               }
-          }
+          vec3 mousepos = scene->getMousePos();
+
+          // if(pressed(E)) {
+          //      if(on_wall++>=walls.length()-1) {
+          //           on_wall = 0;
+          //      }
+          // }
+
+          // static vec3 drag_start_pos;
+          // static bool dragging = false;
+          // if(held(MOUSE_LEFT)) {
+          //     if(!walls.empty()) {
+          //         g_ptr<Single> wall = walls[on_wall];
+          //         if(held(LSHIFT)) {
+          //             wall->setPosition(mousepos);
+          //         } else {
+          //             if(!dragging) {
+          //                 drag_start_pos = wall->getPosition();
+          //                 dragging = true;
+          //             }
+                      
+          //             float dist = drag_start_pos.distance(mousepos);
+          //             wall->faceTo(mousepos);
+          //             wall->setScale({1, 1, dist});
+                      
+          //             // Position at start, then offset by half the distance
+          //             vec3 offset = wall->facing() * (dist / 2.0f);
+          //             wall->setPosition(drag_start_pos + offset);
+          //         }
+          //     }
+          // } else {
+          //     dragging = false;
+          // }
+          // int used_markers = 0;
+          // for(int i=0;i<grid->cells.length();i++) {
+          //      if(!grid->cells[i].empty()) {
+          //           ray_markers[used_markers++]->setPosition(grid->indexToLoc(i));
+          //      }
+          // }
+          // for(int i=0;i<ray_markers.length();i++) {
+          //      if(i<=used_markers) {
+          //           scene->reactivate(ray_markers[i]);
+          //      } else if(ray_markers[i]->isActive()) {
+          //           scene->deactivate(ray_markers[i]);
+          //      }
+          // }
 
           // list<vec3> test_dirs = {
           //      vec3(1,0,0), vec3(1,0,1).normalized(), vec3(0,0,1), 
@@ -776,6 +972,131 @@ overall.start();
      });
      return 0;
 }
+
+
+//Field based pathfinding unit:
+     // #if GTIMERS
+     // l.start();
+     // #endif
+
+
+     // //Could use the vector sum tracker instead, expeirment with approaches
+     //      vec3 last_pos = agent->opt_vec_3;
+     //      float progress = agent->getPosition().distance(last_pos);
+     //      agent->opt_vec_3 = agent->getPosition(); 
+          
+     //      float repel_radius = 8.0f;
+     //      BoundingBox query_bounds = agent->getWorldBounds();
+     //      query_bounds.expand(BoundingBox(
+     //           agent->position - vec3(repel_radius),
+     //           agent->position + vec3(repel_radius)
+     //      ));
+
+     // #if GTIMERS
+     // timers << l.end(); timer_labels << "query_setup"; l.start();
+     // #endif
+
+     // list<g_ptr<Single>> nearby;
+     // if(!use_grid) {
+     // list<g_ptr<S_Object>> queryResults;
+     //                     phys->queryTree(phys->treeRoot3d, query_bounds, queryResults);
+     //                     #if GTIMERS
+     //                     timers << l.end(); timer_labels << "tree_query"; l.start();
+     //                     #endif
+     //                     for(auto q : queryResults) {
+     //                          if(g_ptr<Single> obj = g_dynamic_pointer_cast<Single>(q)) 
+     //                               nearby << obj;
+     //                     }
+     //                     #if GTIMERS
+     //                     timers << l.end(); timer_labels << "query_convert"; l.start();
+     //                     #endif                         
+     //                } else {
+     //                     list<int> around = grid->cellsAround(query_bounds);
+     //                     #if GTIMERS
+     //                     timers << l.end(); timer_labels << "grid_query"; l.start();
+     //                     #endif
+     //                     static list<int> seen_flags;
+     //                     seen_flags = list<int>(scene->singles.length(), -1);
+     //                     int current_agent_id = agent->ID;
+     //                     for(auto cell : around) {
+     //                     for(auto i : grid->cells[cell]) {
+     //                          if(seen_flags[i] != current_agent_id) {
+     //                               seen_flags[i] = current_agent_id;
+     //                               if(i < scene->singles.length() && scene->active[i]) {
+     //                                    nearby << scene->singles[i];
+     //                               }
+     //                          }
+     //                     }
+     //                     }
+     //                     #if GTIMERS
+     //                     timers << l.end(); timer_labels << "unpack_cells"; l.start();
+     //                     #endif
+     //                }
+
+     //                     for(auto c : my_crumbs) {
+     //                          if(c->opt_floats[0]>=10.0f) { //Only distantly remember attractive crumbs (and possibly repulsive as well)
+     //                               nearby << c;
+     //                          }
+     //                     }
+     //                     // First pass: accumulate desired direction from attractors only
+     //                     vec3 desired_direction(0, 0, 0);
+     //                     float attractor_weight = 0.0f;
+     //                     for(auto obj : nearby) {
+     //                          if(obj == agent) continue;
+     //                          float score = obj->opt_floats[0];
+     //                          if(score <= 0) continue; // Only attractors
+                              
+     //                          vec3 to_obj = agent->direction(obj).nY();
+     //                          float dist = agent->distance(obj);
+     //                          float influence = score / std::max(dist, 0.1f); // Distance-weighted attraction
+                              
+     //                          desired_direction += to_obj * influence;
+     //                          attractor_weight += influence;
+     //                     }
+                         
+     //                     if(attractor_weight > 0.01f) {
+     //                          desired_direction = desired_direction.normalized() * std::min(attractor_weight, 5.0f); // Keep some magnitude
+     //                     }
+
+     //                #if GTIMERS
+     //                timers << l.end(); timer_labels << "attractor_pass"; l.start();
+     //                #endif
+     
+     //                     //my_debug[0]->setPosition((agent->getPosition()+desired_direction).addY(5.0f));
+     //                     //print(id,": Desired direction: ",desired_direction.to_string());
+                    
+     //                     // Second pass: let repulsors deflect from desired direction
+     //                     net_force = desired_direction;
+     //                     float force_budget = 1.0f;
+                         
+     //                     for(auto obj : nearby) {
+     //                          if(obj == agent) continue;
+     //                          float score = obj->opt_floats[0];
+     //                          if(score >= 0) continue; // Only repulsors
+                              
+     //                          // Distance to surface, not center!
+     //                          BoundingBox objBounds = obj->getWorldBounds();
+     //                          float dist = objBounds.distance(agent->getPosition());
+     //                          dist = std::max(dist, 0.1f); // Avoid division by zero
+                              
+     //                          // Direction away from closest point on surface
+     //                          vec3 closest = objBounds.closestPoint(agent->getPosition());
+     //                          vec3 away_from_obj = (agent->getPosition() - closest).normalized().nY();
+                              
+     //                          float repulsion_strength = abs(score) / (dist * dist);
+                              
+     //                          net_force += away_from_obj * repulsion_strength * force_budget;
+     //                          force_budget *= 0.8f;
+     //                     }
+     
+     //                     if(net_force.length() > 5.0f) {
+     //                          net_force = net_force.normalized() * 5.0f;
+     //                     }
+
+     //                #if GTIMERS
+     //                timers << l.end(); timer_labels << "repulsor_pass"; l.start();
+     //                #endif
+
 
 //Multi-modal pathfinding joint
         // agent->physicsJoint = [agent, scene, &goals, &crumbs, &debug, phys]() {

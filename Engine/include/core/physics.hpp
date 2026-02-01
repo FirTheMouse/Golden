@@ -807,7 +807,7 @@ public:
         enableQuadCollisons = false;
     }
 
-#define TIMERS 1
+#define TIMERS 0
 
     void updatePhysics()
     {  
