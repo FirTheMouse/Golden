@@ -145,8 +145,8 @@ std::deque<std::function<void()>> localQueue;
 }
 
 auto startTime = std::chrono::steady_clock::now();
-while (!localQueue.empty() &&
-    std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count() < sliceSpeed)
+while (!localQueue.empty())
+    // std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime).count() < sliceSpeed)
 {
     auto task = localQueue.front();
     localQueue.pop_front(); 

@@ -132,9 +132,9 @@ namespace Golden
             return around;
         }
 
-    // Returns distance to first hit, or max_dist if no hit
+    // Returns a pair of distance to first hit, or max_dist if no hit, as well as the index of the cell hit
     // exclude_ids: list of object IDs to ignore (e.g., the caster itself)
-    float raycast(const vec3& origin, const vec3& direction, float max_dist, 
+    std::pair<float,int> raycast(const vec3& origin, const vec3& direction, float max_dist, 
                 const list<int>& exclude_ids = list<int>{}) {
         
         vec3 dir = direction.normalized();
@@ -162,7 +162,7 @@ namespace Golden
             
             int cell_idx = toIndex(sample_point);
             if(cell_idx < 0 || cell_idx >= cells.length()) {
-                return max_dist; // Out of bounds
+                return {max_dist,-1}; // Out of bounds
             }
             
             // Check if cell has any objects
@@ -176,16 +176,16 @@ namespace Golden
                     }
                     
                     // Found a hit!
-                    return dist;
+                    return {dist,cell_idx};
                 }
             }
         }
         
-        return max_dist; // No hit
+        return {max_dist,-1}; // No hit
     }
 
-    // Overload for simple case with single exclusion (the caster)
-    float raycast(const vec3& origin, const vec3& direction, float max_dist, int exclude_id) {
+    // Returns a pair of distance to first hit, or max_dist if no hit, as well as the index of the cell hit
+    std::pair<float,int> raycast(const vec3& origin, const vec3& direction, float max_dist, int exclude_id) {
         list<int> exclusions;
         exclusions.push(exclude_id);
         return raycast(origin, direction, max_dist, exclusions);

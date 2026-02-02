@@ -168,7 +168,12 @@ void make_maze(g_ptr<Model> wall_model) {
 }
 
 #define GTIMERS 1
-#define CRUMB_ROWS 32  // <- Tweak this to test different sizes
+const ivec2 META(0,1);
+const ivec2 IS(2,9);
+const ivec2 DOES(10,19);
+const ivec2 WANTS(20,29);
+const ivec2 HAS(30,39);
+#define CRUMB_ROWS 40 
 
 struct crumb {
      g_ptr<Single> form = nullptr;
@@ -639,10 +644,29 @@ int main() {
      //make_maze(b_model);
 
      list<g_ptr<Single>> agents;
-     list<g_ptr<crumb_manager>> crumb_managers;
      list<vec3> goals;
-     list<list<g_ptr<Single>>> crumbs;
      list<list<g_ptr<Single>>> debug;
+     list<g_ptr<crumb_manager>> crumb_managers;
+
+     g_ptr<Thread> run_thread = make<Thread>();
+     g_ptr<Thread> update_thread = make<Thread>();
+     
+     map<int,crumb> crumbs;
+     for(int i=0;i<100000;i++) {
+          crumb c;
+          for(int r = 0; r < CRUMB_ROWS; r++)
+          for(int col = 0; col < 10; col++)
+               c.mat[r][col] = randf(-1, 1);
+          crumbs.put(i,c);
+     }
+
+     struct ObservationBatch {
+          vec3 agent_pos;
+          int agent_id;
+          list<std::pair<float,int>> observed_objects;
+          g_ptr<crumb_manager> memory;
+     };
+     list<ObservationBatch> batch;
 
      int width = (int)std::sqrt(amt);
      float spacing = side_length / width;
@@ -680,7 +704,6 @@ int main() {
           marker->setPhysicsState(P_State::NONE);
           marker->opt_floats[0] = 20.0f; //Set attraction
           marker->opt_floats[1] = 1.0f;
-          crumbs << list<g_ptr<Single>>{marker};
 
           g_ptr<crumb_manager> memory = make<crumb_manager>();
 
@@ -701,6 +724,24 @@ int main() {
                mem.mat[2][0] = randf(-side_length/2, side_length/2);
                
                memory->addCrumb(mem);
+          }
+
+          for(int j = 0; j < 100; j++) {
+               crumb seed;
+               for(int r=0; r<CRUMB_ROWS; r++)
+                    for(int c=0; c<10; c++)
+                         seed.mat[r][c] = randf(-1, 1);
+               
+               memory->create_category(seed, memory->places_root, "spatial_region_" + std::to_string(j));
+          }
+          
+          for(int j = 0; j < 50; j++) {
+               crumb seed;
+               for(int r=0; r<CRUMB_ROWS; r++)
+                    for(int c=0; c<10; c++)
+                         seed.mat[r][c] = randf(-1, 1);
+               
+               memory->create_category(seed, memory->items_root, "semantic_cat_" + std::to_string(j));
           }
                
           crumb_managers << memory;
@@ -746,7 +787,8 @@ int main() {
 
 
 
-          agent->physicsJoint = [agent, &agents, &crumbs, &debug, phys, side_length]() {
+
+          agent->physicsJoint = [agent, memory, marker, update_thread, &agents, &crumbs, &debug, phys, side_length,&batch]() {
                #if GTIMERS
                Log::Line overall;
                Log::Line l;
@@ -758,9 +800,8 @@ int main() {
                //Always setup getters for sketchpad properties because chances are they'll change later
                //Plus it helps with clarity to name them
                int id = agent->opt_ints[1];
-               list<g_ptr<Single>>& my_crumbs = crumbs[id];
                list<g_ptr<Single>>& my_debug = debug[id];
-               g_ptr<Single> goal_crumb = my_crumbs[0];
+               g_ptr<Single> goal_crumb = marker;
                int& spin_accum = agent->opt_ints[2];
                int& on_frame = agent->opt_ints[3];
 
@@ -846,9 +887,9 @@ int main() {
                     #endif
                     
                     // Tunable parameters
-                    int num_rays = 24; // Start conservative, tune up to find budget
+                    int num_rays = 24; 
                     float ray_distance = 10.0f;
-                    float cone_width = 180.0f; // Degrees of forward arc to sample
+                    float cone_width = 180.0f; 
                     
                     // Get goal direction for biasing
                     vec3 to_goal = agent->direction(goal_crumb).nY();
@@ -866,41 +907,67 @@ int main() {
                     float start_angle = -cone_width / 2.0f;
                     float angle_step = cone_width / (num_rays - 1);
                     
+                    list<std::pair<float,int>> observed_objects;
+
                     for(int i = 0; i < num_rays; i++) {
-                    float angle_deg = start_angle + i * angle_step;
-                    float angle_rad = angle_deg * 3.14159f / 180.0f;
-                    
-                    // Direction in the sampling cone
-                    vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-                    
-                    // Raycast to find openness in this direction
-                    float hit_dist = grid->raycast(
-                         agent->getPosition(),
-                         ray_dir,
-                         ray_distance,
-                         agent->ID
-                    );
-                    
-                    // Weight by distance + bias toward goal
-                    float goal_alignment = ray_dir.dot(to_goal.normalized());
-                    float score = hit_dist * (1.0f + goal_alignment * 0.5f); // 50% bias toward goal
-                    
-                    if(score > best_openness) {
-                         best_openness = score;
-                         best_direction = ray_dir;
-                    }
+                         float angle_deg = start_angle + i * angle_step;
+                         float angle_rad = angle_deg * 3.14159f / 180.0f;
+                         
+                         // Direction in the sampling cone
+                         vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                         
+                         // Raycast to find openness in this direction
+                         std::pair<float,int> hit_info = grid->raycast(
+                              agent->getPosition(),
+                              ray_dir,
+                              ray_distance,
+                              agent->ID
+                         );
+                         float hit_dist = hit_info.first;
+                         int hit_cell = hit_info.second;
+
+                         if(hit_cell >= 0 && !grid->cells[hit_cell].empty()) {
+                              for(int obj_id : grid->cells[hit_cell]) {
+                                   std::pair<float,int> info = {hit_dist,obj_id};
+                                   if(!observed_objects.has(info)) {
+                                        observed_objects << info;
+                                   }
+                              }
+                         }
+                         
+                         // Weight by distance + bias toward goal
+                         float goal_alignment = ray_dir.dot(to_goal.normalized());
+                         float score = hit_dist * (1.0f + goal_alignment * 0.5f); // 50% bias toward goal
+                         
+                         if(score > best_openness) {
+                              best_openness = score;
+                              best_direction = ray_dir;
+                         }
                     }
                     
                     #if GTIMERS
                     timers << l.end(); timer_labels << "raycast_sampling"; l.start();
                     #endif
+
+                    if(!observed_objects.empty()) {
+                         batch << ObservationBatch{
+                              agent->getPosition(),
+                              id,
+                              observed_objects,
+                              memory
+                         };
+                    }
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "observation_queueing";
+                    #endif
                     
                     // If we found decent openness, move that direction
                     if(best_openness > 1.0f) { // At least 1 unit of clearance
-                    net_force = best_direction * std::min(best_openness / ray_distance, 1.0f);
+                         net_force = best_direction * std::min(best_openness / ray_distance, 1.0f);
                     } else {
-                    // Too enclosed - add random exploration
-                    net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
+                         // Too enclosed - add random exploration
+                         net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
                     }
                     
                     #if GTIMERS
@@ -943,222 +1010,39 @@ int main() {
                return true;
           };
 
-          agent->threadUpdate = [agent, &agents, &crumb_managers](){
+
+          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers](){
                #if GTIMERS
-               Log::Line overall, l;
-               list<double>& timers = agent->timers2;
-               list<std::string>& timer_labels = agent->timer_labels2;
-               timers.clear(); timer_labels.clear();
-               overall.start();
+                    Log::Line overall, l;
+                    list<double>& timers = agent->timers2;
+                    list<std::string>& timer_labels = agent->timer_labels2;
+                    timers.clear(); timer_labels.clear();
+                    overall.start();
+                    l.start();
                #endif
                
-               int id = agent->opt_ints[1];
-               g_ptr<crumb_manager> memory = crumb_managers[id];
-               int& on_frame = agent->opt_ints[4];
-               on_frame++;
-               
-               // === CONFIGURABLE TEST PARAMETERS ===
-               static const int EVAL_INTERVAL = 1200;
-               static const int TOP_N = 20;  // Top candidates to re-evaluate
-               
-               if(on_frame % EVAL_INTERVAL == id % EVAL_INTERVAL) {
-                   
-                   // ===== PHASE 1: INITIALIZE AGENT STATE =====
-                   #if GTIMERS
-                   l.start();
-                   #endif
-                   
-                   crumb agent_state;
-                   for(int i = 0; i < CRUMB_ROWS; i++) {
-                       for(int j = 0; j < 10; j++) {
-                           agent_state.mat[i][j] = randf(-1, 1);
-                       }
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase1_init"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 2: BROAD EVALUATION (PASS 1) =====
-                   // Evaluate all memories for general attraction
-                   
-                   list<float> all_scores;
-                   list<int> all_indices;
+               static thread_local int on_frame = 0;
 
-                   for(int i = 0; i < memory->crumbs.length()/8; i++) {
-                       float score = randf(0,10.0f); //evaluate(agent_state, memory->crumbs[i]);
-                       all_scores << score;
-                       all_indices << i;
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase2_broad_eval"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 3: TOP SELECTION =====
-                   // Find top N candidates for detailed evaluation
-                   
-                   struct ScoredCrumb {
-                       float score;
-                       int index;
-                   };
-                   
-                   list<ScoredCrumb> all_crumbs;
-                   for(int i = 0; i < all_scores.length(); i++) {
-                       all_crumbs << ScoredCrumb{all_scores[i], all_indices[i]};
-                   }
-                   
-                   // Sort descending by score
-                   std::sort(all_crumbs.begin(), all_crumbs.end(), 
-                       [](const ScoredCrumb& a, const ScoredCrumb& b) {
-                           return a.score > b.score;
-                       }
-                   );
-                   
-                   // Take top N
-                   list<ScoredCrumb> top_crumbs;
-                   for(int i = 0; i < TOP_N && i < all_crumbs.length(); i++) {
-                       top_crumbs << all_crumbs[i];
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase3_top_selection"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 4: ACTION EVALUATION (PASS 2) =====
-                   // For top candidates, evaluate specific actions
-                   
-                   struct ActionScore {
-                       int crumb_index;
-                       int action_col;  // Which action column (3-9)
-                       float score;
-                   };
-                   
-                   list<ActionScore> action_scores;
-                   
-                   for(int i = 0; i < top_crumbs.length(); i++) {
-                       // Simulate checking each action column
-                       for(int action_col = 3; action_col < 10; action_col++) {
-                           // Extract specific row × column interaction
-                           // Assuming row 4 = dominant need for this test
-                           float agent_desire = agent_state.mat[4][action_col];
-                           float crumb_suitability = memory->crumbs[top_crumbs[i].index].mat[4][action_col];
-                           
-                           float score = agent_desire * crumb_suitability;
-                           action_scores << ActionScore{top_crumbs[i].index, action_col, score};
-                       }
-                   }
-                   
-                   // Find best action
-                   float best_action_score = -1e9f;
-                   int best_action_idx = -1;
-                   for(int i = 0; i < action_scores.length(); i++) {
-                       if(action_scores[i].score > best_action_score) {
-                           best_action_score = action_scores[i].score;
-                           best_action_idx = i;
-                       }
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase4_action_eval"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 5: STATE UPDATES (MASKING) =====
-                   // Apply decay mask
-                   
-                   crumb decay_mask;
-                   for(int i = 0; i < CRUMB_ROWS; i++) {
-                       for(int j = 0; j < 10; j++) {
-                           decay_mask.mat[i][j] = 1.0f;  // Identity
-                       }
-                   }
-                   
-                   // Decay certain stats
-                   decay_mask.mat[4][2] = 0.99f;  // NEED current state decays
-                   decay_mask.mat[5][2] = 0.99f;
-                   
-                   apply_mask(agent_state, decay_mask);
-                   
-                   // Apply cascade mask (hunger affects happiness)
-                   crumb cascade_mask;
-                   for(int i = 0; i < CRUMB_ROWS; i++) {
-                       for(int j = 0; j < 10; j++) {
-                           cascade_mask.mat[i][j] = 1.0f;
-                       }
-                   }
-                   
-                   // If hungry (row 4), reduce happiness (row 6)
-                   float hunger_level = agent_state.mat[4][2];
-                   cascade_mask.mat[6][2] = 1.0f + (hunger_level * -0.05f);
-                   
-                   apply_mask(agent_state, cascade_mask);
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase5_state_update"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 6: GOAL EVALUATION (PASS 3) =====
-                   // Check progress toward active goals
-                   
-                   // Simulate 5 active goals
-                   static list<crumb> goals;
-                   if(goals.empty()) {
-                       for(int i = 0; i < 5; i++) {
-                           crumb goal;
-                           for(int r = 0; r < CRUMB_ROWS; r++) {
-                               for(int c = 0; c < 10; c++) {
-                                   goal.mat[r][c] = randf(-1, 1);
-                               }
-                           }
-                           goals << goal;
-                       }
-                   }
-                   
-                   list<float> goal_scores;
-                   for(int i = 0; i < goals.length(); i++) {
-                       float score = evaluate(agent_state, goals[i]);
-                       goal_scores << score;
-                   }
-                   
-                   // Find closest goal
-                   float best_goal_score = -1e9f;
-                   int best_goal_idx = -1;
-                   for(int i = 0; i < goal_scores.length(); i++) {
-                       if(goal_scores[i] > best_goal_score) {
-                           best_goal_score = goal_scores[i];
-                           best_goal_idx = i;
-                       }
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase6_goal_eval"; l.start();
-                   #endif
-                   
-                   
-                   // ===== PHASE 7: SOCIAL CHECKS =====
-                   // Re-evaluate nearby agents for social interactions
-                   
-                   // Simulate checking 10 nearby agents for gossip/interaction
-                   list<float> social_scores;
-                   int social_check_count = std::min(10, (int)memory->crumbs.length());
-                   
-                   for(int i = 0; i < social_check_count; i++) {
-                       float score = evaluate(agent_state, memory->crumbs[i]);
-                       social_scores << score;
-                   }
-                   
-                   #if GTIMERS
-                   timers << l.end(); timer_labels << "phase7_social_check";
-                   #endif
-                   
-                   // Store results for physics thread to use
-                   agent->opt_floats[0] = best_action_score;
-                   agent->opt_ints[5] = best_action_idx;
+
+               int id = agent->opt_ints[1];
+               on_frame++; 
+               
+               int eval_interval = 1200;
+
+               #if GTIMERS
+               timers << l.end(); timer_labels << "value setup"; l.start();
+               #endif
+
+               if(i==0) {
+                    update_thread->flushTasks();
+               }
+
+               #if GTIMERS
+               timers << l.end(); timer_labels << "thread flush";
+               #endif
+
+               if(on_frame % eval_interval == id % eval_interval) {
+               
                }
                
                #if GTIMERS
@@ -1202,6 +1086,9 @@ int main() {
      //      };
      // }
 
+
+     list<std::function<void()>> from_phys_to_update;
+
      S_Tool phys_logger;
      #if GTIMERS
      phys_logger.log = [agents,phys](){
@@ -1217,9 +1104,8 @@ int main() {
           }
      };
      #endif
-     g_ptr<Thread> run_thread = make<Thread>();
      run_thread->name = "Physics";
-     run_thread->run([phys,&phys_logger,&agents](ScriptContext& ctx){
+     run_thread->run([phys,&phys_logger,&agents,update_thread,&batch,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
                phys->collisonMethod = Physics::GRID;
@@ -1229,6 +1115,140 @@ int main() {
                phys->treeBuilt3d = false;
           }
           phys->updatePhysics();
+          if(!batch.empty()&&from_phys_to_update.empty()) {
+               //update_thread->queueTask(
+               from_phys_to_update.push([&batch, &crumbs, &crumb_managers, &agents]() {
+                    for(auto& obs_batch : batch) {
+                         g_ptr<Single> agent = agents[obs_batch.agent_id];
+                         g_ptr<crumb_manager> memory = crumb_managers[obs_batch.agent_id];
+                         
+                         #if GTIMERS
+                         Log::Line l;
+                         list<double>& timers = agent->timers2;
+                         list<std::string>& timer_labels = agent->timer_labels2;
+                         #endif
+                         // Thread-local accumulator to prevent compiler optimization
+                         static thread_local float score_accumulator = 0.0f;
+                         static thread_local int accum_counter = 0;
+
+                         Log::Line flush_overall; flush_overall.start();
+                         // Process all observations for this agent
+                         for(auto info : obs_batch.observed_objects) {
+                              #if GTIMERS
+                              l.start();
+                              #endif
+
+                              int obj_id = info.second;
+                              crumb& obj_crumb = crumbs.get(obj_id);
+                              
+                              // Create observation mask
+                              crumb observation_mask;
+                              float dist_to_obj = info.first;
+
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_value_init"; l.start();
+                              #endif
+                              
+                              for(int r = 0; r < CRUMB_ROWS; r++) {
+                                   for(int c = 0; c < 10; c++) {
+                                        observation_mask.mat[r][c] = 1.0f;
+                                   }
+                              }
+                              observation_mask.mat[0][0] = 1.0f + (1.0f / (1.0f + dist_to_obj * 0.1f));
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_observation_mask_creation"; l.start();
+                              #endif
+                              
+                              apply_mask(obj_crumb, observation_mask);
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_apply_mask"; l.start();
+                              #endif
+                              
+                              // === REAL CATEGORY TREE EVALUATION ===
+                              
+                              // Evaluate against all 4 root categories
+                              list<g_ptr<CategoryNode>> roots = {
+                                   memory->places_root,
+                                   memory->items_root, 
+                                   memory->agents_root,
+                                   memory->circles_root
+                              };
+                              
+                              float best_root_score = -1e9f;
+                              g_ptr<CategoryNode> best_root = nullptr;
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_gather_roots"; l.start();
+                              #endif
+                              
+                              for(auto root : roots) {
+                                   float score = memory->evaluate_against_archetype(obj_crumb, root);
+                                   score_accumulator += score;
+                                   
+                                   if(score > best_root_score) {
+                                        best_root_score = score;
+                                        best_root = root;
+                                   }
+                              }
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_evaluate_against_archetype"; l.start();
+                              #endif
+                              
+                              // Descend into children of best root
+                              if(best_root && !best_root->children.empty()) {
+                                   float best_child_score = -1e9f;
+                                   g_ptr<CategoryNode> best_child = nullptr;
+                                   
+                                   for(auto child : best_root->children) {
+                                        float score = memory->evaluate_against_archetype(obj_crumb, child);
+                                        score_accumulator += score;
+                                        
+                                        if(score > best_child_score) {
+                                             best_child_score = score;
+                                             best_child = child;
+                                        }
+                                   }
+                                   
+                                   // Descend one more level if children exist
+                                   if(best_child && !best_child->children.empty()) {
+                                        float best_grandchild_score = -1e9f;
+                                        
+                                        for(auto grandchild : best_child->children) {
+                                             float score = memory->evaluate_against_archetype(obj_crumb, grandchild);
+                                             score_accumulator += score;
+                                             
+                                             best_grandchild_score = std::max(best_grandchild_score, score);
+                                        }
+                                   }
+                              }
+
+
+                              #if GTIMERS
+                              timers << l.end(); timer_labels << "flush_best_root_serach";
+                              #endif
+                              
+                              // Prevent accumulator overflow
+                              accum_counter++;
+                              if(accum_counter > 100000 || score_accumulator > 1e9f) {
+                                   score_accumulator *= 0.5f;
+                                   accum_counter = 0;
+                              }
+                         }
+
+                         #if GTIMERS
+                         timers << flush_overall.end(); timer_labels << "flush_overall";
+                         #endif
+                    }
+               });
+
+               batch.clear();
+          } else {
+               //Just do nothing for now, update hasn't processed what we gave it yet
+          }
      },0.008f);
      run_thread->logSPS = true;
 
@@ -1245,16 +1265,22 @@ int main() {
           for(auto e : times.entrySet()) {
                print(e.key,": ",ftime(e.value));
           }
+
      };
      #endif
-     g_ptr<Thread> update_thread = make<Thread>();
      update_thread->name = "Update";
-     update_thread->run([&update_logger,&agents](ScriptContext& ctx){
+     update_thread->run([&update_logger,&agents,&from_phys_to_update](ScriptContext& ctx){
           update_logger.tick();
           for(auto a : agents) {
                if(a->threadUpdate&&a->isActive())
                     a->threadUpdate();
           }
+          if(!from_phys_to_update.empty()) {
+               for(auto p : from_phys_to_update) {
+                      p();
+               }
+               from_phys_to_update.clear();
+            }
      },0.00001f);
      update_thread->logSPS = true;
 
