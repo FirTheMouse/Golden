@@ -168,6 +168,352 @@ void make_maze(g_ptr<Model> wall_model) {
 }
 
 #define GTIMERS 1
+#define CRUMB_ROWS 32  // <- Tweak this to test different sizes
+
+struct crumb {
+     g_ptr<Single> form = nullptr;
+     float mat[CRUMB_ROWS][10];
+
+     inline float* data() const {
+          return (float*)&mat[0][0];
+     }
+     
+     inline int rows() const {
+          return CRUMB_ROWS;
+     }
+};
+
+static float compute_trace(const float* matrix) {
+     float trace = 0.0f;
+     for(int i = 0; i < CRUMB_ROWS; i++) {
+         trace += matrix[i * 10 + i];
+     }
+     return trace;
+}
+
+static void matmul(const float* eval, const float* against, float* result) {
+     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                CRUMB_ROWS, 10, 10,
+                1.0f,
+                eval, 10,
+                against, 10,
+                0.0f,
+                result, 10);
+}
+
+static float evaluate_elementwise(const crumb& agent, const crumb& item) {
+    float score = 0.0f;
+    
+    for(int i = 0; i < CRUMB_ROWS; i++) {
+        for(int j = 0; j < 10; j++) {
+            score += agent.mat[i][j] * item.mat[i][j];
+        }
+    }
+    
+    return score;
+}
+
+static float evaluate(const crumb& agent, const crumb& item) {
+    return evaluate_elementwise(agent, item);
+}
+
+static void apply_mask(crumb& target, const crumb& mask) {
+    for(int i = 0; i < CRUMB_ROWS; i++) {
+        for(int j = 0; j < 10; j++) {
+            target.mat[i][j] *= mask.mat[i][j];
+        }
+    }
+}
+
+static float evaluate_matmul(const crumb& eval, const crumb& against, crumb& result) {
+    matmul(eval.data(), against.data(), result.data());
+    return compute_trace(result.data());
+}
+
+static float evaluate_matmul(const crumb& eval, const crumb& against) {
+    crumb result{};
+    return evaluate_matmul(eval, against, result);
+}
+
+struct CategoryNode : public Object {
+     std::string label;
+     float archetype[CRUMB_ROWS][10];
+     
+     // Tree structure
+     g_ptr<CategoryNode> parent;
+     list<g_ptr<CategoryNode>> children;
+     
+     // Instances (only for leaf nodes)
+     list<int> instance_indices;
+     
+     // Metadata
+     float confidence = 1.0f;
+     int observation_count = 0;
+     
+     CategoryNode(std::string _label) : label(_label) {
+         // Zero archetype
+         for(int i = 0; i < CRUMB_ROWS; i++)
+             for(int j = 0; j < 10; j++)
+                 archetype[i][j] = 0.0f;
+     }
+     
+     float* get_archetype() {
+         return &archetype[0][0];
+     }
+};
+
+class crumb_manager : public Object {
+public:
+     crumb_manager() {
+          places_root = make<CategoryNode>("places");
+          items_root = make<CategoryNode>("items");
+          agents_root = make<CategoryNode>("agents");
+          circles_root = make<CategoryNode>("circles");
+     };
+     ~crumb_manager() {};
+
+     list<crumb> crumbs;
+
+     // Priority lists - reordered frequently, cheap to rebuild
+     list<int> building_priority;
+     list<int> agent_priority;
+
+     g_ptr<CategoryNode> places_root = nullptr;
+     g_ptr<CategoryNode> items_root = nullptr;
+     g_ptr<CategoryNode> agents_root = nullptr;
+     g_ptr<CategoryNode> circles_root = nullptr;
+
+     void addCrumb(crumb& n_crumb) {crumbs << n_crumb;}
+
+     // Find best matching category for a crumb
+     g_ptr<CategoryNode> find_best_category(const crumb& crumb_obj, g_ptr<CategoryNode> root) {
+         g_ptr<CategoryNode> current = root;
+         
+         while(!current->children.empty()) {
+             float best_match = -1e9f;
+             g_ptr<CategoryNode> best_child = nullptr;
+             
+             for(auto child : current->children) {
+                 float match = evaluate_against_archetype(crumb_obj, child);
+                 if(match > best_match) {
+                     best_match = match;
+                     best_child = child;
+                 }
+             }
+             
+             // Only descend if child is significantly better
+             if(best_match > 0.5f) {  // Threshold
+                 current = best_child;
+             } else {
+                 break;
+             }
+         }
+         
+         return current;
+     }
+     
+     // Evaluate crumb against category archetype
+     float evaluate_against_archetype(const crumb& crumb_obj, g_ptr<CategoryNode> category) {
+         float score = 0.0f;
+         float* archetype = category->get_archetype();
+         
+         for(int i = 0; i < CRUMB_ROWS; i++) {
+             for(int j = 0; j < 10; j++) {
+                 score += crumb_obj.mat[i][j] * archetype[i * 10 + j];
+             }
+         }
+         
+         return score;
+     }
+     
+     // Update category archetype with new instance
+     void update_archetype(g_ptr<CategoryNode> category, const crumb& instance) {
+         category->observation_count++;
+         float weight = 1.0f / category->observation_count;  // Running average
+         
+         float* archetype = category->get_archetype();
+         
+         for(int i = 0; i < CRUMB_ROWS; i++) {
+             for(int j = 0; j < 10; j++) {
+                 archetype[i * 10 + j] = 
+                     archetype[i * 10 + j] * (1.0f - weight) + 
+                     instance.mat[i][j] * weight;
+             }
+         }
+     }
+     
+     // Add instance to category
+     void add_to_category(int crumb_idx, g_ptr<CategoryNode> category) {
+         category->instance_indices << crumb_idx;
+     }
+     
+     // Create new emergent category
+     g_ptr<CategoryNode> create_category(const crumb& seed, g_ptr<CategoryNode> parent, std::string label) {
+         g_ptr<CategoryNode> new_cat = make<CategoryNode>(label);
+         
+         // Copy seed as initial archetype
+         float* archetype = new_cat->get_archetype();
+         for(int i = 0; i < CRUMB_ROWS; i++) {
+             for(int j = 0; j < 10; j++) {
+                 archetype[i * 10 + j] = seed.mat[i][j];
+             }
+         }
+         
+         new_cat->parent = parent;
+         new_cat->observation_count = 1;
+         parent->children << new_cat;
+         
+         return new_cat;
+     }
+     
+     // Check if category should split (low coherence)
+     void check_coherence(g_ptr<CategoryNode> category) {
+         if(category->instance_indices.length() < 5) return;  // Too few to split
+         
+         // Calculate average similarity to archetype
+         float total_similarity = 0.0f;
+         
+         for(int idx : category->instance_indices) {
+             float similarity = evaluate_against_archetype(crumbs[idx], category);
+             total_similarity += similarity;
+         }
+         
+         category->confidence = total_similarity / category->instance_indices.length();
+         
+         if(category->confidence < 0.6f) {
+             // Category is incoherent - should split
+             // TODO: implement split logic
+         }
+     }
+};
+
+void test_crumbs() {
+     // Create a crumb manager
+     g_ptr<crumb_manager> manager = make<crumb_manager>();
+     
+     // Create agent state
+     crumb agent_state;
+     
+     // Zero everything
+     for(int i = 0; i < CRUMB_ROWS; i++) {
+         for(int j = 0; j < 10; j++) {
+             agent_state.mat[i][j] = 0.0f;
+         }
+     }
+     
+     // Row 4 = NEED_HUNGER
+     agent_state.mat[4][0] = 0.0f;  // quantity (not used)
+     agent_state.mat[4][1] = 5.0f;  // affinity (wants to reduce hunger)
+     agent_state.mat[4][2] = 8.0f;  // current state (VERY HUNGRY)
+     agent_state.mat[4][7] = 9.0f;  // BITE satisfaction (biting helps hunger a lot)
+     
+     // Row 10 = MATERIAL_BERRY affinity
+     agent_state.mat[10][0] = 0.0f;  // doesn't have any
+     agent_state.mat[10][1] = 7.0f;  // likes berries
+     agent_state.mat[10][7] = 8.0f;  // biting berries is good
+     
+     // Create THREE test items - SAME ROW LAYOUT AS AGENT
+     crumb berry;
+     crumb stone;
+     crumb wood;
+     
+     // Zero everything
+     for(int i = 0; i < CRUMB_ROWS; i++) {
+         for(int j = 0; j < 10; j++) {
+             berry.mat[i][j] = 0.0f;
+             stone.mat[i][j] = 0.0f;
+             wood.mat[i][j] = 0.0f;
+         }
+     }
+     
+     // Berry - row 4 = how it satisfies NEED_HUNGER
+     berry.mat[4][7] = 10.0f;  // bite satisfaction (GREAT for biting when hungry)
+     
+     // Berry - row 10 = MATERIAL_BERRY properties
+     berry.mat[10][0] = 1.0f;   // quantity exists
+     berry.mat[10][1] = 8.0f;   // affinity (tasty)
+     berry.mat[10][7] = 10.0f;  // bite satisfaction
+     
+     // Stone - bad for hunger
+     stone.mat[4][7] = 1.0f;   // terrible for biting when hungry
+     stone.mat[10][0] = 1.0f;
+     stone.mat[10][1] = 2.0f;
+     stone.mat[10][7] = 1.0f;
+     
+     // Wood - medium
+     wood.mat[4][7] = 3.0f;
+     wood.mat[10][0] = 1.0f;
+     wood.mat[10][1] = 4.0f;
+     wood.mat[10][7] = 3.0f;
+     
+     print("\n=== BASIC EVALUATION TEST ===");
+     
+     // Evaluate with element-wise
+     float berry_score = evaluate_elementwise(agent_state, berry);
+     float stone_score = evaluate_elementwise(agent_state, stone);
+     float wood_score = evaluate_elementwise(agent_state, wood);
+     
+     print("Berry score: ", berry_score);
+     print("Stone score: ", stone_score);
+     print("Wood score: ", wood_score);
+     
+     print("\n=== CATEGORY TEST ===");
+     
+     // Add items to manager
+     manager->addCrumb(berry);
+     manager->addCrumb(stone);
+     manager->addCrumb(wood);
+     
+     // Create "food" category with berry as seed
+     g_ptr<CategoryNode> food_category = manager->create_category(
+         berry, 
+         manager->agents_root,
+         "food"
+     );
+     manager->add_to_category(0, food_category);  // Berry at index 0
+     
+     print("Created 'food' category with berry as archetype");
+     
+     // Test categorization of stone and wood
+     float stone_vs_food = manager->evaluate_against_archetype(stone, food_category);
+     float wood_vs_food = manager->evaluate_against_archetype(wood, food_category);
+     
+     print("Stone match to 'food': ", stone_vs_food);
+     print("Wood match to 'food': ", wood_vs_food);
+     print("(Berry would match ~", berry_score, " since it IS the archetype)");
+     
+     // Update archetype with wood (medium food)
+     manager->update_archetype(food_category, wood);
+     manager->add_to_category(2, food_category);
+     
+     print("\nAdded wood to 'food' category, archetype updated");
+     
+     // Re-check stone match
+     float stone_vs_updated_food = manager->evaluate_against_archetype(stone, food_category);
+     print("Stone match to updated 'food': ", stone_vs_updated_food);
+     print("(Should be slightly higher as archetype diluted)");
+     
+     // Check coherence
+     manager->check_coherence(food_category);
+     print("\nFood category confidence: ", food_category->confidence);
+     print("Observations: ", food_category->observation_count);
+     
+     print("\n=== HIERARCHY TEST ===");
+     
+     // Create "edible_plants" subcategory under food
+     g_ptr<CategoryNode> plants_category = manager->create_category(
+         berry,
+         food_category,
+         "edible_plants"
+     );
+     
+     print("Created 'edible_plants' as child of 'food'");
+     
+     // Find best category for berry
+     g_ptr<CategoryNode> berry_best = manager->find_best_category(berry, manager->agents_root);
+     print("Best category for berry: ", berry_best->label);
+     print("(Should descend to 'edible_plants' if hierarchy working)");
+}
 
 int main() {
      Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.6");
@@ -274,12 +620,6 @@ int main() {
      }
      
 
-     //make_maze(b_model);
-
-     list<g_ptr<Single>> agents;
-     list<vec3> goals;
-     list<list<g_ptr<Single>>> crumbs;
-     list<list<g_ptr<Single>>> debug;
      scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
           g_ptr<Single> q = make<Single>(c_model);
           scene->add(q);
@@ -296,8 +636,13 @@ int main() {
           // };
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
+     //make_maze(b_model);
 
-
+     list<g_ptr<Single>> agents;
+     list<g_ptr<crumb_manager>> crumb_managers;
+     list<vec3> goals;
+     list<list<g_ptr<Single>>> crumbs;
+     list<list<g_ptr<Single>>> debug;
 
      int width = (int)std::sqrt(amt);
      float spacing = side_length / width;
@@ -336,6 +681,30 @@ int main() {
           marker->opt_floats[0] = 20.0f; //Set attraction
           marker->opt_floats[1] = 1.0f;
           crumbs << list<g_ptr<Single>>{marker};
+
+          g_ptr<crumb_manager> memory = make<crumb_manager>();
+
+           // Create 350 memories total (all uniform crumbs now)
+          for(int c = 0; c < 350; c++) {
+               crumb mem;
+               
+               // Fill with random data for benchmark
+               for(int r = 0; r < CRUMB_ROWS; r++) {
+               for(int col = 0; col < 10; col++) {
+                    mem.mat[r][col] = randf(-1, 1);
+               }
+               }
+               
+               // Embed position in first 3 rows, column 0
+               mem.mat[0][0] = randf(-side_length/2, side_length/2);
+               mem.mat[1][0] = 0.0f;
+               mem.mat[2][0] = randf(-side_length/2, side_length/2);
+               
+               memory->addCrumb(mem);
+          }
+               
+          crumb_managers << memory;
+
           float agent_hue = (float(i) / float(amt)) * 360.0f;
           // list<g_ptr<Single>> d_boxes;
           // for(int j=0;j<3;j++) {
@@ -574,238 +943,224 @@ int main() {
                return true;
           };
 
-          agent->threadUpdate = [agent, &agents, &crumbs, &debug, phys, side_length](){
+          agent->threadUpdate = [agent, &agents, &crumb_managers](){
                #if GTIMERS
-               Log::Line overall;
-               Log::Line l;
+               Log::Line overall, l;
                list<double>& timers = agent->timers2;
                list<std::string>& timer_labels = agent->timer_labels2;
                timers.clear(); timer_labels.clear();
                overall.start();
                #endif
-               //Always setup getters for sketchpad properties because chances are they'll change later
-               //Plus it helps with clarity to name them
-               int id = agent->opt_ints[1];
-               list<g_ptr<Single>>& my_crumbs = crumbs[id];
-               list<g_ptr<Single>>& my_debug = debug[id];
-               g_ptr<Single> goal_crumb = my_crumbs[0];
-               int& spin_accum = agent->opt_ints[2];
-               int& on_frame = agent->opt_ints[3];
-
-               // int eval_interval = 600; 
-               // if(on_frame % eval_interval == id % eval_interval) {
-               //     #if GTIMERS
-               //     l.start();
-               //     #endif
-                   
-               //     // ===== CONFIGURABLE CRUMB CATEGORIES =====
-               //     struct CrumbCategory {
-               //         int count;
-               //         int num_rows;
-               //         std::string name;
-               //     };
-                   
-               //     static CrumbCategory categories[] = {
-               //         {100, 4,   "circles"}, 
-               //         {200, 8,   "buildings"}, 
-               //         {600, 8,  "items"}, 
-               //         {50,  60, "agents"} 
-               //     };
-               //     static const int num_categories = 4;
-               //     static const int num_cols = 10;
-                   
-               //     // Calculate total crumbs
-               //     static int total_crumbs = 0;
-               //     for(int cat = 0; cat < num_categories; cat++) {
-               //         total_crumbs += categories[cat].count;
-               //     }
-                   
-               //     // Pre-allocate all crumb data (one-time initialization)
-               //     static list<list<float>> category_matrices;
-               //     static bool initialized = false;
-               //     if(!initialized) {
-               //         category_matrices.resize(num_categories);
-                       
-               //         for(int cat = 0; cat < num_categories; cat++) {
-               //             int matrix_size = categories[cat].num_rows * num_cols;
-               //             category_matrices[cat].resize(categories[cat].count * matrix_size);
-                           
-               //             // Fill with random data
-               //             for(int i = 0; i < category_matrices[cat].length(); i++) {
-               //                 category_matrices[cat][i] = randf(-1, 1);
-               //             }
-                           
-               //             // Embed positions in column 1, rows 0-2 for all crumbs
-               //             for(int c = 0; c < categories[cat].count; c++) {
-               //                 int offset = c * matrix_size;
-               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 0] = randf(-100, 100); // pos.x
-               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 1] = 0.0f;             // pos.y  
-               //                 category_matrices[cat][offset + 1 * categories[cat].num_rows + 2] = randf(-100, 100); // pos.z
-               //             }
-               //         }
-               //         initialized = true;
-               //     }
-                   
-               //     #if GTIMERS
-               //     timers << l.end(); timer_labels << "init_check"; l.start();
-               //     #endif
-                   
-               //     // Agent's own state - needs to be tall enough for biggest category
-               //     static int max_rows = 0;
-               //     if(max_rows == 0) {
-               //         for(int cat = 0; cat < num_categories; cat++) {
-               //             if(categories[cat].num_rows > max_rows) {
-               //                 max_rows = categories[cat].num_rows;
-               //             }
-               //         }
-               //     }
-                   
-               //     int agent_matrix_size = max_rows * num_cols;
-               //     float agent_matrix[agent_matrix_size];
-               //     for(int i = 0; i < agent_matrix_size; i++) {
-               //         agent_matrix[i] = randf(-1, 1);
-               //     }
-                   
-               //     #if GTIMERS
-               //     timers << l.end(); timer_labels << "agent_matrix_init"; l.start();
-               //     #endif
-                   
-               //     // Evaluate each category separately (batched)
-               //     list<float> all_scores;
-               //     all_scores.resize(total_crumbs);
-               //     int score_offset = 0;
-                   
-               //     for(int cat = 0; cat < num_categories; cat++) {
-               //         int cat_rows = categories[cat].num_rows;
-               //         int cat_matrix_size = cat_rows * num_cols;
-               //         int cat_count = categories[cat].count;
-                       
-               //         float result_matrix[cat_matrix_size];
-                       
-               //         #if GTIMERS
-               //         std::string timer_name = categories[cat].name + "_eval";
-               //         l.start();
-               //         #endif
-                       
-               //         for(int c = 0; c < cat_count; c++) {
-               //             // Matrix multiply: agent[cat_rows × num_cols] × crumb[cat_rows × num_cols]
-               //             cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-               //                        cat_rows, num_cols, num_cols,
-               //                        1.0f,
-               //                        agent_matrix, num_cols,
-               //                        &category_matrices[cat][c * cat_matrix_size], num_cols,
-               //                        0.0f,
-               //                        result_matrix, num_cols);
-                           
-               //             // Compute trace for attraction
-               //             float trace = 0.0f;
-               //             for(int i = 0; i < cat_rows; i++) {
-               //                 trace += result_matrix[i * num_cols + i];
-               //             }
-                           
-               //             // Extract position from crumb column 1, rows 0-2
-               //             vec3 crumb_pos(
-               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 0],
-               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 1],
-               //                 category_matrices[cat][c * cat_matrix_size + 1 * cat_rows + 2]
-               //             );
-                           
-               //             // Distance modulation
-               //             vec3 delta = crumb_pos - agent->getPosition();
-               //             float dist_sq = delta.dot(delta);
-               //             if(dist_sq < 0.01f) dist_sq = 0.01f;
-                           
-               //             all_scores[score_offset + c] = trace / dist_sq;
-               //         }
-                       
-               //         #if GTIMERS
-               //         timers << l.end(); timer_labels << timer_name;
-               //         #endif
-                       
-               //         score_offset += cat_count;
-               //     }
-                   
-               //     #if GTIMERS
-               //     l.start();
-               //     #endif
-                   
-               //     // Optional: Find best crumb across all categories
-               //     float best_score = all_scores[0];
-               //     int best_idx = 0;
-               //     for(int i = 1; i < all_scores.length(); i++) {
-               //         if(all_scores[i] > best_score) {
-               //             best_score = all_scores[i];
-               //             best_idx = i;
-               //         }
-               //     }
-                   
-               //     #if GTIMERS
-               //     timers << l.end(); timer_labels << "best_crumb_search";
-               //     #endif
-               // }
-
-               int eval_interval = 600; 
-               if(on_frame % eval_interval == id % eval_interval) {
-                    #if GTIMERS
-                    l.start();
-                    #endif
-                    
-                    // ===== CONFIGURABLE CRUMB CATEGORIES =====
-                    struct CrumbCategory {
-                         int count;
-                         int num_rows;
-                         std::string name;
-                    };
-                    
-                    static CrumbCategory categories[] = {
-                         {100, 4,   "circles"},
-                         {200, 8,   "buildings"},
-                         {600, 8,   "items"},
-                         {50,  32,  "agents"}
-                    };
-                    static const int num_categories = 4;
-                    static const int num_cols = 10;
-                    
-                    // Calculate total crumbs
-                    static int total_crumbs = 0;
-                    for(int cat = 0; cat < num_categories; cat++) {
-                         total_crumbs += categories[cat].count;
-                    }
-                    
-                    // Pre-allocate all crumb data (one-time initialization)
-                    static list<list<float>> category_matrices;
-                    static bool initialized = false;
-                    if(!initialized) {
-                         category_matrices.resize(num_categories);
-                         
-                         for(int cat = 0; cat < num_categories; cat++) {
-                              int matrix_size = categories[cat].num_rows * num_cols;
-                              category_matrices[cat].resize(categories[cat].count * matrix_size);
-                              
-                              // Fill with random data
-                              for(int i = 0; i < category_matrices[cat].length(); i++) {
-                                   category_matrices[cat][i] = randf(-1, 1);
-                              }
-                              
-                              // Embed positions in column 1, rows 0-2 for all crumbs
-                              for(int c = 0; c < categories[cat].count; c++) {
-                                   int offset = c * matrix_size;
-                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 0] = randf(-100, 100);
-                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 1] = 0.0f;
-                                   category_matrices[cat][offset + 1 * categories[cat].num_rows + 2] = randf(-100, 100);
-                              }
-                         }
-                         initialized = true;
-                    }
-                    
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "init_check"; l.start();
-                    #endif
                
-           
-               }
-               agent->opt_vec_3_4 = vec3(randf(-10,10),0,randf(-10,10));
+               int id = agent->opt_ints[1];
+               g_ptr<crumb_manager> memory = crumb_managers[id];
+               int& on_frame = agent->opt_ints[4];
+               on_frame++;
+               
+               // === CONFIGURABLE TEST PARAMETERS ===
+               static const int EVAL_INTERVAL = 1200;
+               static const int TOP_N = 20;  // Top candidates to re-evaluate
+               
+               if(on_frame % EVAL_INTERVAL == id % EVAL_INTERVAL) {
+                   
+                   // ===== PHASE 1: INITIALIZE AGENT STATE =====
+                   #if GTIMERS
+                   l.start();
+                   #endif
+                   
+                   crumb agent_state;
+                   for(int i = 0; i < CRUMB_ROWS; i++) {
+                       for(int j = 0; j < 10; j++) {
+                           agent_state.mat[i][j] = randf(-1, 1);
+                       }
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase1_init"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 2: BROAD EVALUATION (PASS 1) =====
+                   // Evaluate all memories for general attraction
+                   
+                   list<float> all_scores;
+                   list<int> all_indices;
 
+                   for(int i = 0; i < memory->crumbs.length()/8; i++) {
+                       float score = randf(0,10.0f); //evaluate(agent_state, memory->crumbs[i]);
+                       all_scores << score;
+                       all_indices << i;
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase2_broad_eval"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 3: TOP SELECTION =====
+                   // Find top N candidates for detailed evaluation
+                   
+                   struct ScoredCrumb {
+                       float score;
+                       int index;
+                   };
+                   
+                   list<ScoredCrumb> all_crumbs;
+                   for(int i = 0; i < all_scores.length(); i++) {
+                       all_crumbs << ScoredCrumb{all_scores[i], all_indices[i]};
+                   }
+                   
+                   // Sort descending by score
+                   std::sort(all_crumbs.begin(), all_crumbs.end(), 
+                       [](const ScoredCrumb& a, const ScoredCrumb& b) {
+                           return a.score > b.score;
+                       }
+                   );
+                   
+                   // Take top N
+                   list<ScoredCrumb> top_crumbs;
+                   for(int i = 0; i < TOP_N && i < all_crumbs.length(); i++) {
+                       top_crumbs << all_crumbs[i];
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase3_top_selection"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 4: ACTION EVALUATION (PASS 2) =====
+                   // For top candidates, evaluate specific actions
+                   
+                   struct ActionScore {
+                       int crumb_index;
+                       int action_col;  // Which action column (3-9)
+                       float score;
+                   };
+                   
+                   list<ActionScore> action_scores;
+                   
+                   for(int i = 0; i < top_crumbs.length(); i++) {
+                       // Simulate checking each action column
+                       for(int action_col = 3; action_col < 10; action_col++) {
+                           // Extract specific row × column interaction
+                           // Assuming row 4 = dominant need for this test
+                           float agent_desire = agent_state.mat[4][action_col];
+                           float crumb_suitability = memory->crumbs[top_crumbs[i].index].mat[4][action_col];
+                           
+                           float score = agent_desire * crumb_suitability;
+                           action_scores << ActionScore{top_crumbs[i].index, action_col, score};
+                       }
+                   }
+                   
+                   // Find best action
+                   float best_action_score = -1e9f;
+                   int best_action_idx = -1;
+                   for(int i = 0; i < action_scores.length(); i++) {
+                       if(action_scores[i].score > best_action_score) {
+                           best_action_score = action_scores[i].score;
+                           best_action_idx = i;
+                       }
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase4_action_eval"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 5: STATE UPDATES (MASKING) =====
+                   // Apply decay mask
+                   
+                   crumb decay_mask;
+                   for(int i = 0; i < CRUMB_ROWS; i++) {
+                       for(int j = 0; j < 10; j++) {
+                           decay_mask.mat[i][j] = 1.0f;  // Identity
+                       }
+                   }
+                   
+                   // Decay certain stats
+                   decay_mask.mat[4][2] = 0.99f;  // NEED current state decays
+                   decay_mask.mat[5][2] = 0.99f;
+                   
+                   apply_mask(agent_state, decay_mask);
+                   
+                   // Apply cascade mask (hunger affects happiness)
+                   crumb cascade_mask;
+                   for(int i = 0; i < CRUMB_ROWS; i++) {
+                       for(int j = 0; j < 10; j++) {
+                           cascade_mask.mat[i][j] = 1.0f;
+                       }
+                   }
+                   
+                   // If hungry (row 4), reduce happiness (row 6)
+                   float hunger_level = agent_state.mat[4][2];
+                   cascade_mask.mat[6][2] = 1.0f + (hunger_level * -0.05f);
+                   
+                   apply_mask(agent_state, cascade_mask);
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase5_state_update"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 6: GOAL EVALUATION (PASS 3) =====
+                   // Check progress toward active goals
+                   
+                   // Simulate 5 active goals
+                   static list<crumb> goals;
+                   if(goals.empty()) {
+                       for(int i = 0; i < 5; i++) {
+                           crumb goal;
+                           for(int r = 0; r < CRUMB_ROWS; r++) {
+                               for(int c = 0; c < 10; c++) {
+                                   goal.mat[r][c] = randf(-1, 1);
+                               }
+                           }
+                           goals << goal;
+                       }
+                   }
+                   
+                   list<float> goal_scores;
+                   for(int i = 0; i < goals.length(); i++) {
+                       float score = evaluate(agent_state, goals[i]);
+                       goal_scores << score;
+                   }
+                   
+                   // Find closest goal
+                   float best_goal_score = -1e9f;
+                   int best_goal_idx = -1;
+                   for(int i = 0; i < goal_scores.length(); i++) {
+                       if(goal_scores[i] > best_goal_score) {
+                           best_goal_score = goal_scores[i];
+                           best_goal_idx = i;
+                       }
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase6_goal_eval"; l.start();
+                   #endif
+                   
+                   
+                   // ===== PHASE 7: SOCIAL CHECKS =====
+                   // Re-evaluate nearby agents for social interactions
+                   
+                   // Simulate checking 10 nearby agents for gossip/interaction
+                   list<float> social_scores;
+                   int social_check_count = std::min(10, (int)memory->crumbs.length());
+                   
+                   for(int i = 0; i < social_check_count; i++) {
+                       float score = evaluate(agent_state, memory->crumbs[i]);
+                       social_scores << score;
+                   }
+                   
+                   #if GTIMERS
+                   timers << l.end(); timer_labels << "phase7_social_check";
+                   #endif
+                   
+                   // Store results for physics thread to use
+                   agent->opt_floats[0] = best_action_score;
+                   agent->opt_ints[5] = best_action_idx;
+               }
+               
                #if GTIMERS
                timers << overall.end(); timer_labels << "overall";
                #endif
@@ -814,6 +1169,7 @@ int main() {
      vec3 cam_pos(0, side_length * 0.8f, side_length * 0.8f);
      scene->camera.setPosition(cam_pos);
      scene->camera.setTarget(vec3(0, 0, 0));
+
 
      // g_ptr<Single> test_origin = make<Single>(make<Model>(makeTestBox(1.0f)));
      // scene->add(test_origin);
@@ -899,7 +1255,7 @@ int main() {
                if(a->threadUpdate&&a->isActive())
                     a->threadUpdate();
           }
-     },0.008f);
+     },0.00001f);
      update_thread->logSPS = true;
 
      S_Tool s_tool;
@@ -1372,6 +1728,27 @@ int main() {
                
           //      return true;
           // };
+
+
+
+//Crumb based
+
+          // scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
+          //      g_ptr<Single> q = make<Single>(c_model);
+          //      scene->add(q);
+          //      q->scale(0.5f);
+          //      q->setPhysicsState(P_State::GHOST);
+          //      q->opt_ints = list<int>(4,0);
+          //      q->opt_floats = list<float>(2,0);
+          //      q->opt_vec_3 = vec3(0,0,0);
+
+          //      //If you want to update a crumb each frame
+          //      // q->physicsJoint = [q](){
+
+          //      //      return true;
+          //      // };
+          //      ctx.set<g_ptr<Object>>("toReturn",q);
+          // }));
 
           // agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
           //      int& frame = agent->opt_ints[3];

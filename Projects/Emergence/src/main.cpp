@@ -44,7 +44,7 @@ int main() {
      list<g_ptr<Single>> boxes;
 
      scene->enableInstancing();
-     Physics phys(scene);
+   
 
 
      int grid_size = 400;

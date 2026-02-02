@@ -455,6 +455,10 @@ public:
         }
     }
 
+    inline void swap(size_t from, size_t to) {
+        std::swap(ptr[from], ptr[to]);
+    }
+
     template<typename TT>
     /// @brief Compares two lists and returns true if they are equivalent.
     bool operator==(list<TT>& other) {
