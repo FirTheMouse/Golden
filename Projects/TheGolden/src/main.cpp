@@ -527,8 +527,14 @@ public:
 
           physics_attention << meta_root;
           cognitive_attention << is_root;
+
+          for(int i = 0; i < CRUMB_ROWS; i++)
+          for(int j = 0; j < 10; j++)
+               cmask.mat[i][j] = 1.0f;
      };
      ~crumb_manager() {};
+
+     crumb cmask;
 
      g_ptr<CategoryNode> meta_root = nullptr;
      g_ptr<CategoryNode> is_root = nullptr;
@@ -562,6 +568,7 @@ public:
                   min_current_salience = attended_sal;
               }
           }
+          if(min_current_salience==0) return 1.0f; //Just to stop those inf returns
           float relative_score = (sal - min_current_salience * 0.9f) / min_current_salience;
           return std::max(0.0f, relative_score);
       }
@@ -569,16 +576,19 @@ public:
      void observe(crumb& thing) {
           g_ptr<CategoryNode> node = make<CategoryNode>();
           node->archetype = thing;
-          
-          auto recent = physics_attention[0];
-          // for(auto recent : physics_attention) {
+
+          int l = physics_attention.length();
+          //Do the N last objects of our attention list
+          int n = 1;
+          for(int i= l<n ? 0: l-n ;i<l;i++) {
+               auto recent = physics_attention[i];
                node->parents << recent.getPtr();
                recent->children << node;
                total_connections += 2;
-          //}
+          }
 
           physics_attention << node;
-          if(physics_attention.length()<physics_focus) {
+          if(physics_attention.length()>physics_focus) {
                physics_attention.removeAt(0);
           }
      }
@@ -615,6 +625,80 @@ public:
          
          return current;
      }
+
+     list<vec3> come_up_with_a_path(int& for_benchmark, int verb_a, int verb_b, const crumb& mask) {
+          list<vec3> path;
+          if(physics_attention.empty()) {
+              //print("Physics attention is empty!");
+              return path;
+          }
+          
+          // print("=== Searching observation chain ===");
+          // print("Chain length: ", physics_attention.length());
+          
+          g_ptr<CategoryNode> current = physics_attention.last();
+          int depth = 0;
+          
+          while(current != nullptr && current->parents.length() > 0) {
+               if(current->archetype.form != nullptr) {
+                    crumb against = current->archetype;
+                    mult_mask(against,verb_b,mask,verb_b);
+                    float sal = salience(against);
+                    float rel = relevance(against, sal);
+               //    print("Depth ", depth, ": ", 
+               //          current->archetype.form->dtype, 
+               //          " sal=", sal, 
+               //          " rel=", rel,
+               //          " active=", current->archetype.form->isActive());
+                    for_benchmark++;
+                  
+                  if(rel >= 1.0f) {
+                    //   print("Found target! Building path...");
+                      // Build path backwards from current position to target
+                      path.clear();
+                      g_ptr<CategoryNode> node = physics_attention.last(); // Start from current position
+                      
+                      // Walk backwards until we reach the target node
+                      while(node != nullptr) {
+                          if(node->archetype.form != nullptr) {
+                              vec3 pos = vec3(scene->transforms[node->archetype.form->ID][3]);
+                              path << pos;  // Append (we're going backwards, so this gives us reverse order)
+                              // print("  Added waypoint: ", pos.to_string());
+                          }
+                          
+                          if(node == current) break;  // Reached target
+                          if(node->parents.empty()) break;
+                          node = node->parents[0];
+                      }
+                      
+                      // Reverse so path goes from current -> target
+                      list<vec3> reversed;
+                      for(int i = path.length()-1; i >= 0; i--) {
+                          reversed << path[i];
+                      }
+                      
+                     // print("Path complete with ", reversed.length(), " waypoints");
+                      return reversed;
+                  }
+              } else {
+                 // print("Depth ", depth, ": node has no form");
+              }
+              
+              current = current->parents[0];
+              depth++;
+              
+              if(depth > 50000) {
+                  print("Max depth reached, stopping search");
+                  break;
+              }
+          }
+          
+          // print("No suitable target found in chain");
+          return path;
+      }
+      list<vec3> come_up_with_a_path(int& for_benchmark) {
+          return come_up_with_a_path(for_benchmark,WANTS,IS,cmask);
+      }
 };
 
 
@@ -636,7 +720,7 @@ int main() {
 
      scene->enableInstancing();
 
-     int amt = 10;
+     int amt = 1;
      float agents_per_unit = 0.3f;
      float total_area = amt / agents_per_unit;
      float side_length = std::sqrt(total_area);
@@ -657,6 +741,9 @@ int main() {
      g_ptr<Model> b_model = make<Model>(makeTestBox(1.0f));
      g_ptr<Model> c_model = make<Model>(makeTestBox(0.3f));
      g_ptr<Model> grass_model = make<Model>(MROOT+"products/grass.glb");
+     g_ptr<Model> berry_model = make<Model>(MROOT+"products/berry.glb");
+     g_ptr<Model> clover_model = make<Model>(MROOT+"products/clover.glb");
+     g_ptr<Model> stone_model = make<Model>(MROOT+"products/stone.glb");
      c_model->setColor({0,0,1,1});
      a_model->localBounds.transform(0.6f);
 
@@ -717,7 +804,7 @@ int main() {
 
      map<int,crumb> crumbs;
      
-     int grass_count = (int)(grid_size * grid_size * 0.1f);
+     int grass_count = (int)(grid_size * grid_size * 0.00f);
      for(int i = 0; i < grass_count; i++) {
          g_ptr<Single> box = make<Single>(grass_model);
          scene->add(box);
@@ -726,7 +813,7 @@ int main() {
          vec3 pos(randf(-grid_size/2, grid_size/2), 0, randf(-grid_size/2, grid_size/2));
          box->setPosition(pos);
          box->setScale({1.3, s, 1.3});
-         box->setPhysicsState(P_State::FREE);
+         box->setPhysicsState(P_State::PASSIVE);
          box->opt_ints << randi(1, 10);
          box->opt_floats << -1.0f;
          addToGrid(box);
@@ -736,10 +823,36 @@ int main() {
                  mem.mat[r][col] = 0.0f;
              }
          }
-         mem.mat[3][0] = randf(1.0f,1.5f);
+         mem.mat[3][0] = randf(1.0f,1.04f); //Satiety
+         mem.mat[3][1] = randf(0.2f,0.6f); //Shelter
          mem.form = box;
          crumbs.put(box->ID,mem);
      }
+
+     // g_ptr<Single> clover = make<Single>(clover_model);
+     // scene->add(clover);
+     // clover->dtype = "clover";
+     // clover->setScale({1,1.2,1});
+     // clover->setPosition({0,0,0});
+     // clover->setPhysicsState(P_State::PASSIVE);
+     // addToGrid(clover);
+     // crumb clover_crumb;
+     // clover_crumb.mat[3][0] = 0.5f; //Satiety
+     // clover_crumb.mat[3][1] = 1.3f; //Shelter
+     // clover_crumb.form = clover;
+     // crumbs.put(clover->ID,clover_crumb);
+
+     // g_ptr<Single> berry = make<Single>(berry_model);
+     // scene->add(berry);
+     // berry->dtype = "berry";
+     // berry->setPosition({-5,0,0});
+     // berry->setPhysicsState(P_State::PASSIVE);
+     // addToGrid(berry);
+     // crumb berry_crumb;
+     // berry_crumb.mat[3][0] = 1.3f; //Satiety
+     // berry_crumb.mat[3][1] = 0.5f; //Shelter
+     // berry_crumb.form = berry;
+     // crumbs.put(berry->ID,berry_crumb);
      
 
      scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
@@ -752,7 +865,8 @@ int main() {
           q->opt_vec_3 = vec3(0,0,0);
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
-     //make_maze(b_model);
+     
+     make_maze(b_model);
 
      list<g_ptr<Single>> agents;
      list<vec3> goals;
@@ -783,6 +897,7 @@ int main() {
               0,
               (row - width/2) * spacing
           );
+          base_pos.addZ(50);
           vec3 jitter(randf(-spacing*0.3f, spacing*0.3f), 0, randf(-spacing*0.3f, spacing*0.3f));
           agent->setPosition(base_pos + jitter);
           agent->setPhysicsState(P_State::FREE);
@@ -792,20 +907,26 @@ int main() {
           agent->opt_ints << 0; // [3] = Accumulator 2
           agent->opt_ints << 0; // [4] = Accumulator 3
           agent->opt_ints << 0; // [5] = Accumulator 4
+          agent->opt_ints << 0; // [6] = Accumulator 5
           agent->opt_floats << -0.4f; // [0] = attraction
           agent->opt_floats << randf(4,6); // [1] = speed
+          agent->opt_floats << 1.0f; // [2] = goal focus
           agent->opt_vec3_2 = vec3(0,0,0); //Progress
           agents << agent;
 
           g_ptr<Single> marker = scene->create<Single>("crumb");
-          marker->setPosition(vec3(
+          vec3 possible_pos = vec3(
                randf(-side_length/2, side_length/2), 
                0, 
                randf(-side_length/2, side_length/2)
-           ));
+          );
+          int depth = 0;
+          while(!grid->getCell(possible_pos).empty()&&depth<50) {
+               possible_pos = vec3(randf(-5,5), 0, randf(-5,5));
+               depth++;
+          }
+          marker->setPosition(possible_pos);
           marker->setPhysicsState(P_State::NONE);
-          marker->opt_floats[0] = 20.0f; //Set attraction
-          marker->opt_floats[1] = 1.0f;
           goals << marker->getPosition();
 
           g_ptr<crumb_manager> memory = make<crumb_manager>();
@@ -815,8 +936,10 @@ int main() {
                     mem.mat[r][col] = 0.0f;
                }
           }
-          mem.mat[3][0] = randf(0.1f,0.3f);
-          mem.mat[13][0] = randf(1.0f,1.8f);
+          mem.mat[3][0] = randf(0.1f,0.3f); //Satiety
+          mem.mat[3][1] = randf(0.2f,0.6f); //Shelter
+          mem.mat[13][0] = randf(1.0f,1.8f); //Hunger
+          mem.mat[13][1] = randf(0.1f,0.2f); //Tierdness
           mem.form = agent;
           crumbs.put(agent->ID,mem);
           memory->current_state = mem;
@@ -852,9 +975,8 @@ int main() {
                
           crumb_managers << memory;
 
-          float agent_hue = (float(i) / float(amt)) * 360.0f;
-  
-          agent->physicsJoint = [agent, memory, marker, update_thread, &goals, &agents, &crumbs, &debug, phys, side_length]() {
+          float agent_hue = (float(i) / float(amt)) * 360.0f;  
+          agent->physicsJoint = [agent, memory, marker, update_thread, &crumb_managers, &goals, &agents, &crumbs, &debug, phys, side_length]() {
                #if GTIMERS
                Log::Line overall;
                Log::Line l;
@@ -863,7 +985,7 @@ int main() {
                timers.clear(); timer_labels.clear();
                overall.start();
                agent->opt_ints[4] = 0;
-               agent->opt_ints[5] = 0;
+               // agent->opt_ints[5] = 0;
                #endif
                //Always setup getters for sketchpad properties because chances are they'll change later
                //Plus it helps with clarity to name them
@@ -872,38 +994,97 @@ int main() {
                g_ptr<Single> goal_crumb = marker;
                int& spin_accum = agent->opt_ints[2];
                int& on_frame = agent->opt_ints[3];
-
+               float& goal_focus = agent->opt_floats[2];
+               int& accum5 = agent->opt_ints[5];
+               //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
+               list<int>& path = agent->opt_idx_cache_2;
                //This is just for testing
-               vec3 goal = goals[id];  //goal_crumb->getPosition();
-               // if(agent->distance(goal_crumb) <= 1.0f) {
-               // if(spin_accum < 5) {
-               //      if(goal_crumb->isActive()) {
-               //           scene->deactivate(goal_crumb);
-               //           agent->setLinearVelocity(vec3(0,0,0));
-               //      }
-               //      if(spin_accum % 2 == 0)
-               //           agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
-               //           spin_accum++;
-               //      return true;
-               // } else {
-               //      // vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
-               //      vec3 new_goal(
-               //           randf(-side_length/2, side_length/2), 
-               //           0, 
-               //           randf(-side_length/2, side_length/2)
-               //      );
-               //      scene->reactivate(goal_crumb);
-               //      goal_crumb->setPosition(new_goal);
-               //      spin_accum = 0;
-               // }
-               // }
+               vec3 goal = marker->getPosition(); //goals[id];  //goal_crumb->getPosition();
+
+               int thrash_interval = 15;
+               if(on_frame % thrash_interval == id % thrash_interval) {
+                    #if GTIMERS
+                    l.start();
+                    #endif
+
+                    list<vec3> directions = memory->come_up_with_a_path(accum5);
+
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "come_up_with_a_path";
+                    #endif
+               }
+
+               if(goal_focus>0.98f && agent->distance(goal) <= 2.0f) {
+                    agent->setLinearVelocity({0,0,0});
+                    marker->setPosition(agent->getPosition().addZ(40));
+
+                    #if GTIMERS
+                    l.start();
+                    #endif
+
+                    list<vec3> directions = memory->come_up_with_a_path(accum5);
+
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "come_up_with_a_path";
+                    #endif
+                    // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
+                    if(!directions.empty()) {
+                         //print("Came up with: ",directions.length()," directions");
+                         goal = directions.last();
+                         goal_focus = 1.0f;
+                         for(auto d : directions) {
+                              path << grid->toIndex(d);
+                         }
+                    } else {
+                         //print("Failed to create directions");
+                         goal_focus = 0.0f;
+                    }
+
+                    // list<int> items = grid->getCell(goal);
+                    // if(!items.empty()) {
+                    //      g_ptr<Single> g = scene->singles[items[0]];
+                    //      if(g->dtype=="grass"||g->dtype=="berry") {
+                    //           removeFromGrid(g);
+                    //           scene->deactivate(g);
+                    //           memory->current_state.mat[13][0] = 0.3f; //Hunger
+                    //           memory->current_state.mat[13][1] = 1.5f; //Tierdness
+
+                    //           #if GTIMERS
+                    //           l.start();
+                    //           #endif
+
+                    //           list<vec3> directions = memory->come_up_with_a_path(accum5);
+
+                    //           #if GTIMERS
+                    //           timers << l.end(); timer_labels << "come_up_with_a_path";
+                    //           #endif
+                    //          // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
+                    //           if(!directions.empty()) {
+                    //                //print("Came up with: ",directions.length()," directions");
+                    //               goal = directions.last();
+                    //               goal_focus = 1.0f;
+                    //               for(auto d : directions) {
+                    //                     path << grid->toIndex(d);
+                    //               }
+                    //           } else {
+                    //                // print("Failed to create directions");
+                    //                goal_focus = 0.0f;
+                    //           }
+                    //      } else if(g->dtype=="clover") {
+                    //           memory->current_state.mat[13][1] *= 0.99f; //Tierdness
+                    //           goal_focus = 0.99f;
+                    //      }
+                    // } else {
+                    //      goal_focus = 0.0f;
+                    // }
+
+                    return true;
+               }
                //Primary getters and incrementers, opt_ints[3] is the agent-local frame accumulator (may be global later) 
                float desired_speed = agent->opt_floats[1];  
                on_frame++; 
-               //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
-               list<int>& path = agent->opt_idx_cache_2;
                bool enable_astar = false;
-               int pathing_interval = 30; 
+               int pathing_interval = 15; 
                //A* Unit
                     if(enable_astar && (on_frame % (pathing_interval*20) == id % (pathing_interval*20)  || path.empty())) {
                          path = grid->findPath(
@@ -936,7 +1117,7 @@ int main() {
                          path.removeAt(0);
                          if(!path.empty()) {
                               waypoint = grid->indexToLoc(path[0]);
-                         }
+                         } 
                     }
                     vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
                     agent->faceTo(agent->getPosition() + direction);
@@ -956,11 +1137,12 @@ int main() {
                     
                     // Tunable parameters
                     int num_rays = 24; 
-                    float ray_distance = 10.0f;
+                    float ray_distance = 60.0f;
                     float cone_width = 180.0f; 
                     
                     // Get goal direction for biasing
                     vec3 to_goal = agent->getPosition().direction(goal).nY();
+                    float goal_distance = agent->getPosition().distance(goal);
                     vec3 forward = to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
                     vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
                     
@@ -971,20 +1153,20 @@ int main() {
                     // Cast rays in a forward-biased cone
                     float best_openness = 0.0f;
                     vec3 best_direction = forward;
+                    float best_goal_alignment = -1.0f;
+                    float best_aligned_clearance = 0.0f;
                     
                     float start_angle = -cone_width / 2.0f;
                     float angle_step = cone_width / (num_rays - 1);
                     
                     list<std::pair<float,int>> observed_objects;
-
+                
                     for(int i = 0; i < num_rays; i++) {
                          float angle_deg = start_angle + i * angle_step;
                          float angle_rad = angle_deg * 3.14159f / 180.0f;
                          
-                         // Direction in the sampling cone
                          vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
                          
-                         // Raycast to find openness in this direction
                          std::pair<float,int> hit_info = grid->raycast(
                               agent->getPosition(),
                               ray_dir,
@@ -993,7 +1175,7 @@ int main() {
                          );
                          float hit_dist = hit_info.first;
                          int hit_cell = hit_info.second;
-
+                
                          if(hit_cell >= 0 && !grid->cells[hit_cell].empty()) {
                               for(int obj_id : grid->cells[hit_cell]) {
                                    std::pair<float,int> info = {hit_dist,obj_id};
@@ -1003,9 +1185,13 @@ int main() {
                               }
                          }
                          
-                         // Weight by distance + bias toward goal
                          float goal_alignment = ray_dir.dot(to_goal.normalized());
-                         float score = hit_dist * (1.0f + goal_alignment * 0.5f); // 50% bias toward goal
+                         if(goal_alignment > best_goal_alignment) {
+                              best_goal_alignment = goal_alignment;
+                              best_aligned_clearance = hit_dist;
+                         }
+                         
+                         float score = hit_dist * (1.0f + goal_alignment * goal_focus * 0.5f);
                          
                          if(score > best_openness) {
                               best_openness = score;
@@ -1016,53 +1202,51 @@ int main() {
                     #if GTIMERS
                     timers << l.end(); timer_labels << "raycast_sampling"; l.start();
                     #endif
-
+                
                     static thread_local float score_accumulator = 0.0f;
                     static thread_local int accum_counter = 0;
-
-                    // if(on_frame % (pathing_interval*5) == id % (pathing_interval*5)) {
-                         // observation obs;
-                         // obs.agent_pos = agent->getPosition();
-                         // obs.observed_objects = observed_objects;
-                         // obs.timestamp = on_frame;
-                         // memory->just_observed.push(obs);
-                    // }
                     
-                    // If we found decent openness, move that direction
-                    if(best_openness > 1.0f) { // At least 1 unit of clearance
-                         net_force = best_direction * std::min(best_openness / ray_distance, 1.0f);
-                    } else {
-                         // Too enclosed - add random exploration
-                         net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
-                    }
-
+                    // Decide movement: beeline if well-aligned and clear, otherwise use best scored direction
+                    float beeline_threshold = 0.95f * goal_focus; // Scales with goal focus
+                    bool can_beeline = (best_goal_alignment > beeline_threshold && 
+                                        best_aligned_clearance >= goal_distance);
+                    
+                    vec3 environmental_force = can_beeline ? 
+                        to_goal.normalized() : 
+                        (best_openness > 1.0f ? best_direction : vec3(randf(-1, 1), 0, randf(-1, 1)));
+                
                     agent->opt_ints[4] += observed_objects.length();
-
+                
                     for(auto info : observed_objects) {
                          #if GTIMERS
                          l.start();
                          #endif
-
+                
                          int obj_id = info.second;
                          crumb& obj_crumb = crumbs[obj_id];
-                         obj_crumb.form = scene->singles[obj_id];
+                         g_ptr<Single> single = scene->singles[obj_id];
+                         obj_crumb.form = single;
                          float dist_to_obj = info.first;
-                         agent->opt_ints[5] += 1;
-
+                
                          #if GTIMERS
                          timers << l.end(); timer_labels << "flush_value_init"; l.start();
                          #endif
-
-                         if(!memory->in_attention(obj_crumb)) {
-                              float salience = memory->salience(obj_crumb);
-                              float relevance = memory->relevance(obj_crumb,salience);
-                              if(relevance>0.0f) {
+                
+                         float salience = memory->salience(obj_crumb);
+                         float relevance = memory->relevance(obj_crumb,salience);
+                         if(relevance>0.0f||single->dtype=="clover") {
+                              //agent->opt_ints[5] += 1;
+                              if(!memory->in_attention(obj_crumb)) {
                                    memory->observe(obj_crumb);
-                                   if(relevance>0.5f) {
-                                        goals[id] = vec3(scene->transforms[obj_id][3]);
-                                   }
-                              } 
-                         }
+                                   if(single->dtype=="clover")
+                                        agent->opt_ints[6]=1;
+                              }
+                
+                              if(relevance>0.9f) {
+                                   goals[id] = vec3(scene->transforms[obj_id][3]);
+                                   goal_focus = 1.0f; // Set high goal focus
+                              }
+                         } 
                          #if GTIMERS
                          timers << l.end(); timer_labels << "observe";
                          #endif
@@ -1071,15 +1255,7 @@ int main() {
                     #if GTIMERS
                     timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
                     #endif
-                         //my_debug[1]->setPosition((agent->getPosition()+net_force).addY(5.0f));
-     
-                         // print(id,": Net force: ",net_force.to_string());
-     
-                         // float exploration_strength = (speed_ratio < 0.5f) ? 1.0f : 0.3f;
-                         // vec3 exploration(randf(-1.0f, 1.0f), 0, randf(-1.0f, 1.0f));
-                         // vec3 environmental_force = (net_force + exploration * exploration_strength);
-
-                    vec3 environmental_force = net_force; //Just trying no exploration for now
+                
                     if(environmental_force.length() > 0.01f) {
                          environmental_force = environmental_force.normalized();
                          
@@ -1090,7 +1266,6 @@ int main() {
                          } else {
                               final_direction = environmental_force;
                          }
-                         //print(id,": Final direction: ",net_force.to_string());
                          
                          vec3 velocity = final_direction * desired_speed;
                          agent->faceTo(agent->getPosition() + velocity);
@@ -1099,7 +1274,7 @@ int main() {
                     #if GTIMERS
                     timers << l.end(); timer_labels << "velocity_application";
                     #endif
-               }
+                }
 
                #if GTIMERS
                timers << overall.end(); timer_labels << "overall";
@@ -1133,68 +1308,7 @@ int main() {
                timers << l.end(); timer_labels << "value setup"; l.start();
                #endif
 
-               // static thread_local float score_accumulator = 0.0f;
-               // static thread_local int accum_counter = 0;
-
-               // if(!memory->just_observed.empty()) {
-               //      list<observation> obs = memory->just_observed;
-               //      memory->just_observed.clear();
-               // } else {
-               //      //score_accumulator++;
-               // }
-
-               // if(!memory->just_observed.empty()) {
-               //      list<observation> obs = memory->just_observed;
-               //      memory->just_observed.clear();
-               //      for(auto o : obs) {
-               //      for(auto info : o.observed_objects) {
-               //           #if GTIMERS
-               //           l.start();
-               //           #endif
-
-               //           int obj_id = info.second;
-               //           crumb& obj_crumb = crumbs[obj_id];
-               //           obj_crumb.form = scene->singles[obj_id];
-               //           float dist_to_obj = info.first;
-
-               //           #if GTIMERS
-               //           timers << l.end(); timer_labels << "flush_value_init"; l.start();
-               //           #endif
-
-               //           agent->opt_ints[5] += 1;
-               //           auto cat =  memory->find_best_category(obj_crumb, META, memory->items_root);
-
-               //           #if GTIMERS
-               //           timers << l.end(); timer_labels << "find_best_category"; l.start();
-               //           #endif
-
-               //           int found_crumb = cat->store->crumbs.find_if([obj_crumb](const crumb& a_crumb){
-               //                return obj_crumb.form == a_crumb.form;
-               //           });
-               //           #if GTIMERS
-               //           timers << l.end(); timer_labels << "deduplicate_cateogry";
-               //           #endif
-
-               //           if(found_crumb==-1) {
-               //                memory->add_to_category(obj_crumb,cat);
-               //           } else {
-               //                //apply_mask(obj_crumb,META,cat->instance_indices[found_crumb],META);
-               //           }
-
-               //           #if GTIMERS
-               //           timers << l.end(); timer_labels << "add_to_category";
-               //           #endif
-                         
-               //           // Prevent accumulator overflow
-               //           accum_counter++;
-               //           if(accum_counter > 100000 || score_accumulator > 1e9f) {
-               //                score_accumulator *= 0.5f;
-               //                accum_counter = 0;
-               //           }
-               //      }
-               //      }
-               // }
-
+     
                #if GTIMERS
                timers << l.end(); timer_labels << "thread flush";
                #endif
@@ -1282,9 +1396,10 @@ int main() {
 
      list<std::function<void()>> from_phys_to_update;
 
+     map<std::string,double> total_times;
      S_Tool phys_logger;
      #if GTIMERS
-     phys_logger.log = [agents,phys,&crumb_managers,amt](){
+     phys_logger.log = [agents,phys,&crumb_managers,&total_times,amt](){
           map<std::string,double> times;
           int accum4 = 0;
           int accum5 = 0;
@@ -1294,14 +1409,21 @@ int main() {
                }
                accum4 += a->opt_ints[4];
                accum5 += a->opt_ints[5];
+               a->opt_ints[5] = 0;
           }
           print("------------\n AGENT JOINT TIMES");
           for(auto e : times.entrySet()) {
-               print(e.key,": ",ftime(e.value));
+               print(e.key,": ",ftime(e.value)," (total: ",ftime(total_times.getOrDefault(e.key,0.0)),")");
           }
+          for(auto e : total_times.entrySet()) {
+               if(!times.hasKey(e.key)) {
+                    print("(",e.key,": ",ftime(e.value),")");
+               }
 
+          }
+          total_times.clear();
           print("Total crumbs observed: ",accum4);
-          print("Observations processed: ",accum5);
+          print("Evaluated spatial queries since last log: ",accum5);
 
           std::function<int(g_ptr<CategoryNode>)> instances_in_cateogry = [&](g_ptr<CategoryNode> c){
                int total = c->store->crumbs.length();
@@ -1322,7 +1444,7 @@ int main() {
      };
      #endif
      run_thread->name = "Physics";
-     run_thread->run([phys,&phys_logger,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
+     run_thread->run([phys,&phys_logger,&total_times,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
                phys->collisonMethod = Physics::GRID;
@@ -1332,6 +1454,11 @@ int main() {
                phys->treeBuilt3d = false;
           }
           phys->updatePhysics();
+          for(auto a : agents) {
+               for(int i=0;i<a->timers.length();i++) {
+                    total_times.getOrPut(a->timer_labels[i],0) += a->timers[i];
+               }
+          }
      },0.008f);
      run_thread->logSPS = true;
 

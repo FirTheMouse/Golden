@@ -96,8 +96,10 @@ public:
     vec3 getScale();
     CollisionLayer& getLayer();
 
-    virtual float distance(g_ptr<Single> other) {return getPosition().distance(other->getPosition());}
-    virtual vec3 direction(g_ptr<Single> other) {return getPosition().direction(other->getPosition());}
+    float distance(const vec3& other) {return getPosition().distance(other);}
+    float distance(g_ptr<Single> other) {return getPosition().distance(other->getPosition());}
+    vec3 direction(const vec3& other) {return getPosition().direction(other);}
+    vec3 direction(g_ptr<Single> other) {return getPosition().direction(other->getPosition());}
     virtual Single& setPosition(const vec3& pos,bool update = true);
     virtual Single& move(const vec3& delta,bool update = true);
     virtual Single& move(const vec3& delta,float duration,bool update=true);
