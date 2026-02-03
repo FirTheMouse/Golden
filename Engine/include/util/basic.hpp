@@ -12,6 +12,17 @@ void printnl(Args&&... args) {
   (std::cout << ... << args);
 }
 
+inline std::string add_commas(int num) {
+  std::string str = std::to_string(num);
+  int insert_position = str.length() - 3;
+  
+  while(insert_position > 0) {
+      str.insert(insert_position, ",");
+      insert_position -= 3;
+  }
+  
+  return str;
+}
 
 inline float randf(float min, float max)
 {

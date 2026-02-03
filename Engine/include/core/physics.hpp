@@ -807,12 +807,12 @@ public:
         enableQuadCollisons = false;
     }
 
-#define TIMERS 0
+#define PHYSTIMERS 0
 
     void updatePhysics()
     {  
 
-#if TIMERS
+#if PHYSTIMERS
 Log::Line overall; overall.start();
 Log::Line l; l.start();
 double joints3d_time = 0;
@@ -833,17 +833,17 @@ map<std::string,vec2> dtype_joint_profiles;
         for (size_t i = 0; i < scene->active.length(); ++i) {
             g_ptr<Single> single = GET(scene->singles, i);
             if(single->physicsJoint) {
-                #if TIMERS
+                #if PHYSTIMERS
                 Log::Line s; s.start();
                 #endif
                 single->physicsJoint(); // modifies velocities
-                #if TIMERS
+                #if PHYSTIMERS
                 dtype_joint_profiles.getOrPut(single->dtype,vec2(0,0)) += vec2(1,s.end());
                 #endif
             }
         }
 
-#if TIMERS
+#if PHYSTIMERS
 joints3d_time += l.end(); l.start();
 #endif
 
@@ -864,7 +864,7 @@ joints3d_time += l.end(); l.start();
             }
         }
 
-#if TIMERS
+#if PHYSTIMERS
 preloop3d_time += l.end();
 #endif
 
@@ -891,40 +891,40 @@ preloop3d_time += l.end();
             }
         }
 
-#if TIMERS
+#if PHYSTIMERS
 l.start();
 #endif
         if(collisonMethod==SAMPLE_METHOD::AABB) {
             if(!treeBuilt3d) {
                 buildTree3d();
-#if TIMERS
+#if PHYSTIMERS
 tree3d_time += l.end(); l.start();
 #endif
                 treeBuilt3d = true;
             } else {
                 updateTreeInPlace(treeRoot3d);
-#if TIMERS
+#if PHYSTIMERS
 update_tree_time += l.end(); l.start();
 #endif
             }
                 auto col_pairs = AABB_generate3dCollisonPairs();
-#if TIMERS
+#if PHYSTIMERS
 generate_pairs_time += l.end(); l.start();
 pairs_len = col_pairs.length();
 #endif
                 handle3dCollison(col_pairs);
-#if TIMERS
+#if PHYSTIMERS
 handle_collison_time += l.end();
 #endif
         } else if(collisonMethod==SAMPLE_METHOD::GRID) {
 
                 auto col_pairs = GRID_generate3dCollisionPairs();
-#if TIMERS
+#if PHYSTIMERS
 generate_pairs_time += l.end(); l.start();
 pairs_len = col_pairs.length();
 #endif
                 handle3dCollison(col_pairs);
-#if TIMERS
+#if PHYSTIMERS
 handle_collison_time += l.end();
 #endif
         } 
@@ -947,7 +947,7 @@ handle_collison_time += l.end();
             }
         } 
 
-#if TIMERS
+#if PHYSTIMERS
 l.start();
 #endif
         //3d physics pass
@@ -1007,7 +1007,7 @@ l.start();
         }
 
         
-#if TIMERS
+#if PHYSTIMERS
 velocity3d_time += l.end();
 #endif
 
@@ -1074,7 +1074,7 @@ velocity3d_time += l.end();
             }
         }
 
-#if TIMERS
+#if PHYSTIMERS
 if(FRAME%60==0) {
     print("---------------------\nFrame: ",FRAME);
     double overall_time = overall.end();

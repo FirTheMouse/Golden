@@ -2,6 +2,8 @@
 #include<core/physics.hpp>
 #include<util/meshBuilder.hpp>
 #include<util/ml_util.hpp>
+#include<util/logger.hpp>
+#include<set>
 using namespace Golden;
 using namespace helper;
 
@@ -168,14 +170,34 @@ void make_maze(g_ptr<Model> wall_model) {
 }
 
 #define GTIMERS 1
-const ivec2 META(0,1);
-const ivec2 IS(2,9);
-const ivec2 DOES(10,19);
-const ivec2 WANTS(20,29);
-const ivec2 HAS(30,39);
-#define CRUMB_ROWS 40 
+// #define CRUMB_ROWS 40 
+// // Packed ints with start / count so we can be more dynamic!
+// const int META  = (0 << 16) | 1; 
+// const int IS    = (1 << 16) | 10;
+// const int DOES  = (11 << 16) | 10;
+// const int WANTS = (21 << 16) | 10;
+// const int HAS   = (31 << 16) | 9;
+// const int ALL = (0 << 16) | CRUMB_ROWS;
+
+#define CRUMB_ROWS 20
+// Packed ints with start / count so we can be more dynamic!
+const int META  = (0 << 16) | 1; 
+const int IS    = (1 << 16) | 5;
+const int DOES  = (6 << 16) | 5;
+const int WANTS = (11 << 16) | 5;
+const int HAS   = (16 << 16) | 5;
+const int ALL = (0 << 16) | CRUMB_ROWS;
 
 struct crumb {
+
+     crumb() {
+          for(int r = 0; r < CRUMB_ROWS; r++) {
+               for(int c = 0; c < 10; c++) {
+                   mat[r][c] = 0.0f;
+               }
+           }
+     }
+
      g_ptr<Single> form = nullptr;
      float mat[CRUMB_ROWS][10];
 
@@ -206,92 +228,368 @@ static void matmul(const float* eval, const float* against, float* result) {
                 result, 10);
 }
 
-static float evaluate_elementwise(const crumb& agent, const crumb& item) {
-    float score = 0.0f;
-    
-    for(int i = 0; i < CRUMB_ROWS; i++) {
-        for(int j = 0; j < 10; j++) {
-            score += agent.mat[i][j] * item.mat[i][j];
-        }
-    }
-    
-    return score;
-}
-
-static float evaluate(const crumb& agent, const crumb& item) {
-    return evaluate_elementwise(agent, item);
-}
-
-static void apply_mask(crumb& target, const crumb& mask) {
-    for(int i = 0; i < CRUMB_ROWS; i++) {
-        for(int j = 0; j < 10; j++) {
-            target.mat[i][j] *= mask.mat[i][j];
-        }
-    }
-}
-
 static float evaluate_matmul(const crumb& eval, const crumb& against, crumb& result) {
-    matmul(eval.data(), against.data(), result.data());
-    return compute_trace(result.data());
+     matmul(eval.data(), against.data(), result.data());
+     return compute_trace(result.data());
+ }
+ 
+ static float evaluate_matmul(const crumb& eval, const crumb& against) {
+     crumb result{};
+     return evaluate_matmul(eval, against, result);
+ }
+ 
+
+static float evaluate_elementwise(const crumb& eval, int eval_verb, const crumb& against, int against_verb) {
+     int eval_start = (eval_verb >> 16) & 0xFFFF;
+     int eval_count = eval_verb & 0xFFFF;
+     int against_start = (against_verb >> 16) & 0xFFFF;
+     int against_count = against_verb & 0xFFFF;
+
+     assert(eval_count == against_count); 
+
+     float score = 0.0f;
+     const float* eval_ptr = &eval.mat[eval_start][0];
+     const float* against_ptr = &against.mat[against_start][0];
+     int total = eval_count * 10;
+     for(int i = 0; i < total; i++) {
+          score += eval_ptr[i] * against_ptr[i];
+     }
+
+     return score;
 }
 
-static float evaluate_matmul(const crumb& eval, const crumb& against) {
-    crumb result{};
-    return evaluate_matmul(eval, against, result);
+static float evaluate(const crumb& eval, int eval_verb, const crumb& against, int against_verb) {
+    return evaluate_elementwise(eval, eval_verb, against, against_verb);
 }
 
-struct CategoryNode : public Object {
+static float evaluate_binary(const crumb& a, int a_verb, const crumb& b, int b_verb) {
+     int a_start = (a_verb >> 16) & 0xFFFF;
+     int a_count = a_verb & 0xFFFF;
+     int b_start = (b_verb >> 16) & 0xFFFF;
+     int b_count = b_verb & 0xFFFF;
+     
+     assert(a_count == b_count);
+     
+     float* a_ptr = (float*)&a.mat[a_start][0];
+     float* b_ptr = (float*)&b.mat[b_start][0];
+     
+     int total_elements = a_count * 10;
+     int matching_bits = 0;
+     int total_bits = total_elements * 32;
+     
+     for(int i = 0; i < total_elements; i++) {
+         uint32_t a_bits = *(uint32_t*)&a_ptr[i];
+         uint32_t b_bits = *(uint32_t*)&b_ptr[i];
+         uint32_t xor_result = a_bits ^ b_bits;
+         uint32_t matching = ~xor_result;
+         matching_bits += __builtin_popcount(matching);
+     }
+     return (float)matching_bits / (float)total_bits;
+ }
+
+template<typename Op>
+static void apply_mask(crumb& target, int target_verb, const crumb& mask, int mask_verb, Op op) {
+    int target_start = (target_verb >> 16) & 0xFFFF;
+    int target_count = target_verb & 0xFFFF;
+    int mask_start = (mask_verb >> 16) & 0xFFFF;
+    int mask_count = mask_verb & 0xFFFF;
+    
+    assert(target_count == mask_count);
+    
+    float* target_ptr = &target.mat[target_start][0];
+    const float* mask_ptr = &mask.mat[mask_start][0];
+    int total = target_count * 10;
+    
+    for(int i = 0; i < total; i++) {
+        target_ptr[i] = op(target_ptr[i], mask_ptr[i]);
+    }
+}
+
+static void mult_mask(crumb& t, int tv, const crumb& m, int mv) {
+    apply_mask(t, tv, m, mv, [](float a, float b) { return a * b; });
+}
+
+static void div_mask(crumb& t, int tv, const crumb& m, int mv) {
+    apply_mask(t, tv, m, mv, [](float a, float b) { return a / b; });
+}
+
+static void add_mask(crumb& t, int tv, const crumb& m, int mv) {
+    apply_mask(t, tv, m, mv, [](float a, float b) { return a + b; });
+}
+
+static void scale_mask(crumb& target, int verb, float scalar) {
+     int start = (verb >> 16) & 0xFFFF;
+     int count = verb & 0xFFFF;
+     float* ptr = &target.mat[start][0];
+     int total = count * 10;
+     
+     for(int i = 0; i < total; i++) {
+         ptr[i] *= scalar;
+     }
+ }
+ 
+
+ static crumb randcrumb() {
+     crumb seed;
+     for(int r=0; r<CRUMB_ROWS; r++)
+          for(int c=0; c<10; c++)
+               seed.mat[r][c] = randf(-1, 1);
+     return seed;
+ }
+
+struct crumb_store : public q_object {
+     list<crumb> crumbs;
+};
+
+struct CategoryNode : public q_object {
+
+     CategoryNode() {
+          store = make<crumb_store>();
+          for(int i = 0; i < CRUMB_ROWS; i++)
+               for(int j = 0; j < 10; j++)
+                    cmask.mat[i][j] = 1.0f;
+     }
+     CategoryNode(std::string _label) {
+          label = _label;
+          store = make<crumb_store>();
+          for(int i = 0; i < CRUMB_ROWS; i++)
+               for(int j = 0; j < 10; j++)
+                    cmask.mat[i][j] = 1.0f;
+     }
+
      std::string label;
-     float archetype[CRUMB_ROWS][10];
+     crumb archetype;
+     crumb cmask;
      
      // Tree structure
-     g_ptr<CategoryNode> parent;
+     list<CategoryNode*> parents;
      list<g_ptr<CategoryNode>> children;
-     
-     // Instances (only for leaf nodes)
-     list<int> instance_indices;
-     
-     // Metadata
-     float confidence = 1.0f;
-     int observation_count = 0;
-     
-     CategoryNode(std::string _label) : label(_label) {
-         // Zero archetype
-         for(int i = 0; i < CRUMB_ROWS; i++)
-             for(int j = 0; j < 10; j++)
-                 archetype[i][j] = 0.0f;
+     g_ptr<crumb_store> store = nullptr;
+          
+     list<crumb>& get_crumbs() {
+          return store->crumbs;
      }
+
+     void set_crumbs(list<crumb>& n_crumbs) {
+          store->crumbs = std::move(n_crumbs);
+     }
+
+     void add_to_category(crumb& n_crumb) {
+          get_crumbs() << n_crumb;
+      }
      
-     float* get_archetype() {
-         return &archetype[0][0];
+     g_ptr<CategoryNode> create_category(const crumb& seed, std::string label = "undefined") {
+         g_ptr<CategoryNode> new_cat = make<CategoryNode>(label);
+         new_cat->archetype = std::move(seed);
+         new_cat->parents << this;
+         children << new_cat;
+         
+         return new_cat;
+     }
+
+     void split(const list<list<int>>& to_split, int verb = ALL) {
+          for(int s = 0; s<to_split.length();s++) {
+               list<crumb> crumbs;
+               for(int i=0;i<to_split[s].length();i++) {
+                    crumbs.push(get_crumbs()[to_split[s][i]]);
+               }
+               
+               crumb new_arc;
+               for(crumb& c : crumbs) {
+                    add_mask(new_arc,verb,c,verb);
+               }
+               scale_mask(new_arc,verb,1.0f / crumbs.length());
+
+               auto new_cat = create_category(new_arc);
+               new_cat->set_crumbs(crumbs);
+          }
+     }
+
+     list<list<int>> kmeans_partition(const list<crumb>& crumbs, int k, int verb, const crumb& mask) {
+          if(crumbs.length() < k * 2) {
+              // Not enough data, return single cluster
+              list<list<int>> result;
+              list<int> all;
+              for(int i = 0; i < crumbs.length(); i++) all << i;
+              result << all;
+              return result;
+          }
+          
+          // Create masked copies of all crumbs upfront
+          list<crumb> masked_crumbs;
+          for(const crumb& c : crumbs) {
+              crumb masked = c;  // Copy
+              mult_mask(masked, verb, mask, verb);
+              masked_crumbs << masked;
+          }
+          
+          // Initialize: pick k random distinct crumbs as starting centroids
+          list<crumb> centroids;
+          list<int> used;
+          for(int i = 0; i < k; i++) {
+              int idx;
+              do {
+                  idx = randi(0, crumbs.length() - 1);
+              } while(used.has(idx));
+              
+              used << idx;
+              centroids << masked_crumbs[idx];  // Use masked version
+          }
+          
+          // Iterate until stable (max 10 iterations)
+          list<list<int>> clusters;
+          
+          for(int iter = 0; iter < 10; iter++) {
+              // Clear clusters
+              clusters.clear();
+              for(int i = 0; i < k; i++) clusters << list<int>{};
+              
+              // Assign each crumb to closest centroid
+              for(int i = 0; i < masked_crumbs.length(); i++) {
+                  float best_score = -1e9f;
+                  int best_k = 0;
+                  
+                  for(int j = 0; j < k; j++) {
+                      float score = evaluate(masked_crumbs[i], verb, centroids[j], verb);
+                      if(score > best_score) {
+                          best_score = score;
+                          best_k = j;
+                      }
+                  }
+                  
+                  clusters[best_k] << i;
+              }
+              
+              // Recompute centroids from assignments
+              for(int j = 0; j < k; j++) {
+                  if(clusters[j].empty()) continue;
+                  
+                  // Zero out
+                  for(int r = 0; r < CRUMB_ROWS; r++)
+                      for(int c = 0; c < 10; c++)
+                          centroids[j].mat[r][c] = 0.0f;
+                  
+                  // Sum
+                  for(int idx : clusters[j]) {
+                      add_mask(centroids[j], verb, masked_crumbs[idx], verb);
+                  }
+                  
+                  // Average
+                  scale_mask(centroids[j], verb, 1.0f / clusters[j].length());
+              }
+          }
+          
+          // Filter empty clusters
+          list<list<int>> result;
+          for(const list<int>& cluster : clusters) {
+              if(cluster.length() >= 1) {
+                  result << cluster;
+              }
+          }
+          
+          return result;
+      }
+     list<list<int>> kmeans_partition(const list<crumb>& crumbs, int k, int verb = ALL) {
+          return kmeans_partition(crumbs,k,verb,cmask);
+     }
+
+     void update(int verb, const crumb& mask) {
+          if(get_crumbs().length() < 5) return;  // Too small
+    
+          // Calculate coherence
+          float total_similarity = 0.0f;
+          for(const crumb& c : get_crumbs()) {
+              total_similarity += evaluate(c, verb, archetype, verb);
+          }
+          float coherence = total_similarity / get_crumbs().length();
+          
+          if(coherence < 3.0f) {  // Needs split
+              int k = randi(2, 3);
+              auto clusters = kmeans_partition(get_crumbs(), k, verb);
+              split(clusters, verb);
+          }
+     }
+     void update(int verb = ALL) {
+          update(verb,cmask);
      }
 };
 
+static int total_connections = 0;
+static float min_sal = 1.0f;
 class crumb_manager : public Object {
 public:
      crumb_manager() {
-          places_root = make<CategoryNode>("places");
-          items_root = make<CategoryNode>("items");
-          agents_root = make<CategoryNode>("agents");
-          circles_root = make<CategoryNode>("circles");
+          meta_root = make<CategoryNode>("meta");
+          is_root = make<CategoryNode>("is");
+          does_root = make<CategoryNode>("does");
+          wants_root = make<CategoryNode>("wants");
+          has_root = make<CategoryNode>("has");
+
+          physics_attention << meta_root;
+          cognitive_attention << is_root;
      };
      ~crumb_manager() {};
 
-     list<crumb> crumbs;
+     g_ptr<CategoryNode> meta_root = nullptr;
+     g_ptr<CategoryNode> is_root = nullptr;
+     g_ptr<CategoryNode> does_root = nullptr;
+     g_ptr<CategoryNode> wants_root = nullptr;
+     g_ptr<CategoryNode> has_root = nullptr;
 
-     // Priority lists - reordered frequently, cheap to rebuild
-     list<int> building_priority;
-     list<int> agent_priority;
+     crumb current_state;
 
-     g_ptr<CategoryNode> places_root = nullptr;
-     g_ptr<CategoryNode> items_root = nullptr;
-     g_ptr<CategoryNode> agents_root = nullptr;
-     g_ptr<CategoryNode> circles_root = nullptr;
+     int physics_focus = 5;
+     list<g_ptr<CategoryNode>> physics_attention; 
+     int cognitive_focus = 8;
+     list<g_ptr<CategoryNode>> cognitive_attention;
 
-     void addCrumb(crumb& n_crumb) {crumbs << n_crumb;}
+     float salience(crumb& observation) {
+          return evaluate(current_state, WANTS, observation, IS);
+     }
+
+     bool in_attention(crumb& thing) {
+          for(auto recent : physics_attention)
+          { if(thing.form==recent->archetype.form) return true; }
+          return false;
+     }
+
+     float relevance(crumb& thing, float sal) {
+          if(sal < min_sal) return 0.0f;
+          float min_current_salience = min_sal;
+          for(auto attended : physics_attention) {
+              float attended_sal = evaluate(current_state, WANTS, attended->archetype, IS);
+              if(attended_sal < min_current_salience) {
+                  min_current_salience = attended_sal;
+              }
+          }
+          float relative_score = (sal - min_current_salience * 0.9f) / min_current_salience;
+          return std::max(0.0f, relative_score);
+      }
+
+     void observe(crumb& thing) {
+          g_ptr<CategoryNode> node = make<CategoryNode>();
+          node->archetype = thing;
+          
+          auto recent = physics_attention[0];
+          // for(auto recent : physics_attention) {
+               node->parents << recent.getPtr();
+               recent->children << node;
+               total_connections += 2;
+          //}
+
+          physics_attention << node;
+          if(physics_attention.length()<physics_focus) {
+               physics_attention.removeAt(0);
+          }
+     }
+
+     void categorize(crumb& thing) {
+
+     }
+
 
      // Find best matching category for a crumb
-     g_ptr<CategoryNode> find_best_category(const crumb& crumb_obj, g_ptr<CategoryNode> root) {
+     g_ptr<CategoryNode> find_best_category(const crumb& crumb_obj, int verb, g_ptr<CategoryNode> root) {
          g_ptr<CategoryNode> current = root;
          
          while(!current->children.empty()) {
@@ -299,7 +597,8 @@ public:
              g_ptr<CategoryNode> best_child = nullptr;
              
              for(auto child : current->children) {
-                 float match = evaluate_against_archetype(crumb_obj, child);
+                 //float match = evaluate_against_archetype(crumb_obj, child);
+                 float match = evaluate(crumb_obj, META, child->archetype, META);
                  if(match > best_match) {
                      best_match = match;
                      best_child = child;
@@ -316,211 +615,18 @@ public:
          
          return current;
      }
-     
-     // Evaluate crumb against category archetype
-     float evaluate_against_archetype(const crumb& crumb_obj, g_ptr<CategoryNode> category) {
-         float score = 0.0f;
-         float* archetype = category->get_archetype();
-         
-         for(int i = 0; i < CRUMB_ROWS; i++) {
-             for(int j = 0; j < 10; j++) {
-                 score += crumb_obj.mat[i][j] * archetype[i * 10 + j];
-             }
-         }
-         
-         return score;
-     }
-     
-     // Update category archetype with new instance
-     void update_archetype(g_ptr<CategoryNode> category, const crumb& instance) {
-         category->observation_count++;
-         float weight = 1.0f / category->observation_count;  // Running average
-         
-         float* archetype = category->get_archetype();
-         
-         for(int i = 0; i < CRUMB_ROWS; i++) {
-             for(int j = 0; j < 10; j++) {
-                 archetype[i * 10 + j] = 
-                     archetype[i * 10 + j] * (1.0f - weight) + 
-                     instance.mat[i][j] * weight;
-             }
-         }
-     }
-     
-     // Add instance to category
-     void add_to_category(int crumb_idx, g_ptr<CategoryNode> category) {
-         category->instance_indices << crumb_idx;
-     }
-     
-     // Create new emergent category
-     g_ptr<CategoryNode> create_category(const crumb& seed, g_ptr<CategoryNode> parent, std::string label) {
-         g_ptr<CategoryNode> new_cat = make<CategoryNode>(label);
-         
-         // Copy seed as initial archetype
-         float* archetype = new_cat->get_archetype();
-         for(int i = 0; i < CRUMB_ROWS; i++) {
-             for(int j = 0; j < 10; j++) {
-                 archetype[i * 10 + j] = seed.mat[i][j];
-             }
-         }
-         
-         new_cat->parent = parent;
-         new_cat->observation_count = 1;
-         parent->children << new_cat;
-         
-         return new_cat;
-     }
-     
-     // Check if category should split (low coherence)
-     void check_coherence(g_ptr<CategoryNode> category) {
-         if(category->instance_indices.length() < 5) return;  // Too few to split
-         
-         // Calculate average similarity to archetype
-         float total_similarity = 0.0f;
-         
-         for(int idx : category->instance_indices) {
-             float similarity = evaluate_against_archetype(crumbs[idx], category);
-             total_similarity += similarity;
-         }
-         
-         category->confidence = total_similarity / category->instance_indices.length();
-         
-         if(category->confidence < 0.6f) {
-             // Category is incoherent - should split
-             // TODO: implement split logic
-         }
-     }
 };
 
+
+ 
 void test_crumbs() {
-     // Create a crumb manager
-     g_ptr<crumb_manager> manager = make<crumb_manager>();
-     
-     // Create agent state
-     crumb agent_state;
-     
-     // Zero everything
-     for(int i = 0; i < CRUMB_ROWS; i++) {
-         for(int j = 0; j < 10; j++) {
-             agent_state.mat[i][j] = 0.0f;
-         }
-     }
-     
-     // Row 4 = NEED_HUNGER
-     agent_state.mat[4][0] = 0.0f;  // quantity (not used)
-     agent_state.mat[4][1] = 5.0f;  // affinity (wants to reduce hunger)
-     agent_state.mat[4][2] = 8.0f;  // current state (VERY HUNGRY)
-     agent_state.mat[4][7] = 9.0f;  // BITE satisfaction (biting helps hunger a lot)
-     
-     // Row 10 = MATERIAL_BERRY affinity
-     agent_state.mat[10][0] = 0.0f;  // doesn't have any
-     agent_state.mat[10][1] = 7.0f;  // likes berries
-     agent_state.mat[10][7] = 8.0f;  // biting berries is good
-     
-     // Create THREE test items - SAME ROW LAYOUT AS AGENT
-     crumb berry;
-     crumb stone;
-     crumb wood;
-     
-     // Zero everything
-     for(int i = 0; i < CRUMB_ROWS; i++) {
-         for(int j = 0; j < 10; j++) {
-             berry.mat[i][j] = 0.0f;
-             stone.mat[i][j] = 0.0f;
-             wood.mat[i][j] = 0.0f;
-         }
-     }
-     
-     // Berry - row 4 = how it satisfies NEED_HUNGER
-     berry.mat[4][7] = 10.0f;  // bite satisfaction (GREAT for biting when hungry)
-     
-     // Berry - row 10 = MATERIAL_BERRY properties
-     berry.mat[10][0] = 1.0f;   // quantity exists
-     berry.mat[10][1] = 8.0f;   // affinity (tasty)
-     berry.mat[10][7] = 10.0f;  // bite satisfaction
-     
-     // Stone - bad for hunger
-     stone.mat[4][7] = 1.0f;   // terrible for biting when hungry
-     stone.mat[10][0] = 1.0f;
-     stone.mat[10][1] = 2.0f;
-     stone.mat[10][7] = 1.0f;
-     
-     // Wood - medium
-     wood.mat[4][7] = 3.0f;
-     wood.mat[10][0] = 1.0f;
-     wood.mat[10][1] = 4.0f;
-     wood.mat[10][7] = 3.0f;
-     
-     print("\n=== BASIC EVALUATION TEST ===");
-     
-     // Evaluate with element-wise
-     float berry_score = evaluate_elementwise(agent_state, berry);
-     float stone_score = evaluate_elementwise(agent_state, stone);
-     float wood_score = evaluate_elementwise(agent_state, wood);
-     
-     print("Berry score: ", berry_score);
-     print("Stone score: ", stone_score);
-     print("Wood score: ", wood_score);
-     
-     print("\n=== CATEGORY TEST ===");
-     
-     // Add items to manager
-     manager->addCrumb(berry);
-     manager->addCrumb(stone);
-     manager->addCrumb(wood);
-     
-     // Create "food" category with berry as seed
-     g_ptr<CategoryNode> food_category = manager->create_category(
-         berry, 
-         manager->agents_root,
-         "food"
-     );
-     manager->add_to_category(0, food_category);  // Berry at index 0
-     
-     print("Created 'food' category with berry as archetype");
-     
-     // Test categorization of stone and wood
-     float stone_vs_food = manager->evaluate_against_archetype(stone, food_category);
-     float wood_vs_food = manager->evaluate_against_archetype(wood, food_category);
-     
-     print("Stone match to 'food': ", stone_vs_food);
-     print("Wood match to 'food': ", wood_vs_food);
-     print("(Berry would match ~", berry_score, " since it IS the archetype)");
-     
-     // Update archetype with wood (medium food)
-     manager->update_archetype(food_category, wood);
-     manager->add_to_category(2, food_category);
-     
-     print("\nAdded wood to 'food' category, archetype updated");
-     
-     // Re-check stone match
-     float stone_vs_updated_food = manager->evaluate_against_archetype(stone, food_category);
-     print("Stone match to updated 'food': ", stone_vs_updated_food);
-     print("(Should be slightly higher as archetype diluted)");
-     
-     // Check coherence
-     manager->check_coherence(food_category);
-     print("\nFood category confidence: ", food_category->confidence);
-     print("Observations: ", food_category->observation_count);
-     
-     print("\n=== HIERARCHY TEST ===");
-     
-     // Create "edible_plants" subcategory under food
-     g_ptr<CategoryNode> plants_category = manager->create_category(
-         berry,
-         food_category,
-         "edible_plants"
-     );
-     
-     print("Created 'edible_plants' as child of 'food'");
-     
-     // Find best category for berry
-     g_ptr<CategoryNode> berry_best = manager->find_best_category(berry, manager->agents_root);
-     print("Best category for berry: ", berry_best->label);
-     print("(Should descend to 'edible_plants' if hierarchy working)");
+
 }
 
 int main() {
+     // test_crumbs();
+     // return 0;
+
      Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.6");
 
      scene = make<Scene>(window,2);
@@ -530,13 +636,13 @@ int main() {
 
      scene->enableInstancing();
 
-     int amt = 10000;
+     int amt = 10;
      float agents_per_unit = 0.3f;
      float total_area = amt / agents_per_unit;
      float side_length = std::sqrt(total_area);
      
      g_ptr<Physics> phys = make<Physics>(scene);
-     float grid_size = std::max(100.0f,total_area*0.05f);
+     float grid_size = std::max(100.0f,amt*0.05f);
      grid = make<NumGrid>(0.5f,grid_size);
 
      static bool use_grid = true; 
@@ -608,20 +714,31 @@ int main() {
      //      box->opt_ints << randi(1,10);
      //      box->opt_floats << 0.2f;
      // }
+
+     map<int,crumb> crumbs;
      
-     int grass_count = (int)(side_length * side_length * 0.02f); // 2% grass coverage
+     int grass_count = (int)(grid_size * grid_size * 0.1f);
      for(int i = 0; i < grass_count; i++) {
          g_ptr<Single> box = make<Single>(grass_model);
          scene->add(box);
          box->dtype = "grass";
          float s = randf(3, 8);
-         vec3 pos(randf(-side_length/2, side_length/2), 0, randf(-side_length/2, side_length/2));
+         vec3 pos(randf(-grid_size/2, grid_size/2), 0, randf(-grid_size/2, grid_size/2));
          box->setPosition(pos);
          box->setScale({1.3, s, 1.3});
          box->setPhysicsState(P_State::FREE);
          box->opt_ints << randi(1, 10);
          box->opt_floats << -1.0f;
          addToGrid(box);
+         crumb mem;
+         for(int r = 0; r < CRUMB_ROWS; r++) {
+             for(int col = 0; col < 10; col++) {
+                 mem.mat[r][col] = 0.0f;
+             }
+         }
+         mem.mat[3][0] = randf(1.0f,1.5f);
+         mem.form = box;
+         crumbs.put(box->ID,mem);
      }
      
 
@@ -629,16 +746,10 @@ int main() {
           g_ptr<Single> q = make<Single>(c_model);
           scene->add(q);
           q->scale(0.5f);
-          q->setPhysicsState(P_State::GHOST);
+          q->setPhysicsState(P_State::NONE);
           q->opt_ints = list<int>(4,0);
           q->opt_floats = list<float>(2,0);
           q->opt_vec_3 = vec3(0,0,0);
-
-          //If you want to update a crumb each frame
-          // q->physicsJoint = [q](){
-
-          //      return true;
-          // };
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
      //make_maze(b_model);
@@ -651,22 +762,13 @@ int main() {
      g_ptr<Thread> run_thread = make<Thread>();
      g_ptr<Thread> update_thread = make<Thread>();
      
-     map<int,crumb> crumbs;
-     for(int i=0;i<100000;i++) {
-          crumb c;
-          for(int r = 0; r < CRUMB_ROWS; r++)
-          for(int col = 0; col < 10; col++)
-               c.mat[r][col] = randf(-1, 1);
-          crumbs.put(i,c);
-     }
-
-     struct ObservationBatch {
-          vec3 agent_pos;
-          int agent_id;
-          list<std::pair<float,int>> observed_objects;
-          g_ptr<crumb_manager> memory;
-     };
-     list<ObservationBatch> batch;
+     // struct ObservationBatch {
+     //      vec3 agent_pos;
+     //      int agent_id;
+     //      list<std::pair<float,int>> observed_objects;
+     //      g_ptr<crumb_manager> memory;
+     // };
+     // list<ObservationBatch> batch;
 
      int width = (int)std::sqrt(amt);
      float spacing = side_length / width;
@@ -704,91 +806,55 @@ int main() {
           marker->setPhysicsState(P_State::NONE);
           marker->opt_floats[0] = 20.0f; //Set attraction
           marker->opt_floats[1] = 1.0f;
+          goals << marker->getPosition();
 
           g_ptr<crumb_manager> memory = make<crumb_manager>();
-
-           // Create 350 memories total (all uniform crumbs now)
-          for(int c = 0; c < 350; c++) {
-               crumb mem;
-               
-               // Fill with random data for benchmark
-               for(int r = 0; r < CRUMB_ROWS; r++) {
+          crumb mem;
+          for(int r = 0; r < CRUMB_ROWS; r++) {
                for(int col = 0; col < 10; col++) {
-                    mem.mat[r][col] = randf(-1, 1);
+                    mem.mat[r][col] = 0.0f;
                }
-               }
-               
-               // Embed position in first 3 rows, column 0
-               mem.mat[0][0] = randf(-side_length/2, side_length/2);
-               mem.mat[1][0] = 0.0f;
-               mem.mat[2][0] = randf(-side_length/2, side_length/2);
-               
-               memory->addCrumb(mem);
           }
-
-          for(int j = 0; j < 100; j++) {
-               crumb seed;
-               for(int r=0; r<CRUMB_ROWS; r++)
-                    for(int c=0; c<10; c++)
-                         seed.mat[r][c] = randf(-1, 1);
-               
-               memory->create_category(seed, memory->places_root, "spatial_region_" + std::to_string(j));
-          }
+          mem.mat[3][0] = randf(0.1f,0.3f);
+          mem.mat[13][0] = randf(1.0f,1.8f);
+          mem.form = agent;
+          crumbs.put(agent->ID,mem);
+          memory->current_state = mem;
           
-          for(int j = 0; j < 50; j++) {
-               crumb seed;
-               for(int r=0; r<CRUMB_ROWS; r++)
-                    for(int c=0; c<10; c++)
-                         seed.mat[r][c] = randf(-1, 1);
+          // for(int root = 0; root < 5; root++) {
+          //      crumb seed = randcrumb();
+          //      auto current_node = memory->meta_root->create_category(seed, "root_" + std::to_string(root));
                
-               memory->create_category(seed, memory->items_root, "semantic_cat_" + std::to_string(j));
-          }
+          //      // Build a chain 8 levels deep, 1-3 branches per level
+          //      for(int depth = 0; depth < 8; depth++) {
+          //          int num_branches = randi(1, 3);
+                   
+          //          for(int branch = 0; branch < num_branches; branch++) {
+          //              crumb branch_seed = randcrumb();
+          //              auto branch_node = current_node->create_category(branch_seed, "node");
+                       
+          //              // Only add instances at leaves (depth 7)
+          //              if(depth == 7) {
+          //                  for(int inst = 0; inst < randi(30, 50); inst++) {
+          //                      crumb filler = randcrumb();
+          //                      branch_node->store->crumbs << filler;
+          //                  }
+          //              }
+                       
+          //              // Continue chain from first branch only (to keep depth consistent)
+          //              if(branch == 0) {
+          //                  current_node = branch_node;
+          //              }
+          //          }
+          //      }
+          //  }
+
                
           crumb_managers << memory;
 
           float agent_hue = (float(i) / float(amt)) * 360.0f;
-          // list<g_ptr<Single>> d_boxes;
-          // for(int j=0;j<3;j++) {
-          //      g_ptr<Single> dbox = make<Single>(make<Model>(makeTestBox(0.5f)));
-          //      scene->add(dbox);
-          //      // Each box type gets different saturation/value
-          //      float saturation = 1.0f;
-          //      float value = 1.0f - (float(j) * 0.3f); // Boxes get darker: 1.0, 0.7, 0.4
-               
-          //      // Convert HSV to RGB
-          //      float h = agent_hue / 60.0f;
-          //      float c = value * saturation;
-          //      float x = c * (1.0f - abs(fmod(h, 2.0f) - 1.0f));
-          //      float m = value - c;
-               
-          //      vec3 rgb;
-          //      if(h < 1) rgb = vec3(c, x, 0);
-          //      else if(h < 2) rgb = vec3(x, c, 0);
-          //      else if(h < 3) rgb = vec3(0, c, x);
-          //      else if(h < 4) rgb = vec3(0, x, c);
-          //      else if(h < 5) rgb = vec3(x, 0, c);
-          //      else rgb = vec3(c, 0, x);
-               
-          //      rgb += vec3(m, m, m);
-          //      dbox->setColor({rgb.x(), rgb.y(), rgb.z(), 1.0f});
-          //      if(j==0)
-          //           dbox->scale({1,0.5,1});
-          //      else if(j==1)
-          //           dbox->scale({0.5,2,0.5});
-          //      else if(j==2)
-          //           dbox->scale({0.5,1,2});
-
-
-          //      dbox->setPosition(agent->getPosition());
-          //      dbox->setPhysicsState(P_State::NONE);
-          //      d_boxes << dbox;
-          // }
-          // debug << d_boxes;
-
-
-
-
-          agent->physicsJoint = [agent, memory, marker, update_thread, &agents, &crumbs, &debug, phys, side_length,&batch]() {
+  
+          agent->physicsJoint = [agent, memory, marker, update_thread, &goals, &agents, &crumbs, &debug, phys, side_length]() {
                #if GTIMERS
                Log::Line overall;
                Log::Line l;
@@ -796,6 +862,8 @@ int main() {
                list<std::string>& timer_labels = agent->timer_labels;
                timers.clear(); timer_labels.clear();
                overall.start();
+               agent->opt_ints[4] = 0;
+               agent->opt_ints[5] = 0;
                #endif
                //Always setup getters for sketchpad properties because chances are they'll change later
                //Plus it helps with clarity to name them
@@ -806,29 +874,29 @@ int main() {
                int& on_frame = agent->opt_ints[3];
 
                //This is just for testing
-               vec3 goal = goal_crumb->getPosition();
-               if(agent->distance(goal_crumb) <= 1.0f) {
-               if(spin_accum < 5) {
-                    if(goal_crumb->isActive()) {
-                         scene->deactivate(goal_crumb);
-                         agent->setLinearVelocity(vec3(0,0,0));
-                    }
-                    if(spin_accum % 2 == 0)
-                         agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
-                         spin_accum++;
-                    return true;
-               } else {
-                    // vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
-                    vec3 new_goal(
-                         randf(-side_length/2, side_length/2), 
-                         0, 
-                         randf(-side_length/2, side_length/2)
-                    );
-                    scene->reactivate(goal_crumb);
-                    goal_crumb->setPosition(new_goal);
-                    spin_accum = 0;
-               }
-               }
+               vec3 goal = goals[id];  //goal_crumb->getPosition();
+               // if(agent->distance(goal_crumb) <= 1.0f) {
+               // if(spin_accum < 5) {
+               //      if(goal_crumb->isActive()) {
+               //           scene->deactivate(goal_crumb);
+               //           agent->setLinearVelocity(vec3(0,0,0));
+               //      }
+               //      if(spin_accum % 2 == 0)
+               //           agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
+               //           spin_accum++;
+               //      return true;
+               // } else {
+               //      // vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
+               //      vec3 new_goal(
+               //           randf(-side_length/2, side_length/2), 
+               //           0, 
+               //           randf(-side_length/2, side_length/2)
+               //      );
+               //      scene->reactivate(goal_crumb);
+               //      goal_crumb->setPosition(new_goal);
+               //      spin_accum = 0;
+               // }
+               // }
                //Primary getters and incrementers, opt_ints[3] is the agent-local frame accumulator (may be global later) 
                float desired_speed = agent->opt_floats[1];  
                on_frame++; 
@@ -892,7 +960,7 @@ int main() {
                     float cone_width = 180.0f; 
                     
                     // Get goal direction for biasing
-                    vec3 to_goal = agent->direction(goal_crumb).nY();
+                    vec3 to_goal = agent->getPosition().direction(goal).nY();
                     vec3 forward = to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
                     vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
                     
@@ -949,18 +1017,16 @@ int main() {
                     timers << l.end(); timer_labels << "raycast_sampling"; l.start();
                     #endif
 
-                    if(!observed_objects.empty()) {
-                         batch << ObservationBatch{
-                              agent->getPosition(),
-                              id,
-                              observed_objects,
-                              memory
-                         };
-                    }
-                    
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "observation_queueing";
-                    #endif
+                    static thread_local float score_accumulator = 0.0f;
+                    static thread_local int accum_counter = 0;
+
+                    // if(on_frame % (pathing_interval*5) == id % (pathing_interval*5)) {
+                         // observation obs;
+                         // obs.agent_pos = agent->getPosition();
+                         // obs.observed_objects = observed_objects;
+                         // obs.timestamp = on_frame;
+                         // memory->just_observed.push(obs);
+                    // }
                     
                     // If we found decent openness, move that direction
                     if(best_openness > 1.0f) { // At least 1 unit of clearance
@@ -968,6 +1034,38 @@ int main() {
                     } else {
                          // Too enclosed - add random exploration
                          net_force = vec3(randf(-1, 1), 0, randf(-1, 1));
+                    }
+
+                    agent->opt_ints[4] += observed_objects.length();
+
+                    for(auto info : observed_objects) {
+                         #if GTIMERS
+                         l.start();
+                         #endif
+
+                         int obj_id = info.second;
+                         crumb& obj_crumb = crumbs[obj_id];
+                         obj_crumb.form = scene->singles[obj_id];
+                         float dist_to_obj = info.first;
+                         agent->opt_ints[5] += 1;
+
+                         #if GTIMERS
+                         timers << l.end(); timer_labels << "flush_value_init"; l.start();
+                         #endif
+
+                         if(!memory->in_attention(obj_crumb)) {
+                              float salience = memory->salience(obj_crumb);
+                              float relevance = memory->relevance(obj_crumb,salience);
+                              if(relevance>0.0f) {
+                                   memory->observe(obj_crumb);
+                                   if(relevance>0.5f) {
+                                        goals[id] = vec3(scene->transforms[obj_id][3]);
+                                   }
+                              } 
+                         }
+                         #if GTIMERS
+                         timers << l.end(); timer_labels << "observe";
+                         #endif
                     }
                     
                     #if GTIMERS
@@ -1011,7 +1109,7 @@ int main() {
           };
 
 
-          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers](){
+          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers, &crumbs](){
                #if GTIMERS
                     Log::Line overall, l;
                     list<double>& timers = agent->timers2;
@@ -1019,30 +1117,100 @@ int main() {
                     timers.clear(); timer_labels.clear();
                     overall.start();
                     l.start();
+                    // agent->opt_ints[5] = 0;
                #endif
                
                static thread_local int on_frame = 0;
 
 
                int id = agent->opt_ints[1];
+               g_ptr<crumb_manager> memory = crumb_managers[id];
                on_frame++; 
                
-               int eval_interval = 1200;
+
 
                #if GTIMERS
                timers << l.end(); timer_labels << "value setup"; l.start();
                #endif
 
-               if(i==0) {
-                    update_thread->flushTasks();
-               }
+               // static thread_local float score_accumulator = 0.0f;
+               // static thread_local int accum_counter = 0;
+
+               // if(!memory->just_observed.empty()) {
+               //      list<observation> obs = memory->just_observed;
+               //      memory->just_observed.clear();
+               // } else {
+               //      //score_accumulator++;
+               // }
+
+               // if(!memory->just_observed.empty()) {
+               //      list<observation> obs = memory->just_observed;
+               //      memory->just_observed.clear();
+               //      for(auto o : obs) {
+               //      for(auto info : o.observed_objects) {
+               //           #if GTIMERS
+               //           l.start();
+               //           #endif
+
+               //           int obj_id = info.second;
+               //           crumb& obj_crumb = crumbs[obj_id];
+               //           obj_crumb.form = scene->singles[obj_id];
+               //           float dist_to_obj = info.first;
+
+               //           #if GTIMERS
+               //           timers << l.end(); timer_labels << "flush_value_init"; l.start();
+               //           #endif
+
+               //           agent->opt_ints[5] += 1;
+               //           auto cat =  memory->find_best_category(obj_crumb, META, memory->items_root);
+
+               //           #if GTIMERS
+               //           timers << l.end(); timer_labels << "find_best_category"; l.start();
+               //           #endif
+
+               //           int found_crumb = cat->store->crumbs.find_if([obj_crumb](const crumb& a_crumb){
+               //                return obj_crumb.form == a_crumb.form;
+               //           });
+               //           #if GTIMERS
+               //           timers << l.end(); timer_labels << "deduplicate_cateogry";
+               //           #endif
+
+               //           if(found_crumb==-1) {
+               //                memory->add_to_category(obj_crumb,cat);
+               //           } else {
+               //                //apply_mask(obj_crumb,META,cat->instance_indices[found_crumb],META);
+               //           }
+
+               //           #if GTIMERS
+               //           timers << l.end(); timer_labels << "add_to_category";
+               //           #endif
+                         
+               //           // Prevent accumulator overflow
+               //           accum_counter++;
+               //           if(accum_counter > 100000 || score_accumulator > 1e9f) {
+               //                score_accumulator *= 0.5f;
+               //                accum_counter = 0;
+               //           }
+               //      }
+               //      }
+               // }
 
                #if GTIMERS
                timers << l.end(); timer_labels << "thread flush";
                #endif
 
+               int eval_interval = 600;
                if(on_frame % eval_interval == id % eval_interval) {
                
+               }
+
+               int recategorize_interval = 600;
+               if(on_frame % recategorize_interval == id % recategorize_interval) {
+                    #if GTIMERS
+                    l.start();
+                    #endif
+
+                    
                }
                
                #if GTIMERS
@@ -1053,6 +1221,31 @@ int main() {
      vec3 cam_pos(0, side_length * 0.8f, side_length * 0.8f);
      scene->camera.setPosition(cam_pos);
      scene->camera.setTarget(vec3(0, 0, 0));
+
+     // for(auto memory : crumb_managers) {
+     //      for(int c = 0; c < 10; c++) {
+     //           crumb mem;
+               
+     //           // Fill with random data for benchmark
+     //           for(int r = 0; r < CRUMB_ROWS; r++) {
+     //           for(int col = 0; col < 10; col++) {
+     //                mem.mat[r][col] = randf(-1, 1);
+     //           }
+     //           }
+               
+     //           // Embed position in first 3 rows, column 0
+     //           mem.mat[0][0] = randf(-side_length/2, side_length/2);
+     //           mem.mat[1][0] = 0.0f;
+     //           mem.mat[2][0] = randf(-side_length/2, side_length/2);
+               
+     //           auto form = scene->create<Single>("crumb");
+     //           mem.form = form;
+     //           form->setPosition({1000,100,100});
+     //           scene->deactivate(form);
+     //           // memory->addCrumb(mem);
+     //           crumbs.put(form->ID,mem);
+     //      }
+     // }
 
 
      // g_ptr<Single> test_origin = make<Single>(make<Model>(makeTestBox(1.0f)));
@@ -1091,21 +1284,45 @@ int main() {
 
      S_Tool phys_logger;
      #if GTIMERS
-     phys_logger.log = [agents,phys](){
+     phys_logger.log = [agents,phys,&crumb_managers,amt](){
           map<std::string,double> times;
+          int accum4 = 0;
+          int accum5 = 0;
           for(auto a : agents) {
                for(int i=0;i<a->timers.length();i++) {
                     times.getOrPut(a->timer_labels[i],0) += a->timers[i];
                }
+               accum4 += a->opt_ints[4];
+               accum5 += a->opt_ints[5];
           }
           print("------------\n AGENT JOINT TIMES");
           for(auto e : times.entrySet()) {
                print(e.key,": ",ftime(e.value));
           }
+
+          print("Total crumbs observed: ",accum4);
+          print("Observations processed: ",accum5);
+
+          std::function<int(g_ptr<CategoryNode>)> instances_in_cateogry = [&](g_ptr<CategoryNode> c){
+               int total = c->store->crumbs.length();
+               for(auto child : c->children) {
+                    total += instances_in_cateogry(child);
+               }
+               return total;
+          };
+
+          int total = 0;
+          int start_idx = randi(0,amt-1);
+          for(int i=start_idx;i<start_idx+10;i++) {
+               if(i>=amt) break;
+               g_ptr<crumb_manager> c = crumb_managers[i];
+               total += instances_in_cateogry(c->meta_root);
+          }
+          print("Avg crumbs in memory: ",total/10);
      };
      #endif
      run_thread->name = "Physics";
-     run_thread->run([phys,&phys_logger,&agents,update_thread,&batch,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
+     run_thread->run([phys,&phys_logger,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
                phys->collisonMethod = Physics::GRID;
@@ -1115,157 +1332,29 @@ int main() {
                phys->treeBuilt3d = false;
           }
           phys->updatePhysics();
-          if(!batch.empty()&&from_phys_to_update.empty()) {
-               //update_thread->queueTask(
-               from_phys_to_update.push([&batch, &crumbs, &crumb_managers, &agents]() {
-                    for(auto& obs_batch : batch) {
-                         g_ptr<Single> agent = agents[obs_batch.agent_id];
-                         g_ptr<crumb_manager> memory = crumb_managers[obs_batch.agent_id];
-                         
-                         #if GTIMERS
-                         Log::Line l;
-                         list<double>& timers = agent->timers2;
-                         list<std::string>& timer_labels = agent->timer_labels2;
-                         #endif
-                         // Thread-local accumulator to prevent compiler optimization
-                         static thread_local float score_accumulator = 0.0f;
-                         static thread_local int accum_counter = 0;
-
-                         Log::Line flush_overall; flush_overall.start();
-                         // Process all observations for this agent
-                         for(auto info : obs_batch.observed_objects) {
-                              #if GTIMERS
-                              l.start();
-                              #endif
-
-                              int obj_id = info.second;
-                              crumb& obj_crumb = crumbs.get(obj_id);
-                              
-                              // Create observation mask
-                              crumb observation_mask;
-                              float dist_to_obj = info.first;
-
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_value_init"; l.start();
-                              #endif
-                              
-                              for(int r = 0; r < CRUMB_ROWS; r++) {
-                                   for(int c = 0; c < 10; c++) {
-                                        observation_mask.mat[r][c] = 1.0f;
-                                   }
-                              }
-                              observation_mask.mat[0][0] = 1.0f + (1.0f / (1.0f + dist_to_obj * 0.1f));
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_observation_mask_creation"; l.start();
-                              #endif
-                              
-                              apply_mask(obj_crumb, observation_mask);
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_apply_mask"; l.start();
-                              #endif
-                              
-                              // === REAL CATEGORY TREE EVALUATION ===
-                              
-                              // Evaluate against all 4 root categories
-                              list<g_ptr<CategoryNode>> roots = {
-                                   memory->places_root,
-                                   memory->items_root, 
-                                   memory->agents_root,
-                                   memory->circles_root
-                              };
-                              
-                              float best_root_score = -1e9f;
-                              g_ptr<CategoryNode> best_root = nullptr;
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_gather_roots"; l.start();
-                              #endif
-                              
-                              for(auto root : roots) {
-                                   float score = memory->evaluate_against_archetype(obj_crumb, root);
-                                   score_accumulator += score;
-                                   
-                                   if(score > best_root_score) {
-                                        best_root_score = score;
-                                        best_root = root;
-                                   }
-                              }
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_evaluate_against_archetype"; l.start();
-                              #endif
-                              
-                              // Descend into children of best root
-                              if(best_root && !best_root->children.empty()) {
-                                   float best_child_score = -1e9f;
-                                   g_ptr<CategoryNode> best_child = nullptr;
-                                   
-                                   for(auto child : best_root->children) {
-                                        float score = memory->evaluate_against_archetype(obj_crumb, child);
-                                        score_accumulator += score;
-                                        
-                                        if(score > best_child_score) {
-                                             best_child_score = score;
-                                             best_child = child;
-                                        }
-                                   }
-                                   
-                                   // Descend one more level if children exist
-                                   if(best_child && !best_child->children.empty()) {
-                                        float best_grandchild_score = -1e9f;
-                                        
-                                        for(auto grandchild : best_child->children) {
-                                             float score = memory->evaluate_against_archetype(obj_crumb, grandchild);
-                                             score_accumulator += score;
-                                             
-                                             best_grandchild_score = std::max(best_grandchild_score, score);
-                                        }
-                                   }
-                              }
-
-
-                              #if GTIMERS
-                              timers << l.end(); timer_labels << "flush_best_root_serach";
-                              #endif
-                              
-                              // Prevent accumulator overflow
-                              accum_counter++;
-                              if(accum_counter > 100000 || score_accumulator > 1e9f) {
-                                   score_accumulator *= 0.5f;
-                                   accum_counter = 0;
-                              }
-                         }
-
-                         #if GTIMERS
-                         timers << flush_overall.end(); timer_labels << "flush_overall";
-                         #endif
-                    }
-               });
-
-               batch.clear();
-          } else {
-               //Just do nothing for now, update hasn't processed what we gave it yet
-          }
      },0.008f);
      run_thread->logSPS = true;
 
      S_Tool update_logger;
      #if GTIMERS
-     update_logger.log = [agents](){
+     update_logger.log = [agents,&crumb_managers](){
           map<std::string,double> times;
+          int accum4 = 0;
+          int accum5 = 0;
           for(auto a : agents) {
                for(int i=0;i<a->timers2.length();i++) {
                     times.getOrPut(a->timer_labels2[i],0) += a->timers2[i];
                }
+               accum4 += a->opt_ints[4];
+               accum5 += a->opt_ints[5];
           }
           print("------------\n AGENT UPDATE TIMES");
           for(auto e : times.entrySet()) {
                print(e.key,": ",ftime(e.value));
           }
+          // print("Observations processed: ",accum5);
 
+          print("TOTAL CONNECTIONS: ",add_commas(total_connections));
      };
      #endif
      update_thread->name = "Update";
@@ -1355,6 +1444,43 @@ int main() {
      return 0;
 }
 
+        // list<g_ptr<Single>> d_boxes;
+          // for(int j=0;j<3;j++) {
+          //      g_ptr<Single> dbox = make<Single>(make<Model>(makeTestBox(0.5f)));
+          //      scene->add(dbox);
+          //      // Each box type gets different saturation/value
+          //      float saturation = 1.0f;
+          //      float value = 1.0f - (float(j) * 0.3f); // Boxes get darker: 1.0, 0.7, 0.4
+               
+          //      // Convert HSV to RGB
+          //      float h = agent_hue / 60.0f;
+          //      float c = value * saturation;
+          //      float x = c * (1.0f - abs(fmod(h, 2.0f) - 1.0f));
+          //      float m = value - c;
+               
+          //      vec3 rgb;
+          //      if(h < 1) rgb = vec3(c, x, 0);
+          //      else if(h < 2) rgb = vec3(x, c, 0);
+          //      else if(h < 3) rgb = vec3(0, c, x);
+          //      else if(h < 4) rgb = vec3(0, x, c);
+          //      else if(h < 5) rgb = vec3(x, 0, c);
+          //      else rgb = vec3(c, 0, x);
+               
+          //      rgb += vec3(m, m, m);
+          //      dbox->setColor({rgb.x(), rgb.y(), rgb.z(), 1.0f});
+          //      if(j==0)
+          //           dbox->scale({1,0.5,1});
+          //      else if(j==1)
+          //           dbox->scale({0.5,2,0.5});
+          //      else if(j==2)
+          //           dbox->scale({0.5,1,2});
+
+
+          //      dbox->setPosition(agent->getPosition());
+          //      dbox->setPhysicsState(P_State::NONE);
+          //      d_boxes << dbox;
+          // }
+          // debug << d_boxes;
 
 //Field based pathfinding unit:
      // #if GTIMERS
