@@ -106,70 +106,170 @@ list<int> removeFromGrid(g_ptr<Single> q) {
 //      r.run(1000, true, 1000); // 1000 iterations, warm cache, 1000 operations each
 //  }
  
-
-void make_maze(g_ptr<Model> wall_model) {
+g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
+     g_ptr<Single> line = scene->create<Single>(color);
+     
+     float dist = start.distance(end);
+     line->setScale({0.1f, 0.1f, dist});
+     
+     // Set position first
+     vec3 midpoint = (start + end) * 0.5f;
+     midpoint.y(height); // Set height
+     line->setPosition(midpoint);
+     
+     // Then orient toward end
+     line->faceTo(end);
+     
+     return line;
+ }
+ void make_maze(g_ptr<Model> wall_model) {
      float maze_size = 50.0f;
      float wall_thickness = 1.0f;
      float wall_height = 1.0f;
      int grid_rows = 10;
      int grid_cols = 10;
      float cell_size = maze_size / grid_rows;
-
+ 
      // Helper to place wall segment
      auto place_wall = [&](vec3 pos, vec3 scale) {
-          g_ptr<Single> wall = make<Single>(wall_model);
-          scene->add(wall);
-          wall->dtype = "wall";
-          wall->setPosition(pos);
-          wall->setScale(scale);
-          wall->setPhysicsState(P_State::FREE);
-          addToGrid(wall);
-          wall->opt_floats << -2.0f; 
+         g_ptr<Single> wall = make<Single>(wall_model);
+         scene->add(wall);
+         wall->dtype = "wall";
+         wall->setPosition(pos);
+         wall->setScale(scale);
+         wall->setPhysicsState(P_State::PASSIVE);
+         addToGrid(wall);
      };
-
-     // Create outer boundary
-     for(int i = 0; i <= grid_cols; i++) {
-     float x = -maze_size/2 + i * cell_size;
-     // Top wall
-     place_wall(vec3(x, wall_height/2, -maze_size/2), 
-                    vec3(wall_thickness, wall_height, wall_thickness));
-     // Bottom wall
-     place_wall(vec3(x, wall_height/2, maze_size/2), 
-                    vec3(wall_thickness, wall_height, wall_thickness));
+ 
+     // Maze grid: track which walls exist
+     // For each cell, track: [north, east, south, west] walls
+     struct Cell {
+         bool visited = false;
+         bool walls[4] = {true, true, true, true}; // N, E, S, W
+     };
+     
+     Cell cells[10][10];
+     
+     // Recursive backtracking maze generation
+     std::function<void(int, int)> carve_path = [&](int row, int col) {
+         cells[row][col].visited = true;
+         
+         // Randomized directions
+         int dirs[4] = {0, 1, 2, 3}; // N, E, S, W
+         for(int i = 0; i < 4; i++) {
+             int j = randi(i, 3);
+             std::swap(dirs[i], dirs[j]);
+         }
+         
+         for(int d = 0; d < 4; d++) {
+             int next_row = row;
+             int next_col = col;
+             
+             switch(dirs[d]) {
+                 case 0: next_row--; break; // North
+                 case 1: next_col++; break; // East
+                 case 2: next_row++; break; // South
+                 case 3: next_col--; break; // West
+             }
+             
+             // Check bounds
+             if(next_row < 0 || next_row >= grid_rows || 
+                next_col < 0 || next_col >= grid_cols) continue;
+             
+             if(!cells[next_row][next_col].visited) {
+                 // Remove walls between current and next
+                 cells[row][col].walls[dirs[d]] = false;
+                 cells[next_row][next_col].walls[(dirs[d] + 2) % 4] = false;
+                 carve_path(next_row, next_col);
+             }
+         }
+     };
+     
+     // Start from top-left corner
+     carve_path(0, 0);
+     
+     // Clear center 2x2 area
+     int center_row = grid_rows / 2;
+     int center_col = grid_cols / 2;
+     for(int r = center_row - 1; r <= center_row; r++) {
+         for(int c = center_col - 1; c <= center_col; c++) {
+             if(r >= 0 && r < grid_rows && c >= 0 && c < grid_cols) {
+                 cells[r][c].walls[0] = false; // North
+                 cells[r][c].walls[1] = false; // East
+                 cells[r][c].walls[2] = false; // South
+                 cells[r][c].walls[3] = false; // West
+             }
+         }
      }
-
-     for(int i = 0; i <= grid_rows; i++) {
-     float z = -maze_size/2 + i * cell_size;
-     // Left wall
-     place_wall(vec3(-maze_size/2, wall_height/2, z), 
-                    vec3(wall_thickness, wall_height, wall_thickness));
-     // Right wall
-     place_wall(vec3(maze_size/2, wall_height/2, z), 
-                    vec3(wall_thickness, wall_height, wall_thickness));
+     
+     // Create entrance at edge (remove north wall of cell 0,0)
+     cells[0][0].walls[0] = false;
+     
+     // Build walls from cell data
+     for(int row = 0; row < grid_rows; row++) {
+         for(int col = 0; col < grid_cols; col++) {
+             float x = -maze_size/2 + col * cell_size;
+             float z = -maze_size/2 + row * cell_size;
+             
+             // North wall
+             if(cells[row][col].walls[0] && row > 0) {
+                 place_wall(vec3(x + cell_size/2, wall_height/2, z), 
+                           vec3(cell_size, wall_height, wall_thickness));
+             }
+             
+             // East wall
+             if(cells[row][col].walls[1] && col < grid_cols - 1) {
+                 place_wall(vec3(x + cell_size, wall_height/2, z + cell_size/2), 
+                           vec3(wall_thickness, wall_height, cell_size));
+             }
+             
+             // South wall
+             if(cells[row][col].walls[2] && row < grid_rows - 1) {
+                 place_wall(vec3(x + cell_size/2, wall_height/2, z + cell_size), 
+                           vec3(cell_size, wall_height, wall_thickness));
+             }
+             
+             // West wall
+             if(cells[row][col].walls[3] && col > 0) {
+                 place_wall(vec3(x, wall_height/2, z + cell_size/2), 
+                           vec3(wall_thickness, wall_height, cell_size));
+             }
+         }
      }
-
-     // Create internal maze walls (simple grid with random gaps)
-     for(int row = 1; row < grid_rows; row++) {
-     for(int col = 1; col < grid_cols; col++) {
-          float x = -maze_size/2 + col * cell_size;
-          float z = -maze_size/2 + row * cell_size;
-          
-          // Randomly place walls (70% chance)
-          if(randf(0, 1) > 0.3f) {
-               // Horizontal wall segment
-               place_wall(vec3(x, wall_height/2, z), 
-                         vec3(cell_size, wall_height, wall_thickness));
-          }
-          if(randf(0, 1) > 0.3f) {
-               // Vertical wall segment
-               place_wall(vec3(x, wall_height/2, z), 
-                         vec3(wall_thickness, wall_height, cell_size));
-          }
+     
+     // Outer boundary walls (to enclose maze)
+     // North boundary
+     for(int col = 0; col < grid_cols; col++) {
+         float x = -maze_size/2 + col * cell_size;
+         if(cells[0][col].walls[0]) { // Only if not entrance
+             place_wall(vec3(x + cell_size/2, wall_height/2, -maze_size/2), 
+                       vec3(cell_size, wall_height, wall_thickness));
+         }
      }
+     
+     // South boundary
+     for(int col = 0; col < grid_cols; col++) {
+         float x = -maze_size/2 + col * cell_size;
+         place_wall(vec3(x + cell_size/2, wall_height/2, maze_size/2), 
+                   vec3(cell_size, wall_height, wall_thickness));
      }
-}
-
+     
+     // West boundary
+     for(int row = 0; row < grid_rows; row++) {
+         float z = -maze_size/2 + row * cell_size;
+         place_wall(vec3(-maze_size/2, wall_height/2, z + cell_size/2), 
+                   vec3(wall_thickness, wall_height, cell_size));
+     }
+     
+     // East boundary
+     for(int row = 0; row < grid_rows; row++) {
+         float z = -maze_size/2 + row * cell_size;
+         place_wall(vec3(maze_size/2, wall_height/2, z + cell_size/2), 
+                   vec3(wall_thickness, wall_height, cell_size));
+     }
+ }
 #define GTIMERS 1
+#define VISPATHS 0
 // #define CRUMB_ROWS 40 
 // // Packed ints with start / count so we can be more dynamic!
 // const int META  = (0 << 16) | 1; 
@@ -200,6 +300,14 @@ struct crumb {
 
      g_ptr<Single> form = nullptr;
      float mat[CRUMB_ROWS][10];
+
+     inline void setmat(float v) {
+          for(int r = 0; r < CRUMB_ROWS; r++) {
+               for(int c = 0; c < 10; c++) {
+                   mat[r][c] = v;
+               }
+           }
+     }
 
      inline float* data() const {
           return (float*)&mat[0][0];
@@ -365,6 +473,22 @@ struct CategoryNode : public q_object {
      list<CategoryNode*> parents;
      list<g_ptr<CategoryNode>> children;
      g_ptr<crumb_store> store = nullptr;
+
+     //DEBUG ONLY METHOD
+     vec3 getPosition() {
+          if(archetype.form) return archetype.form->getPosition();
+          else return vec3(0,0,0);
+     }
+
+     //DEBUG ONLY METHOD
+     int getID() {
+          if(archetype.form) return archetype.form->ID;
+          else return -1;
+     }
+
+     bool operator==(g_ptr<CategoryNode> other) {
+          return *this == other.getPtr();
+     }
           
      list<crumb>& get_crumbs() {
           return store->crumbs;
@@ -549,8 +673,265 @@ public:
      int cognitive_focus = 8;
      list<g_ptr<CategoryNode>> cognitive_attention;
 
-     float salience(crumb& observation) {
+     map<int, CategoryNode*> id_to_node; 
+     list<g_ptr<Single>> debug;
+
+     void clear_debug() {
+          for(auto d : debug) { scene->recycle(d); }
+          debug.clear();
+      }
+     g_ptr<CategoryNode> has_seen_before_cheat(const crumb& thing) {
+         if(thing.form == nullptr) return nullptr;
+         CategoryNode* fallback = nullptr;
+         CategoryNode* ptr = id_to_node.getOrDefault(thing.form->ID,fallback);
+         if(ptr)
+              return g_ptr<CategoryNode>(ptr);
+         else
+              return nullptr;
+     }
+     void visualize_structure(g_ptr<CategoryNode> root = nullptr) {
+          clear_debug();
+          if(!root) root = physics_attention.empty() ? meta_root : physics_attention.last();
+          
+        
+          std::set<int> visited_form_ids; // Track by form ID
+          list<g_ptr<CategoryNode>> visited_nodes;
+          
+          list<g_ptr<CategoryNode>> stack;
+          stack << root;
+          
+
+
+          while(!stack.empty()) {
+              g_ptr<CategoryNode> current = stack.last();
+              stack.pop();
+              
+              if(!current->archetype.form) continue; // Skip nodes without forms
+              
+              int form_id = current->archetype.form->ID;
+              if(visited_form_ids.count(form_id) > 0) continue;
+              visited_form_ids.insert(form_id);
+              visited_nodes << current;
+              
+              for(auto child : current->children) {
+                  if(child->archetype.form && visited_form_ids.count(child->archetype.form->ID) == 0) {
+                      stack << child;
+                  }
+              }
+              
+              for(auto parent_raw : current->parents) {
+                  g_ptr<CategoryNode> parent(parent_raw);
+                  if(parent->archetype.form && visited_form_ids.count(parent->archetype.form->ID) == 0) {
+                      stack << parent;
+                  }
+              }
+          }
+
+          
+          std::set<std::pair<int,int>> drawn_edges; // Track edges by form ID pairs
+          
+          for(auto current : visited_nodes) {
+              int current_id = current->archetype.form->ID;
+                            
+               std::string make_color = "green";
+               if(current->archetype.mat[0][1] < 3.0f) make_color = "white";
+               if(current->archetype.form == root->archetype.form) make_color = "black";
+
+               auto marker = scene->create<Single>(make_color);
+               if(current->children.empty())
+               marker->setScale(vec3(0.3, 2, 0.3));
+               else
+               marker->setScale(std::min(2.0f, (float)current->children.length() / 2.0f));
+
+               marker->setPosition(current->getPosition().addY(2.0f+(current->getID()/100.0f)));
+               if(current->archetype.form == root->archetype.form) {
+               marker->move({0, 2.0f, 0});
+               marker->setScale(vec3(0.5f, 2.5f, 0.5f));
+               }
+               debug << marker;
+              
+              // Draw children
+              for(auto child : current->children) {
+                  if(!child->archetype.form) continue;
+                  int child_id = child->archetype.form->ID;
+                  
+                  if(visited_form_ids.count(child_id) > 0) {
+                      auto edge = std::make_pair(std::min(current_id, child_id), std::max(current_id, child_id));
+                      if(drawn_edges.count(edge) == 0) {
+                          debug << draw_line(current->getPosition(), child->getPosition(), "blue", 1.9f+(current->getID()/70.0f));
+                          drawn_edges.insert(edge);
+                      }
+                  }
+              }
+              
+              // Draw parents
+              for(auto parent_raw : current->parents) {
+                  g_ptr<CategoryNode> parent(parent_raw);
+                  if(!parent->archetype.form) continue;
+                  int parent_id = parent->archetype.form->ID;
+                  
+                  if(visited_form_ids.count(parent_id) > 0) {
+                      auto edge = std::make_pair(std::min(current_id, parent_id), std::max(current_id, parent_id));
+                      if(drawn_edges.count(edge) == 0) {
+                          debug << draw_line(current->getPosition(), parent->getPosition(), "yellow", 2.2f+(current->getID()/70.0f));
+                          drawn_edges.insert(edge);
+                      }
+                  }
+              }
+          }
+
+          auto mark = scene->create<Single>("cyan");
+          mark->setPosition(physics_attention.last()->getPosition().addY(5.0f));
+          mark->setScale({0.5f, 1.5f, 0.5f});
+          debug << mark;
+     }
+     void visualize_registry(g_ptr<CategoryNode> root = nullptr) {
+          clear_debug();
+          if(!root) root = meta_root;
+          std::set<std::pair<int,int>> drawn_edges;
+          
+          // Iterate through all registered nodes
+          for(auto entry : id_to_node.entrySet()) {
+              int form_id = entry.key;
+              g_ptr<CategoryNode> current(entry.value);
+              
+              if(!current->archetype.form) continue;
+              
+              // Draw node marker
+              std::string make_color = "green";
+              if(current->archetype.mat[0][1] < 3.0f) make_color = "white";
+              if(current->archetype.form == root->archetype.form) make_color = "black";
+
+              auto marker = scene->create<Single>(make_color);
+              if(current->children.empty())
+              marker->setScale(vec3(0.3, 2, 0.3));
+              else
+              marker->setScale(std::min(2.0f, (float)current->children.length() / 2.0f));
+
+              marker->setPosition(current->getPosition().addY(2.0f));
+              if(current->archetype.form == root->archetype.form) {
+              marker->move({0, 2.0f, 0});
+              marker->setScale(vec3(0.5f, 2.5f, 0.5f));
+              }
+              debug << marker;
+              
+              // Draw blue lines to children
+              for(auto child : current->children) {
+                  if(!child->archetype.form) continue;
+                  int child_id = child->archetype.form->ID;
+               debug << draw_line(current->getPosition(), child->getPosition(), "blue", 1.9f);
+              }
+              
+              // Draw yellow lines to parents
+              for(auto parent_raw : current->parents) {
+                  g_ptr<CategoryNode> parent(parent_raw);
+                  if(!parent->archetype.form) continue;
+                  int parent_id = parent->archetype.form->ID;
+               debug << draw_line(current->getPosition(), parent->getPosition(), "yellow", 2.2f);
+              }
+          }
+          
+          // Draw attention markers
+          // for(auto a : physics_attention) {
+          //     if(!a->archetype.form) continue;
+          //     auto mark = scene->create<Single>("cyan");
+          //     mark->setPosition(a->getPosition().addY(3.0f));
+          //     if(a == physics_attention.last()) 
+          //         mark->setScale(1.0f);
+          //     else 
+          //         mark->setScale({0.5f, 1.5f, 0.5f});
+          //     debug << mark;
+          // }
+      }
+      void find_duplicates() {
+          print("=== DUPLICATE CHECK ===");
+          print("Total forms registered: ", id_to_node.size());
+          
+          // Group nodes by their actual node pointer to find if same node appears multiple times
+          map<CategoryNode*, int> node_use_count;
+          
+          for(auto entry : id_to_node.entrySet()) {
+              node_use_count[entry.value]++;
+          }
+          
+          // Check if any node is registered to multiple forms (shouldn't happen)
+          int shared_nodes = 0;
+          for(auto e : node_use_count.entrySet()) {
+              if(e.value > 1) {
+                  print("WARNING: Node at ", (void*)e.key, " is registered to ", e.value, " different forms!");
+                  shared_nodes++;
+              }
+          }
+          
+          if(shared_nodes == 0) {
+              print("✓ No shared nodes - each form has unique node");
+          }
+          
+          // Now traverse the actual graph and see if there are nodes NOT in the registry
+          std::set<void*> all_graph_nodes;
+          std::set<void*> visited;
+          list<g_ptr<CategoryNode>> stack;
+          
+          if(!physics_attention.empty()) {
+              stack << physics_attention.last();
+              
+              while(!stack.empty()) {
+                  auto current = stack.last();
+                  stack.pop();
+                  
+                  void* ptr = (void*)current.getPtr();
+                  if(visited.count(ptr) > 0) continue;
+                  visited.insert(ptr);
+                  all_graph_nodes.insert(ptr);
+                  
+                  for(auto child : current->children) stack << child;
+                  for(auto parent : current->parents) stack << parent;
+              }
+          }
+          
+          print("Total nodes in graph: ", all_graph_nodes.size());
+          print("Nodes in registry: ", id_to_node.size());
+          
+          // Check for orphaned nodes (in graph but not in registry)
+          int orphaned = 0;
+          for(void* graph_node : all_graph_nodes) {
+              bool found = false;
+              for(auto entry : id_to_node.entrySet()) {
+                  if((void*)entry.value == graph_node) {
+                      found = true;
+                      break;
+                  }
+              }
+              if(!found) {
+                  print("ORPHANED: Node at ", graph_node, " is in graph but not in registry");
+                  orphaned++;
+              }
+          }
+          
+          print("Orphaned nodes: ", orphaned);
+          print("======================");
+      }
+
+     inline float navigation_focus() const {
+          return current_state.mat[0][1];
+     }
+
+     float spatial_salience(const crumb& observation) {
+          return evaluate(current_state, META, observation, META);
+     }
+
+     float desire_salience(const crumb& observation) {
           return evaluate(current_state, WANTS, observation, IS);
+     }
+
+     float salience(const crumb& observation) {
+          float sp_sal = spatial_salience(observation);
+          float ds_sal = desire_salience(observation);
+          // print("SP_SAL: ",sp_sal);
+          // print("DS_SAL: ",ds_sal);
+          // print("NAV FOCUS: ",navigation_focus());
+          // print("SAL: ",std::lerp(sp_sal,ds_sal,navigation_focus()));
+          return std::lerp(ds_sal,sp_sal,navigation_focus());
      }
 
      bool in_attention(crumb& thing) {
@@ -563,17 +944,27 @@ public:
           if(sal < min_sal) return 0.0f;
           float min_current_salience = min_sal;
           for(auto attended : physics_attention) {
-              float attended_sal = evaluate(current_state, WANTS, attended->archetype, IS);
+              float attended_sal = salience(attended->archetype);
               if(attended_sal < min_current_salience) {
                   min_current_salience = attended_sal;
               }
+              //print("ATTENDED SAL = ",attended_sal);
           }
+          // print("THIS SAL: ",sal);
+          // print("MIN_CURR_SAL: ",min_current_salience);
           if(min_current_salience==0) return 1.0f; //Just to stop those inf returns
           float relative_score = (sal - min_current_salience * 0.9f) / min_current_salience;
           return std::max(0.0f, relative_score);
       }
 
-     void observe(crumb& thing) {
+     void push_attention_head(g_ptr<CategoryNode> node) {
+          physics_attention << node;
+          if(physics_attention.length()>physics_focus) {
+               physics_attention.removeAt(0);
+          }
+     }
+
+     g_ptr<CategoryNode> observe(crumb& thing) {
           g_ptr<CategoryNode> node = make<CategoryNode>();
           node->archetype = thing;
 
@@ -587,16 +978,65 @@ public:
                total_connections += 2;
           }
 
-          physics_attention << node;
-          if(physics_attention.length()>physics_focus) {
-               physics_attention.removeAt(0);
+          if(!node->archetype.form) {
+               print("OBSERVE WARNING: formless archetpye for category!");
+          } else {
+               id_to_node.put(node->getID(),node.getPtr());
           }
+          // push_attention_head(node);
+          return node;
      }
 
      void categorize(crumb& thing) {
 
      }
 
+     g_ptr<CategoryNode> has_seen_before(const crumb& thing, float focus) {
+          if(physics_attention.empty()) return nullptr;
+          int total_budget = (int)(focus * 500);
+          
+          list<std::pair<g_ptr<CategoryNode>, int>> stack;
+          stack << std::make_pair(physics_attention.last(), total_budget);
+          std::set<void*> visited;
+          
+          while(!stack.empty()) {
+              auto [current, budget] = stack.last();
+              stack.pop();
+              
+              if(budget <= 0) {
+                    // if(current != nullptr) {
+                    // print("Budget exhausted during has_seen_before search");
+                    // }
+                    continue;
+               }
+              void* ptr = (void*)current.getPtr();
+              if(visited.count(ptr) > 0) continue;
+              visited.insert(ptr);
+              
+              // Check THIS node
+              if(current->archetype.form != nullptr && 
+                 thing.form == current->archetype.form) {
+                  return current;
+              }
+              
+              // Add ALL children to stack (explore downward)
+              if(!current->children.empty()) {
+                  int budget_per_child = (budget - 1) / current->children.length();
+                  for(auto child : current->children) {
+                      stack << std::make_pair(child, budget_per_child);
+                  }
+              }
+              
+              // Add ALL parents to stack (explore upward)
+              if(!current->parents.empty()) {
+                  int budget_per_parent = (budget - 1) / current->parents.length();
+                  for(auto parent : current->parents) {
+                      stack << std::make_pair(parent, budget_per_parent);
+                  }
+              }
+          }
+          return nullptr; // Novel
+      }
 
      // Find best matching category for a crumb
      g_ptr<CategoryNode> find_best_category(const crumb& crumb_obj, int verb, g_ptr<CategoryNode> root) {
@@ -702,6 +1142,7 @@ public:
 };
 
 
+
  
 void test_crumbs() {
 
@@ -711,7 +1152,7 @@ int main() {
      // test_crumbs();
      // return 0;
 
-     Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.6");
+     Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.7");
 
      scene = make<Scene>(window,2);
      Data d = make_config(scene,K);
@@ -746,6 +1187,57 @@ int main() {
      g_ptr<Model> stone_model = make<Model>(MROOT+"products/stone.glb");
      c_model->setColor({0,0,1,1});
      a_model->localBounds.transform(0.6f);
+
+
+     g_ptr<Model> red_model = make<Model>(makeBox(1,1,1,{1,0,0,1}));
+     scene->define("red",Script<>("make_red",[red_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(red_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> green_model = make<Model>(makeBox(1,1,1,{0,1,0,1}));
+     scene->define("green",Script<>("make_green",[green_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(green_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> blue_model = make<Model>(makeBox(1,1,1,{0,0,1,1}));
+     scene->define("blue",Script<>("make_blue",[blue_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(blue_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> yellow_model = make<Model>(makeBox(1,1,1,{1,1,0,1}));
+     scene->define("yellow",Script<>("make_yellow",[yellow_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(yellow_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> white_model = make<Model>(makeBox(1,1,1,{1,1,1,1}));
+     scene->define("white",Script<>("make_white",[white_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(white_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> cyan_model = make<Model>(makeBox(1,1,1,{0,0.5,0.5,1}));
+     scene->define("cyan",Script<>("make_cyan",[cyan_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(cyan_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
+     g_ptr<Model> black_model = make<Model>(makeBox(1,1,1,{0,0,0,1}));
+     scene->define("black",Script<>("make_black",[black_model](ScriptContext& ctx){
+          g_ptr<Single> q = make<Single>(black_model);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          ctx.set<g_ptr<Object>>("toReturn",q);
+     }));
 
      //I am very, very, very much going to remove the pointless script system in scene's pooling and simplify things.
      scene->define("agent",Script<>("make_agent",[a_model](ScriptContext& ctx){
@@ -804,7 +1296,7 @@ int main() {
 
      map<int,crumb> crumbs;
      
-     int grass_count = (int)(grid_size * grid_size * 0.00f);
+     int grass_count = (int)(grid_size * grid_size * 0.02f);
      for(int i = 0; i < grass_count; i++) {
          g_ptr<Single> box = make<Single>(grass_model);
          scene->add(box);
@@ -866,7 +1358,7 @@ int main() {
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
      
-     make_maze(b_model);
+     // make_maze(b_model);
 
      list<g_ptr<Single>> agents;
      list<vec3> goals;
@@ -897,7 +1389,7 @@ int main() {
               0,
               (row - width/2) * spacing
           );
-          base_pos.addZ(50);
+          // base_pos.addZ(50);
           vec3 jitter(randf(-spacing*0.3f, spacing*0.3f), 0, randf(-spacing*0.3f, spacing*0.3f));
           agent->setPosition(base_pos + jitter);
           agent->setPhysicsState(P_State::FREE);
@@ -936,12 +1428,21 @@ int main() {
                     mem.mat[r][col] = 0.0f;
                }
           }
+          mem.mat[0][0] = 10.0f; //Distance saliance factor
+          mem.mat[0][1] = 0.3f; //Navigation focus
           mem.mat[3][0] = randf(0.1f,0.3f); //Satiety
           mem.mat[3][1] = randf(0.2f,0.6f); //Shelter
           mem.mat[13][0] = randf(1.0f,1.8f); //Hunger
           mem.mat[13][1] = randf(0.1f,0.2f); //Tierdness
           mem.form = agent;
           crumbs.put(agent->ID,mem);
+
+          crumb mem_root;
+          g_ptr<Single> root_form = scene->create<Single>("crumb");
+          root_form->setPosition(base_pos);
+          mem_root.form = root_form;
+          memory->meta_root->archetype = mem_root;
+          memory->id_to_node.put(root_form->ID,memory->meta_root.getPtr());
           memory->current_state = mem;
           
           // for(int root = 0; root < 5; root++) {
@@ -996,90 +1497,100 @@ int main() {
                int& on_frame = agent->opt_ints[3];
                float& goal_focus = agent->opt_floats[2];
                int& accum5 = agent->opt_ints[5];
+               float navigation_focus = memory->navigation_focus();
                //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
                list<int>& path = agent->opt_idx_cache_2;
                //This is just for testing
-               vec3 goal = marker->getPosition(); //goals[id];  //goal_crumb->getPosition();
+               vec3 goal = goals[id];  //goal_crumb->getPosition();
 
-               int thrash_interval = 15;
-               if(on_frame % thrash_interval == id % thrash_interval) {
-                    #if GTIMERS
-                    l.start();
-                    #endif
+               // int thrash_interval = 15;
+               // if(on_frame % thrash_interval == id % thrash_interval) {
+               //      #if GTIMERS
+               //      l.start();
+               //      #endif
 
-                    list<vec3> directions = memory->come_up_with_a_path(accum5);
+               //      list<vec3> directions = memory->come_up_with_a_path(accum5);
 
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "come_up_with_a_path";
-                    #endif
+               //      #if GTIMERS
+               //      timers << l.end(); timer_labels << "come_up_with_a_path";
+               //      #endif
+               // }
+
+               if(agent->distance(marker) <= 2.0f) {
+                    goal = marker->getPosition();
                }
 
-               if(goal_focus>0.98f && agent->distance(goal) <= 2.0f) {
-                    agent->setLinearVelocity({0,0,0});
-                    marker->setPosition(agent->getPosition().addZ(40));
+               // if(goal_focus>0.7f && agent->distance(goal) <= 2.0f) {
+               //      // agent->setLinearVelocity({0,0,0});
+               //      if(goal==marker->getPosition()) {
+               //           marker->setPosition(agent->getPosition().addZ(40));
 
-                    #if GTIMERS
-                    l.start();
-                    #endif
+               //           #if GTIMERS
+               //           l.start();
+               //           #endif
 
-                    list<vec3> directions = memory->come_up_with_a_path(accum5);
+               //           list<vec3> directions = memory->come_up_with_a_path(accum5);
 
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "come_up_with_a_path";
-                    #endif
-                    // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
-                    if(!directions.empty()) {
-                         //print("Came up with: ",directions.length()," directions");
-                         goal = directions.last();
-                         goal_focus = 1.0f;
-                         for(auto d : directions) {
-                              path << grid->toIndex(d);
-                         }
-                    } else {
-                         //print("Failed to create directions");
-                         goal_focus = 0.0f;
-                    }
+               //           #if GTIMERS
+               //           timers << l.end(); timer_labels << "come_up_with_a_path";
+               //           #endif
+               //           // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
+               //           if(!directions.empty()) {
+               //                //print("Came up with: ",directions.length()," directions");
+               //                goal = directions.last();
+               //                goal_focus = 1.0f;
+               //                for(auto d : directions) {
+               //                     path << grid->toIndex(d);
+               //                }
+               //           } else {
+               //                //print("Failed to create directions");
+               //                goal_focus = 0.0f;
+               //           }
+               //      } else {
+               //           goals[id] = marker->getPosition();
+               //           goal_focus = 0.9f;
+               //      }
 
-                    // list<int> items = grid->getCell(goal);
-                    // if(!items.empty()) {
-                    //      g_ptr<Single> g = scene->singles[items[0]];
-                    //      if(g->dtype=="grass"||g->dtype=="berry") {
-                    //           removeFromGrid(g);
-                    //           scene->deactivate(g);
-                    //           memory->current_state.mat[13][0] = 0.3f; //Hunger
-                    //           memory->current_state.mat[13][1] = 1.5f; //Tierdness
+               //      // list<int> items = grid->getCell(goal);
+               //      // if(!items.empty()) {
+               //      //      g_ptr<Single> g = scene->singles[items[0]];
+               //      //      if(g->dtype=="grass"||g->dtype=="berry") {
+               //      //           removeFromGrid(g);
+               //      //           scene->deactivate(g);
+               //      //           memory->current_state.mat[13][0] = 0.3f; //Hunger
+               //      //           memory->current_state.mat[13][1] = 1.5f; //Tierdness
 
-                    //           #if GTIMERS
-                    //           l.start();
-                    //           #endif
+               //      //           #if GTIMERS
+               //      //           l.start();
+               //      //           #endif
 
-                    //           list<vec3> directions = memory->come_up_with_a_path(accum5);
+               //      //           list<vec3> directions = memory->come_up_with_a_path(accum5);
 
-                    //           #if GTIMERS
-                    //           timers << l.end(); timer_labels << "come_up_with_a_path";
-                    //           #endif
-                    //          // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
-                    //           if(!directions.empty()) {
-                    //                //print("Came up with: ",directions.length()," directions");
-                    //               goal = directions.last();
-                    //               goal_focus = 1.0f;
-                    //               for(auto d : directions) {
-                    //                     path << grid->toIndex(d);
-                    //               }
-                    //           } else {
-                    //                // print("Failed to create directions");
-                    //                goal_focus = 0.0f;
-                    //           }
-                    //      } else if(g->dtype=="clover") {
-                    //           memory->current_state.mat[13][1] *= 0.99f; //Tierdness
-                    //           goal_focus = 0.99f;
-                    //      }
-                    // } else {
-                    //      goal_focus = 0.0f;
-                    // }
+               //      //           #if GTIMERS
+               //      //           timers << l.end(); timer_labels << "come_up_with_a_path";
+               //      //           #endif
+               //      //          // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
+               //      //           if(!directions.empty()) {
+               //      //                //print("Came up with: ",directions.length()," directions");
+               //      //               goal = directions.last();
+               //      //               goal_focus = 1.0f;
+               //      //               for(auto d : directions) {
+               //      //                     path << grid->toIndex(d);
+               //      //               }
+               //      //           } else {
+               //      //                // print("Failed to create directions");
+               //      //                goal_focus = 0.0f;
+               //      //           }
+               //      //      } else if(g->dtype=="clover") {
+               //      //           memory->current_state.mat[13][1] *= 0.99f; //Tierdness
+               //      //           goal_focus = 0.99f;
+               //      //      }
+               //      // } else {
+               //      //      goal_focus = 0.0f;
+               //      // }
 
-                    return true;
-               }
+               //      return true;
+               // }
                //Primary getters and incrementers, opt_ints[3] is the agent-local frame accumulator (may be global later) 
                float desired_speed = agent->opt_floats[1];  
                on_frame++; 
@@ -1137,7 +1648,7 @@ int main() {
                     
                     // Tunable parameters
                     int num_rays = 24; 
-                    float ray_distance = 60.0f;
+                    float ray_distance = 30.0f;
                     float cone_width = 180.0f; 
                     
                     // Get goal direction for biasing
@@ -1161,51 +1672,62 @@ int main() {
                     
                     list<std::pair<float,int>> observed_objects;
                 
+                    #if VISPATHS
+                    static list<g_ptr<Single>> raycast_debug;
+                    for(auto ray : raycast_debug) {
+                         scene->recycle(ray);
+                    }
+                    raycast_debug.clear();
+                    #endif
+                    
+                    // In the raycast loop:
                     for(int i = 0; i < num_rays; i++) {
-                         float angle_deg = start_angle + i * angle_step;
-                         float angle_rad = angle_deg * 3.14159f / 180.0f;
-                         
-                         vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-                         
-                         std::pair<float,int> hit_info = grid->raycast(
-                              agent->getPosition(),
-                              ray_dir,
-                              ray_distance,
-                              agent->ID
-                         );
-                         float hit_dist = hit_info.first;
-                         int hit_cell = hit_info.second;
-                
-                         if(hit_cell >= 0 && !grid->cells[hit_cell].empty()) {
-                              for(int obj_id : grid->cells[hit_cell]) {
-                                   std::pair<float,int> info = {hit_dist,obj_id};
-                                   if(!observed_objects.has(info)) {
-                                        observed_objects << info;
-                                   }
-                              }
-                         }
-                         
-                         float goal_alignment = ray_dir.dot(to_goal.normalized());
-                         if(goal_alignment > best_goal_alignment) {
-                              best_goal_alignment = goal_alignment;
-                              best_aligned_clearance = hit_dist;
-                         }
-                         
-                         float score = hit_dist * (1.0f + goal_alignment * goal_focus * 0.5f);
-                         
-                         if(score > best_openness) {
-                              best_openness = score;
-                              best_direction = ray_dir;
-                         }
+                        float angle_deg = start_angle + i * angle_step;
+                        float angle_rad = angle_deg * 3.14159f / 180.0f;
+                        
+                        vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                        
+                        std::pair<float,int> hit_info = grid->raycast(
+                            agent->getPosition(),
+                            ray_dir,
+                            ray_distance,
+                            agent->ID
+                        );
+                        float hit_dist = hit_info.first;
+                        int hit_cell = hit_info.second;
+                        
+                        #if VISPATHS
+                        vec3 ray_end = agent->getPosition() + ray_dir * hit_dist;
+                        raycast_debug << draw_line(agent->getPosition(), ray_end, "white", 0.5f);
+                        #endif
+                        
+                        if(hit_cell >= 0 && !grid->cells[hit_cell].empty()) {
+                            for(int obj_id : grid->cells[hit_cell]) {
+                                std::pair<float,int> info = {hit_dist,obj_id};
+                                if(!observed_objects.has(info)&&info.second!=agent->ID) {
+                                    observed_objects << info;
+                                }
+                            }
+                        }
+                        
+                        float goal_alignment = ray_dir.dot(to_goal.normalized());
+                        if(goal_alignment > best_goal_alignment) {
+                            best_goal_alignment = goal_alignment;
+                            best_aligned_clearance = hit_dist;
+                        }
+                        
+                        float score = hit_dist * (1.0f + goal_alignment * goal_focus * 0.5f);
+                        
+                        if(score > best_openness) {
+                            best_openness = score;
+                            best_direction = ray_dir;
+                        }
                     }
                     
                     #if GTIMERS
                     timers << l.end(); timer_labels << "raycast_sampling"; l.start();
                     #endif
-                
-                    static thread_local float score_accumulator = 0.0f;
-                    static thread_local int accum_counter = 0;
-                    
+                                    
                     // Decide movement: beeline if well-aligned and clear, otherwise use best scored direction
                     float beeline_threshold = 0.95f * goal_focus; // Scales with goal focus
                     bool can_beeline = (best_goal_alignment > beeline_threshold && 
@@ -1217,39 +1739,95 @@ int main() {
                 
                     agent->opt_ints[4] += observed_objects.length();
                 
+                    g_ptr<CategoryNode> most_relevant = nullptr;
+                    float highest_relevency = 0.0f;
                     for(auto info : observed_objects) {
                          #if GTIMERS
                          l.start();
                          #endif
                 
                          int obj_id = info.second;
-                         crumb& obj_crumb = crumbs[obj_id];
+                         //print("Crumbs has this key: ",obj_id,"? ",crumbs.hasKey(obj_id)?"Yes":"No");
+                         //crumb obj_crumb = crumbs[obj_id]; //Make a copy
+                         crumb* obs = &crumbs[obj_id]; //&obj_crumb;
                          g_ptr<Single> single = scene->singles[obj_id];
-                         obj_crumb.form = single;
+                         if(single->dtype=="wall") {
+                              if(obs->mat[0][1]==0.0f) {
+                                   obs->mat[0][1] = 3.0f;
+                              } 
+                         }
+
+                         obs->form = single;
                          float dist_to_obj = info.first;
                 
                          #if GTIMERS
-                         timers << l.end(); timer_labels << "flush_value_init"; l.start();
+                         timers << l.end(); timer_labels << "observe_value_init"; l.start();
                          #endif
-                
-                         float salience = memory->salience(obj_crumb);
-                         float relevance = memory->relevance(obj_crumb,salience);
+                    
+                         g_ptr<CategoryNode> seen_before = memory->has_seen_before_cheat(*obs);
+
+                         #if GTIMERS
+                         timers << l.end(); timer_labels << "has_seen_before"; l.start();
+                         #endif
+
+                         if(seen_before != nullptr) {
+                              obs = &seen_before->archetype;
+                              crumb mask;
+                              mask.setmat(1.0f); //Initilize to 1.0f
+                              mask.mat[0][1] = 0.98f;
+                              mult_mask(*obs, META, mask, META);
+                              //print("I've seen this before... novelty is now ",obj_crumb->mat[0][1]);
+                         } 
+
+                         #if GTIMERS
+                         timers << l.end(); timer_labels << "seen_before_resolve"; l.start();
+                         #endif
+
+                         //obs->mat[0][0] = 1.0f / (info.first + 1.0f); // Temporary distance for salience
+                         float salience = memory->salience(*obs);
+                         float relevance = memory->relevance(*obs, salience);
+                         //print("Dist: ",1.0f / (info.first + 1.0f)," actual_dist: ",info.first," Sal: ",salience," Rel: ",relevance);
+                         //obs->mat[0][0] = 0.3f; // Clear temporary distance (don't persist)
+
+                         #if GTIMERS
+                         timers << l.end(); timer_labels << "sal_rel_calcs"; l.start();
+                         #endif
                          if(relevance>0.0f||single->dtype=="clover") {
-                              //agent->opt_ints[5] += 1;
-                              if(!memory->in_attention(obj_crumb)) {
-                                   memory->observe(obj_crumb);
+                              g_ptr<CategoryNode> node = nullptr;
+                              if(seen_before == nullptr && single->dtype!="agent") {
+                                   //print("Look! Something new!");
+                                   obs->mat[0][1] = 3.0f; //Novelty
+                                   node = memory->observe(*obs);
                                    if(single->dtype=="clover")
                                         agent->opt_ints[6]=1;
+                              } else {
+                                   node = seen_before;
+                                 //  memory->push_attention_head(seen_before);
                               }
-                
+
+                              if(relevance>highest_relevency) {
+                                   highest_relevency = relevance;
+                                   most_relevant = node;
+                              }
+
+                              #if VISPATHS
+                                   memory->visualize_structure(memory->physics_attention.last());
+                              #endif
+
                               if(relevance>0.9f) {
+                                   //print("I wanna go there");
                                    goals[id] = vec3(scene->transforms[obj_id][3]);
                                    goal_focus = 1.0f; // Set high goal focus
                               }
                          } 
+
+
                          #if GTIMERS
-                         timers << l.end(); timer_labels << "observe";
+                         timers << l.end(); timer_labels << "observe_resolution";
                          #endif
+                    }
+                    if(most_relevant) {
+                         memory->push_attention_head(most_relevant);
                     }
                     
                     #if GTIMERS
@@ -1460,7 +2038,9 @@ int main() {
                }
           }
      },0.008f);
-     run_thread->logSPS = true;
+     #if GTIMERS
+          run_thread->logSPS = true;
+     #endif
 
      S_Tool update_logger;
      #if GTIMERS
@@ -1497,17 +2077,103 @@ int main() {
                }
                from_phys_to_update.clear();
             }
-     },0.00001f);
-     update_thread->logSPS = true;
+     },0.008f);
+     #if GTIMERS
+          update_thread->logSPS = true;
+     #endif
+
 
      S_Tool s_tool;
-     s_tool.log_fps = true;
+     #if GTIMERS
+          s_tool.log_fps = true;
+     #endif
+
+     //For tree visualization
+     g_ptr<crumb_manager> mem = crumb_managers[0];
+     g_ptr<CategoryNode> current_view = mem->meta_root;
+     int child_index = 0;  // Which child we're looking at
+     int parent_index = 0; // Which parent we're looking at
+
      start::run(window,d,[&]{
           s_tool.tick();
-          if(pressed(Q)) {
+          if(pressed(N)) {
                scene->camera.setTarget(agents[0]->getPosition()+vec3(0,20,20));
           }
           vec3 mousepos = scene->getMousePos();
+
+          if(pressed(SPACE)) {
+               if(run_thread->runningTurn) run_thread->pause();
+               else run_thread->start();
+          }
+          if(amt==1) {
+               // Navigate DOWN to children
+               if(pressed(E)) {
+                    if(held(LSHIFT)) { // Cycle through siblings
+                        if(!current_view->children.empty()) {
+                            child_index = (child_index + 1) % current_view->children.length();
+                            mem->visualize_structure(current_view);
+                            print("Viewing child ", child_index, " of ", current_view->children.length());
+                        }
+                    } else {
+                        if(!current_view->children.empty()) {
+                            // Clamp to valid range before moving
+                            child_index = child_index % current_view->children.length();
+                            current_view = current_view->children[child_index];
+                            mem->visualize_structure(current_view);
+                            print("Moved to child ", child_index, ". Children: ", current_view->children.length(), 
+                                  ", Parents: ", current_view->parents.length());
+                        }
+                    }
+                }
+               
+               // Navigate UP to parents
+               if(pressed(Q)) {
+                    if(held(LSHIFT)) { // Cycle through parents
+                         if(!current_view->parents.empty()) {
+                             parent_index = (parent_index + 1) % current_view->parents.length();
+                             mem->visualize_structure(current_view);
+                             print("Viewing parent ", parent_index, " of ", current_view->parents.length());
+                         }
+                     } else {
+                         if(!current_view->parents.empty()) {
+                             g_ptr<CategoryNode> parent(current_view->parents[parent_index]);
+                             current_view = parent;
+                             // DON'T reset indices - keep them!
+                             mem->visualize_structure(current_view);
+                             print("Moved to parent ", parent_index, ". Children: ", current_view->children.length(), 
+                                   ", Parents: ", current_view->parents.length());
+                         }
+                     }
+               }
+               
+               // Reset to agent's current attention
+               if(pressed(R)) {
+                    current_view = mem->physics_attention.last();
+                    child_index = 0;
+                    parent_index = 0;
+                    mem->visualize_structure(current_view);
+                    print("Reset to current attention head");
+               }
+
+               //Visualize from root
+               if(pressed(V)) {
+                    mem->visualize_structure(mem->meta_root);
+                    current_view = mem->meta_root;
+                    print("Viewing full tree from root");
+               }
+               
+               if(pressed(C)) {
+                    mem->clear_debug();
+               }
+
+               if(pressed(G)) {
+                    mem->find_duplicates();
+                    mem->visualize_registry();
+               }
+
+
+          }
+
 
           // if(pressed(E)) {
           //      if(on_wall++>=walls.length()-1) {
