@@ -571,6 +571,23 @@
         return split;
     }
 
+    g_ptr<tensor> stack_tensors(const list<g_ptr<tensor>>& tensors) {
+        if(tensors.empty()) return nullptr;
+        
+        int batch_size = tensors.length();
+        int feature_dim = tensors[0]->numel();
+        
+        auto result = make<tensor>(list<int>{batch_size, feature_dim});
+        
+        for(int i = 0; i < batch_size; i++) {
+            for(int j = 0; j < feature_dim; j++) {
+                result->at({i, j}) = tensors[i]->flat(j);
+            }
+        }
+        
+        return result;
+    }
+
     
     float process_batch(g_ptr<tensor>& output, g_ptr<tensor> target, list<g_ptr<tensor>>& params, Opp loss_type, 
         Reduction reduction, g_ptr<optimizer> optim = nullptr, float grad_clip = 0.0f, int accumulation_steps = 1) 

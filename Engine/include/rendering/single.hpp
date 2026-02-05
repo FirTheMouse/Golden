@@ -63,6 +63,8 @@ public:
     vec3 opt_vec_3_3;
     vec3 opt_vec_3_4;
 
+    g_ptr<Object> opt_ptr = nullptr;
+
     //This is mainly intended for debug
     list<double> timers;
     list<std::string> timer_labels;

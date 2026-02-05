@@ -21,6 +21,185 @@ list<int> addToGrid(g_ptr<Single> q) {
 list<int> removeFromGrid(g_ptr<Single> q) {
      return grid->removeFromGrid(q->ID,q->getWorldBounds());
 }
+
+namespace ML {
+     // Utility to read big-endian integers
+     int32_t read_int(std::ifstream& file) {
+          unsigned char bytes[4];
+          file.read((char*)bytes, 4);
+          return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+     }
+     
+     std::pair<g_ptr<tensor>, g_ptr<tensor>> load_mnist(
+          const std::string& image_file,
+          const std::string& label_file,
+          int max_samples = -1  // -1 = load all
+     ) {
+          // Load images
+          std::ifstream img_stream(image_file, std::ios::binary);
+          if(!img_stream) throw std::runtime_error("Can't open " + image_file);
+          
+          int magic = read_int(img_stream);
+          int num_images = read_int(img_stream);
+          int rows = read_int(img_stream);
+          int cols = read_int(img_stream);
+          
+          if(max_samples > 0) num_images = std::min(num_images, max_samples);
+          
+          // Create tensor with shape [num_images, rows * cols]
+          auto images = make<tensor>(list<int>{num_images, rows * cols});
+          
+          for(int i = 0; i < num_images; i++) {
+          for(int j = 0; j < rows * cols; j++) {
+               unsigned char pixel;
+               img_stream.read((char*)&pixel, 1);
+               images->at({i, j}) = pixel / 255.0f;  // normalize to [0,1]
+          }
+          }
+          
+          // Load labels
+          std::ifstream lbl_stream(label_file, std::ios::binary);
+          if(!lbl_stream) throw std::runtime_error("Can't open " + label_file);
+          
+          magic = read_int(lbl_stream);
+          int num_labels = read_int(lbl_stream);
+          
+          if(max_samples > 0) num_labels = std::min(num_labels, max_samples);
+          
+          // Create tensor with shape [num_labels, 10] for one-hot encoding
+          auto labels = make<tensor>(list<int>{num_labels, 10});
+          labels->fill(0.0f);  // Initialize to zeros
+          
+          for(int i = 0; i < num_labels; i++) {
+          unsigned char label;
+          lbl_stream.read((char*)&label, 1);
+          labels->at({i, (int)label}) = 1.0f;  // one-hot encoding
+          }
+          
+          return {images, labels};
+     }
+     
+     unsigned int mnist_to_texture(g_ptr<tensor> images, int img_index) {
+          // Extract one 28x28 image
+          int w = 28, h = 28;
+          unsigned char* data = new unsigned char[w * h * 4];  // RGBA
+          
+          for(int i = 0; i < h; i++) {
+          for(int j = 0; j < w; j++) {
+               // Flip vertically: read from bottom to top
+               int flipped_i = (h - 1) - i;
+               float val = images->at({img_index, flipped_i * w + j});
+               unsigned char pixel = (unsigned char)(val * 255.0f);
+               
+               int idx = (i * w + j) * 4;
+               data[idx + 0] = pixel;
+               data[idx + 1] = pixel;
+               data[idx + 2] = pixel;
+               data[idx + 3] = 255;
+          }
+          }
+          
+          GLuint tex;
+          glGenTextures(1, &tex);
+          glBindTexture(GL_TEXTURE_2D, tex);
+          glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0,
+                    GL_RGBA, GL_UNSIGNED_BYTE, data);
+          
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);  // Nearest for pixel art look
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+          
+          delete[] data;
+          return tex;
+     }
+     
+     void run_mnist(g_ptr<Scene> scene, int epochs, int amt = -1) {
+          
+     }
+}
+
+// void benchmark_raycasts() {
+//      print("\n========== RAYCAST BENCHMARK ==========\n");
+     
+//      // Setup test environment
+//      grid = make<NumGrid>(0.5f, 1000.0f);
+//      g_ptr<Physics> phys = make<Physics>();
+//      Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.5");
+//      g_ptr<Scene> test_scene = make<Scene>(window, 2);
+//      phys->scene = test_scene;
+     
+//      // Create maze walls in both structures
+//      list<g_ptr<Single>> walls;
+//      g_ptr<Model> wall_model = make<Model>(makeTestBox(1.0f));
+     
+//      for(int i = 0; i < 500; i++) {
+//          g_ptr<Single> wall = make<Single>(wall_model);
+//          test_scene->add(wall);
+//          vec3 pos(randf(-50, 50), 1.5f, randf(-50, 50));
+//          wall->setPosition(pos);
+//          wall->setPhysicsState(P_State::FREE);
+//          grid->addToGrid(wall->ID, wall->getWorldBounds());
+//          walls << wall;
+//      }
+     
+//      // Build tree once for static geometry
+//      phys->buildTree3d();
+     
+//      // Test positions and directions
+//      vec3 origins[10];
+//      vec3 directions[10];
+//      for(int i = 0; i < 10; i++) {
+//          origins[i] = vec3(randf(-40, 40), 1.0f, randf(-40, 40));
+//          directions[i] = vec3(randf(-1, 1), 0, randf(-1, 1)).normalized();
+//      }
+
+//      int hits_tree = 0, hits_grid = 0;
+//      for(int i = 0; i < 10; i++) {
+//      float tree_dist = phys->raycast(origins[i], directions[i], 10.0f);
+//      float grid_dist = grid->raycast(origins[i], directions[i], 10.0f);
+     
+//      if(tree_dist < 10.0f) hits_tree++;
+//      if(grid_dist < 10.0f) hits_grid++;
+     
+//      print("Ray ", i, " - Tree: ", tree_dist, " Grid: ", grid_dist);
+//      }
+//      print("Tree hits: ", hits_tree, " Grid hits: ", hits_grid);
+     
+//      Log::rig r;
+     
+//      // Tree raycast
+//      r.add_process("tree_raycast", [&](int i) {
+//          int idx = i % 10;
+//          phys->raycast(origins[idx], directions[idx], 10.0f);
+//      });
+     
+//      // Grid raycast
+//      r.add_process("grid_raycast", [&](int i) {
+//          int idx = i % 10;
+//          grid->raycast(origins[idx], directions[idx], 10.0f);
+//      });
+     
+//      // Grid raycast with exclusion
+//      r.add_process("grid_raycast_with_exclusion", [&](int i) {
+//          int idx = i % 10;
+//          grid->raycast(origins[idx], directions[idx], 10.0f, 0); // Exclude ID 0
+//      });
+     
+//      // Tree raycast (fresh rebuild each time - worst case)
+//      r.add_process("tree_rebuild_raycast", [&](int i) {
+//           if(i<3) {
+//                phys->treeBuilt3d = false;
+//                phys->buildTree3d();
+//           }
+//          int idx = i % 10;
+//          phys->raycast(origins[idx], directions[idx], 10.0f);
+//      }, 1); // Separate table
+     
+//      r.add_comparison("grid_raycast", "tree_raycast");
+//      r.add_comparison("grid_raycast_with_exclusion", "grid_raycast");
+//      r.add_comparison("tree_rebuild_raycast", "tree_raycast");
+     
+//      r.run(1000, true, 1000); // 1000 iterations, warm cache, 1000 operations each
+//  }
  
 g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
      g_ptr<Single> line = scene->create<Single>(color);
@@ -1166,6 +1345,165 @@ public:
 };
 
 
+static const int MAX_BUFFER_SIZE = 500;
+static const int MIN_BUFFER_SIZE = 64;
+static const int BATCH_SIZE = 16;
+
+ 
+struct HotColdLearner : public Object {
+     // Network weights
+     g_ptr<tensor> w1, b1, w2, b2;
+     list<g_ptr<tensor>> params;  
+     g_ptr<optimizer> brain;
+     
+     // IMPORTANT: Store Pass objects so they persist
+     Pass matmul1_pass, add1_pass, relu_pass, matmul2_pass, add2_pass;
+     Pass loss_pass;
+     
+     vec3 hidden_target;
+     float last_distance;
+
+     float cumulative_reward = 0;
+     int steps_taken = 0;
+     int times_reached_goal = 0;
+     float best_distance = 1000.0f;
+     
+     struct Experience {
+         g_ptr<tensor> state;
+         int action;
+         float reward;
+     };
+     
+     // EXPERIENCE REPLAY - simple FIFO, no priority
+     list<Experience> replay_buffer;
+     static const int MAX_BUFFER_SIZE = 1000;
+     static const int MIN_BUFFER_SIZE = 100;
+     static const int BATCH_SIZE = 32;
+   
+     void init(vec3 start_pos, vec3 target) {
+         w1 = weight(6, 64, 0.1f);
+         b1 = bias(64);
+         w2 = weight(64, 4, 0.1f);
+         b2 = bias(4);
+         
+         params = {w1, b1, w2, b2};
+         brain = make<optm_adam>(params, 0.05f);  // Higher initial LR for faster learning
+         
+         // Initialize Pass objects ONCE
+         matmul1_pass = {MATMUL, w1};
+         add1_pass = {ADD, b1};
+         relu_pass = {RELU};
+         matmul2_pass = {MATMUL, w2};
+         add2_pass = {ADD, b2};
+         
+         hidden_target = target;
+         last_distance = start_pos.distance(target);
+     }
+   
+     g_ptr<tensor> encode_state(vec3 pos, float heat_gradient) {
+         auto state = make<tensor>(list<int>{1, 6});
+         state->flat(0) = pos.x() / 100.0f;
+         state->flat(1) = pos.z() / 100.0f;
+         state->flat(2) = heat_gradient;
+         state->flat(3) = last_distance / 100.0f;
+         state->flat(4) = randf(-0.1f, 0.1f);
+         state->flat(5) = randf(-0.1f, 0.1f);
+         return state;
+     }
+   
+     int choose_action(g_ptr<tensor> state, float epsilon = 0.1f) {
+         if(randf(0, 1) < epsilon) {
+             return randi(0, 3);
+         }
+         
+         auto h = state->forward(matmul1_pass);
+         h = h->forward(add1_pass);
+         h = h->forward(relu_pass);
+         auto logits = h->forward(matmul2_pass);
+         logits = logits->forward(add2_pass);
+         
+         // Argmax
+         int best = 0;
+         float best_val = logits->flat(0);
+         for(int i = 1; i < 4; i++) {
+             if(logits->flat(i) > best_val) {
+                 best_val = logits->flat(i);
+                 best = i;
+             }
+         }
+         
+         tensor::clear_graph(logits);
+         return best;
+     }
+   
+     void add_experience(const Experience& exp) {
+         // Simple FIFO buffer - just append and truncate
+         replay_buffer << exp;
+         
+         if(replay_buffer.length() > MAX_BUFFER_SIZE) {
+             // Remove oldest experiences
+             replay_buffer.removeAt(0);
+         }
+     }
+ 
+     void learn_from_replay() {
+         if(replay_buffer.length() < MIN_BUFFER_SIZE) return;
+         
+         // Random sampling from entire buffer
+         list<int> sampled_indices;
+         for(int i = 0; i < BATCH_SIZE; i++) {
+             int idx = randi(0, replay_buffer.length() - 1);
+             sampled_indices << idx;
+         }
+         
+         // Train on batch
+         for(int idx : sampled_indices) {
+             auto exp = replay_buffer[idx];
+             
+             // Forward
+             auto h = exp.state->forward(matmul1_pass);
+             h = h->forward(add1_pass);
+             h = h->forward(relu_pass);
+             auto logits = h->forward(matmul2_pass);
+             logits = logits->forward(add2_pass);
+             
+             // Create target
+             auto target = make<tensor>(list<int>{1, 4});
+             target->fill(0.0f);
+             
+             if(exp.reward > 0) {
+                 target->at({0, exp.action}) = 1.0f;
+             } else {
+                 for(int j = 0; j < 4; j++) {
+                     target->at({0, j}) = (j == exp.action) ? 0.0f : 0.33f;
+                 }
+             }
+             
+             // Loss & backprop
+             loss_pass.op = SOFTMAX_CE;
+             loss_pass.param = target;
+             auto loss = logits->forward(loss_pass);
+             
+             loss->grad_[0] = 1.0f;
+             loss->backward();
+             
+             tensor::clear_graph(loss);
+         }
+         
+         // Update weights once per batch
+         brain->step();
+         brain->zero_grad();
+     }
+   
+     void adaptive_learning_rate() {
+         // Faster decay: 0.05 → 0.001 over 50 goals
+         float progress = std::min(times_reached_goal / 50.0f, 1.0f);
+         float lr = 0.05f * (1.0f - progress) + 0.001f * progress;
+         brain->set_lr(lr);
+     }
+};
+
+
 int main() {
      // test_crumbs();
      // return 0;
@@ -1178,6 +1516,143 @@ int main() {
      scene->tickEnvironment(1100);
 
      scene->enableInstancing();
+
+     if(false) {
+          auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
+          
+          auto [train_imgs, train_labels] = ML::load_mnist(
+          root()+"/Projects/FirML/assets/images/train-images-idx3-ubyte", 
+          root()+"/Projects/FirML/assets/images/train-labels-idx1-ubyte", 
+          -1
+          );
+          auto [test_imgs, test_labels] = ML::load_mnist(
+          root()+"/Projects/FirML/assets/images/t10k-images-idx3-ubyte", 
+          root()+"/Projects/FirML/assets/images/t10k-labels-idx1-ubyte", 
+          -1
+          );
+          print("Loaded ", train_imgs->shape_[0], " training images");
+
+          // Initialize weights and biases
+          auto w1 = weight(784, 128, 0.1f);
+          auto b1 = bias(128);
+          auto w2 = weight(128, 10, 0.1f);
+          auto b2 = bias(10);
+
+          // Network definition - now using ADD instead of ADD_BIAS
+          list<Pass> network = {
+          {MATMUL, w1}, 
+          {ADD, b1},      // Changed from ADD_BIAS to ADD
+          {RELU},
+          {MATMUL, w2}, 
+          {ADD, b2}       // Changed from ADD_BIAS to ADD
+          };
+          list<g_ptr<tensor>> params = {w1, b1, w2, b2};
+
+          Log::Line l;
+          l.start();
+
+          g_ptr<t_config> ctx = make<t_config>();
+          ctx->epochs = 4;
+          ctx->learning_rate = 0.64f;
+          ctx->grad_clip = 1.0f;
+          ctx->reduction = MEAN;
+          ctx->batch_size = 64;
+
+          train_network(
+          train_imgs,      // Starting points
+          train_labels,    // Targets for the network
+          network,         // Nodes
+          params,          // Tensors
+          SOFTMAX_CE,      // Loss type
+          ctx,
+          1                // Logging interval (if 0, turns off logging)
+          );
+
+          double time = l.end();
+          print("Took ", time/1000000, "ms");
+
+          // Run forward pass on test data
+          auto test_output = test_imgs;
+          for(auto p : network) {
+          test_output = test_output->forward(p);
+          }
+
+          // Calculate accuracy
+          int correct = 0;
+          int num_test = test_output->shape_[0];
+          int num_classes = test_output->shape_[1];
+          
+          for(int i = 0; i < num_test; i++) {
+          // Find predicted class (max value in row)
+          int pred_class = 0;
+          float max_val = test_output->at({i, 0});
+          for(int j = 1; j < num_classes; j++) {
+               if(test_output->at({i, j}) > max_val) {
+                    max_val = test_output->at({i, j});
+                    pred_class = j;
+               }
+          }
+          
+          // Find true class (which column is 1 in one-hot encoding)
+          int true_class = 0;
+          for(int j = 0; j < num_classes; j++) {
+               if(test_labels->at({i, j}) == 1.0f) {
+                    true_class = j;
+                    break;
+               }
+          }
+          
+          if(pred_class == true_class) correct++;
+          }
+
+          float accuracy = 100.0f * correct / num_test;
+          print("Test Accuracy: ", accuracy, "%");
+
+          // Display random predictions
+          list<int> indices = {
+          randi(0, test_imgs->shape_[0] - 1), 
+          randi(0, test_imgs->shape_[0] - 1), 
+          randi(0, test_imgs->shape_[0] - 1)
+          };
+
+          list<g_ptr<Text>> twigs;
+          for(int i = 0; i < 3; i++) {
+          int idx = indices[i];
+          
+          // Display the image
+          g_ptr<Quad> q = make<Quad>();
+          scene->add(q);
+          q->setTexture(ML::mnist_to_texture(test_imgs, idx));
+          q->setPhysicsState(P_State::NONE);
+          float pos_y = (float)i * 300.0f;
+          vec2 pos(pos_y, 0.0f);
+          q->setPosition(pos);
+          vec2 scale(280, 280);
+          q->scale(scale);
+
+          // Get prediction for single image
+          auto single_img = test_imgs->get_batch(idx, 1);
+          auto output = single_img;
+          for(auto p : network) {
+               output = output->forward(p);
+          }
+          
+          // Find predicted class (max output)
+          int predicted = 0;
+          for(int j = 1; j < num_classes; j++) {
+               if(output->at({0, j}) > output->at({0, predicted})) {
+                    predicted = j;
+               }
+          }
+          
+          // Display text showing prediction
+          print("Image ", i, ": Predicted ", predicted);
+          vec2 pos2(100.0f + pos_y, 300);
+          g_ptr<Text> twig = make<Text>(source_code,scene);
+          twigs << twig;
+          twig->makeText(std::to_string(predicted),pos2);
+          }
+     }
 
      int amt = 1;
      float agents_per_unit = 0.3f;
@@ -1307,7 +1782,7 @@ int main() {
      // }
 
 
-     make_maze(b_model);
+     //make_maze(b_model);
      int grass_count = (int)(grid_size * grid_size * 0.00f);
      for(int i = 0; i < grass_count; i++) {
          g_ptr<Single> box = make<Single>(grass_model);
@@ -1354,8 +1829,33 @@ int main() {
      g_ptr<Thread> run_thread = make<Thread>();
      g_ptr<Thread> update_thread = make<Thread>();
      
+     // struct ObservationBatch {
+     //      vec3 agent_pos;
+     //      int agent_id;
+     //      list<std::pair<float,int>> observed_objects;
+     //      g_ptr<crumb_manager> memory;
+     // };
+     // list<ObservationBatch> batch;
+
      int width = (int)std::sqrt(amt);
      float spacing = side_length / width;
+
+
+     list<g_ptr<HotColdLearner>> learner; 
+     struct LearningStats {
+          list<g_ptr<Single>> debug_lines;
+          float total_distance = 0;
+          float total_reward = 0;
+          int frame_count = 0;
+          
+          void clear_debug() {
+              for(auto d : debug_lines) {
+                  scene->recycle(d);
+              }
+              debug_lines.clear();
+          }
+      };
+      LearningStats stats;
 
      for(int i=0;i<amt;i++) {
           g_ptr<Single> agent = scene->create<Single>("agent");
@@ -1431,618 +1931,719 @@ int main() {
                          
           crumb_managers << memory;
 
-          //grid->make_seethru(agent->ID);
+          grid->make_seethru(agent->ID);
 
-          agent->physicsJoint = [agent, memory, marker, update_thread, &crumb_managers, &goals, &agents, &crumbs, &debug, phys, side_length]() {
-               #if GTIMERS
-               Log::Line overall;
-               Log::Line l;
-               list<double>& timers = agent->timers;
-               list<std::string>& timer_labels = agent->timer_labels;
-               timers.clear(); timer_labels.clear();
-               overall.start();
-               agent->opt_ints[4] = 0;
-               // agent->opt_ints[5] = 0;
-               #endif
-               //Always setup getters for sketchpad properties because chances are they'll change later
-               //Plus it helps with clarity to name them
-               int id = agent->opt_ints[1];
-               list<g_ptr<Single>>& my_debug = debug[id];
-               g_ptr<Single> goal_crumb = marker;
-               int& spin_accum = agent->opt_ints[2];
-               int& on_frame = agent->opt_ints[3];
-               float& goal_focus = agent->opt_floats[2];
-               int& accum5 = agent->opt_ints[5];
-               int& frames_since_progress = agent->opt_ints[7];
-               int& nav_strat = agent->opt_ints[8];
-               float navigation_focus = memory->navigation_focus();
-               //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
-               list<int>& path = agent->opt_idx_cache_2;
-               //This is just for testing
-               vec3 goal = goals[id];  //goal_crumb->getPosition();
+           // In main, add to each agent:
+          agent->opt_ptr = make<HotColdLearner>();  // Assuming you have g_ptr slot
+          auto learner = (HotColdLearner*)agent->opt_ptr.getPtr();
+          learner->init(agent->getPosition(), vec3(randf(-50, 50), 0, randf(-50, 50)));
 
-               float moved_recently = agent->getPosition().distance(agent->opt_vec3_2);
-               if(moved_recently > 2.0f) {
-                    agent->opt_vec3_2 = agent->getPosition();
-                    frames_since_progress = 0;
-               } else {
-                    frames_since_progress++;
+          float agent_hue = (float(i) / float(amt)) * 360.0f;  
+
+
+
+           agent->physicsJoint = [agent, &stats, i]() {
+               auto learner = (HotColdLearner*)agent->opt_ptr.getPtr();
+               int id = i;
+    
+               vec3 pos = agent->getPosition();
+               float curr_dist = pos.distance(learner->hidden_target);
+               float heat_gradient = learner->last_distance - curr_dist;
+               
+               // === VISUAL FEEDBACK ===
+               if(id % 10 == 0) {
+                   auto line = draw_line(pos, learner->hidden_target, "cyan", 0.5f);
+                   stats.debug_lines << line;
                }
+               
 
-               // int thrash_interval = 15;
-               // if(on_frame % thrash_interval == id % thrash_interval) {
+               
+               // === CHECK FOR SUCCESS ===
+               if(curr_dist < 5.0f) {
+                   learner->times_reached_goal++;
+                   print("🎯 Mouse ", id, " reached goal! (attempt #", learner->times_reached_goal, 
+                         " after ", learner->steps_taken, " steps, cum_reward=", learner->cumulative_reward,
+                         ", buffer_size=", learner->replay_buffer.length(), ")");
+                   
+                   // CURRICULUM: Start nearby, gradually increase difficulty
+                   float reset_radius = 20.0f + (learner->times_reached_goal * 1.5f);
+                   reset_radius = std::min(reset_radius, 100.0f);
+                   
+                   vec3 offset(randf(-reset_radius, reset_radius), 0, 
+                               randf(-reset_radius, reset_radius));
+                   learner->hidden_target = pos + offset;
+                   
+                   // Every 25 goals, force a far reset for diversity
+                   if(learner->times_reached_goal % 25 == 0) {
+                       learner->hidden_target = vec3(randf(-100, 100), 0, randf(-100, 100));
+                       print("🔄 Mouse ", id, " exploration reset (far spawn)");
+                   }
+                   
+                   learner->last_distance = pos.distance(learner->hidden_target);
+                   learner->steps_taken = 0;
+                   learner->cumulative_reward = 0;
+                   
+                   // Adapt learning rate
+                   learner->adaptive_learning_rate();
+               }
+               
+               // === LEARNING ===
+               auto state = learner->encode_state(pos, heat_gradient);
+               
+               // Epsilon decay: 0.3 → 0.05
+               float epsilon = 0.05f + 0.25f * exp(-stats.frame_count / 2000.0f);
+               int action = learner->choose_action(state, epsilon);
+               
+               // Apply action (DISCRETE STEPS)
+               vec3 direction(0, 0, 0);
+               float step_size = 2.0f;
+               switch(action) {
+                   case 0: direction = vec3(0, 0, -step_size); break;
+                   case 1: direction = vec3(step_size, 0, 0); break;
+                   case 2: direction = vec3(0, 0, step_size); break;
+                   case 3: direction = vec3(-step_size, 0, 0); break;
+               }
+               
+               agent->setPosition(pos + direction);
+               agent->setLinearVelocity(vec3(0, 0, 0));
+               
+               // Compute reward
+               float reward = heat_gradient / step_size;
+               reward = std::clamp(reward, -1.0f, 1.0f);
+               
+               // Track metrics
+               learner->cumulative_reward += reward;
+               learner->steps_taken++;
+               learner->best_distance = std::min(learner->best_distance, curr_dist);
+               
+               // Store experience
+               HotColdLearner::Experience exp;
+               exp.state = state; exp.action = action; exp.reward = reward;
+               learner->add_experience(exp);
+               // Learn from replay every 5 steps
+               if(learner->steps_taken % 5 == 0) {
+                    learner->learn_from_replay();
+               }
+               
+               // Update for next iteration
+               learner->last_distance = curr_dist;
+               
+               // === AGGREGATE STATS ===
+               stats.total_distance += curr_dist;
+               stats.total_reward += reward;
+               
+               return true;
+           };
+          // agent->physicsJoint = [agent, memory, marker, update_thread, &crumb_managers, &goals, &agents, &crumbs, &debug, phys, side_length]() {
+          //      #if GTIMERS
+          //      Log::Line overall;
+          //      Log::Line l;
+          //      list<double>& timers = agent->timers;
+          //      list<std::string>& timer_labels = agent->timer_labels;
+          //      timers.clear(); timer_labels.clear();
+          //      overall.start();
+          //      agent->opt_ints[4] = 0;
+          //      // agent->opt_ints[5] = 0;
+          //      #endif
+          //      //Always setup getters for sketchpad properties because chances are they'll change later
+          //      //Plus it helps with clarity to name them
+          //      int id = agent->opt_ints[1];
+          //      list<g_ptr<Single>>& my_debug = debug[id];
+          //      g_ptr<Single> goal_crumb = marker;
+          //      int& spin_accum = agent->opt_ints[2];
+          //      int& on_frame = agent->opt_ints[3];
+          //      float& goal_focus = agent->opt_floats[2];
+          //      int& accum5 = agent->opt_ints[5];
+          //      int& frames_since_progress = agent->opt_ints[7];
+          //      int& nav_strat = agent->opt_ints[8];
+          //      float navigation_focus = memory->navigation_focus();
+          //      //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
+          //      list<int>& path = agent->opt_idx_cache_2;
+          //      //This is just for testing
+          //      vec3 goal = goals[id];  //goal_crumb->getPosition();
+
+          //      float moved_recently = agent->getPosition().distance(agent->opt_vec3_2);
+          //      if(moved_recently > 2.0f) {
+          //           agent->opt_vec3_2 = agent->getPosition();
+          //           frames_since_progress = 0;
+          //      } else {
+          //           frames_since_progress++;
+          //      }
+
+          //      // int thrash_interval = 15;
+          //      // if(on_frame % thrash_interval == id % thrash_interval) {
+          //      //      #if GTIMERS
+          //      //      l.start();
+          //      //      #endif
+
+          //      //      list<vec3> directions = memory->come_up_with_a_path(accum5);
+
+          //      //      #if GTIMERS
+          //      //      timers << l.end(); timer_labels << "come_up_with_a_path";
+          //      //      #endif
+          //      // }
+
+          //      if(agent->distance(marker) <= 10.0f) {
+          //           goal = marker->getPosition();
+          //      }
+
+          //      // if(goal_focus>0.7f && agent->distance(goal) <= 10.0f) {
+          //      //      // agent->setLinearVelocity({0,0,0});
+          //      //      if(goal==marker->getPosition()) {
+          //      //           marker->setPosition(agent->getPosition().addZ(-40));
+          //      //           memory->current_state.mat[3][0] = 2.0f;
+          //      //           memory->current_state.mat[0][1] = 0.0f;
+
+          //      //           #if GTIMERS
+          //      //           l.start();
+          //      //           #endif
+
+          //      //           list<vec3> directions = memory->come_up_with_a_path(accum5);
+
+          //      //           #if GTIMERS
+          //      //           timers << l.end(); timer_labels << "come_up_with_a_path";
+          //      //           #endif
+          //      //           // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
+          //      //           if(!directions.empty()) {
+          //      //                print("Came up with: ",directions.length()," directions");
+          //      //                directions.reverse();
+          //      //                goal = directions.last();
+          //      //                goal_focus = 1.0f;
+          //      //                for(auto d : directions) {
+          //      //                     path << grid->toIndex(d);
+          //      //                }
+          //      //                print("CURRENT TARGET: ",grid->indexToLoc(path[0]).to_string());
+          //      //                memory->clear_debug();
+          //      //           } else {
+          //      //                print("Failed to create directions");
+          //      //                goal_focus = 0.0f;
+          //      //           }
+          //      //           bool seen_berry = false;
+          //      //           for(auto e : memory->id_to_node.entrySet()) {
+          //      //                if(scene->singles[e.key]->dtype=="berry") 
+          //      //                     seen_berry = true;
+          //      //           }
+          //      //           print("has ",seen_berry?"":"not ","seen berry");
+
+          //      //      } else {
+          //      //           goals[id] = marker->getPosition();
+          //      //           goal_focus = 0.9f;
+          //      //      }
+          //      // }
+
+          //      float desired_speed = agent->opt_floats[1];  
+          //      on_frame++; 
+          //      bool enable_astar = false;
+          //      int pathing_interval = 15; 
+          //      //A* Unit
+          //           if(enable_astar && (on_frame % (pathing_interval*20) == id % (pathing_interval*20)  || path.empty())) {
+          //                path = grid->findPath(
+          //                     grid->toIndex(agent->getPosition()),
+          //                     grid->toIndex(goal),
+          //                     [agent](int idx) {
+          //                          if(grid->cells[idx].empty()) return true;
+          //                          if(grid->cells[idx].length() == 1 && grid->cells[idx].has(agent->ID)) return true;
+          //                          return false; // Occupied by walls or other agents
+          //                     }
+          //                );
+          //                if(path.empty()) {
+          //                     // print("UNABLE TO FIND A PATH!");
+          //                     // vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
+          //                     // scene->reactivate(goal_crumb);
+          //                     // crumbs[id][0]->setPosition(new_goal);
+          //                     return true;
+          //                }
+          //           }
+
+          //      vec3 goal_loc = agent->opt_vec_3_4;
+
+          //      if(!path.empty()) {
+          //           #if GTIMERS
+          //           l.start();
+          //           #endif
+
+          //           vec3 waypoint = grid->indexToLoc(path[0]);
+          //           float waypoint_dist = agent->getPosition().distance(waypoint);
+
+          //           if(frames_since_progress>=30) {
+          //                // list<int> new_path = grid->findPath(
+          //                //      grid->toIndex(agent->getPosition()),
+          //                //      grid->toIndex(waypoint),
+          //                //      [agent](int idx) {
+          //                //           if(grid->empty(idx)) return true;
+          //                //           if(grid->has_only(idx,agent->ID)) return true;
+          //                //           return false; // Occupied by walls or other agents
+          //                //      }
+          //                // );
+          //                // print("Came up with a new path with: ",new_path.length()," nodes");
+          //                // path << new_path;
+          //                agent->setPosition(waypoint); //Cheating for now so I can focus on other things
+          //           } 
+          //           if(waypoint_dist < grid->cellSize) {
+          //                path.removeAt(0);
+          //                if(!path.empty()) {
+          //                     waypoint = grid->indexToLoc(path[0]);
+          //                } else {
+          //                     // print("PATH COMPLETE!!");
+          //                }
+          //           }
+          //           vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
+          //           agent->faceTo(agent->getPosition() + direction);
+          //           agent->setLinearVelocity(direction * desired_speed);
+
+          //           #if GTIMERS
+          //           timers << l.end(); timer_labels << "navigate_path";
+          //           #endif
+          //      }
+          //      else if(on_frame % pathing_interval == id % pathing_interval) {
+          //           vec3 current_velocity = agent->getVelocity().position;
+          //           float actual_speed = current_velocity.length();
+          //           float speed_ratio = actual_speed / std::max(desired_speed, 0.1f);
+          //           #if GTIMERS
+          //           l.start();
+          //           #endif
+                    
+          //           // Tunable parameters
+          //           int num_rays = 24; 
+          //           float ray_distance = 30.0f;
+          //           float cone_width = 235.0f; 
+                    
+          //           // Get goal direction for biasing
+          //           vec3 to_goal = agent->getPosition().direction(goal).nY();
+          //           float goal_distance = agent->getPosition().distance(goal);
+          //           vec3 forward =  agent->facing().nY(); //to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
+          //           vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
+                                        
+          //           // Cast rays in a forward-biased cone
+          //           float best_openness = 0.0f;
+          //           vec3 best_direction = forward;
+                    
+          //           float start_angle = -cone_width / 2.0f;
+          //           float angle_step = cone_width / (num_rays - 1);
+
+          //           float best_goal_alignment = -1.0f;
+          //           float best_aligned_clearance = 0.0f;
+                    
+          //           list<std::pair<float,int>> observed_objects;
+          //           list<g_ptr<Single>> new_crumbs;
+                
+          //           #if VISPATHS
+          //           list<g_ptr<Single>> raycast_debug;
+          //           #endif
+                    
+          //           list<float> ray_distances;
+
+          //           float left_clearance = 0.0f;
+          //           float right_clearance = 0.0f;
+          //           float left_count = 0.0f;
+          //           float right_count = 0.0f;
+
+          //           #if GTIMERS
+          //           timers << l.end(); timer_labels << "raycast_setup"; l.start();
+          //           #endif
+
+          //           for(int i = 0; i < num_rays; i++) {
+          //               float angle_deg = start_angle + i * angle_step;
+          //               float angle_rad = angle_deg * 3.14159f / 180.0f;
+                        
+          //               vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                        
+          //               std::pair<float,int> hit_info = grid->raycast(
+          //                   agent->getPosition(),
+          //                   ray_dir,
+          //                   ray_distance,
+          //                   agent->ID
+          //               );
+          //               float hit_dist = hit_info.first;
+          //               int hit_cell = hit_info.second;
+          //               ray_distances << hit_dist;
+
+          //               if(angle_deg < 0) {
+          //                     left_clearance += hit_dist;
+          //                     left_count++;
+          //                } else {
+          //                     right_clearance += hit_dist;
+          //                     right_count++;
+          //                }
+                        
+          //               #if VISPATHS
+          //               vec3 ray_end = agent->getPosition() + ray_dir * hit_dist;
+          //               raycast_debug << draw_line(agent->getPosition(), ray_end, "white", 0.5f);
+          //               #endif
+                        
+          //               if(std::abs(angle_deg) < 90.0f) {  // Within ±90° of forward
+          //                     if(hit_dist > best_openness) {
+          //                          best_openness = hit_dist;
+          //                          best_direction = ray_dir;
+          //                     }
+          //                     float goal_alignment = ray_dir.dot(to_goal.normalized());
+          //                     if(goal_alignment > best_goal_alignment) {
+          //                         best_goal_alignment = goal_alignment;
+          //                         best_aligned_clearance = hit_dist;
+          //                     }
+          //                }
+
+          //               bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
+          //               if(curr_hit) {
+          //                   for(int obj_id : grid->cells[hit_cell]) {
+          //                       if(obj_id != agent->ID && 
+          //                          !observed_objects.has({hit_dist, obj_id})) {
+          //                           observed_objects << std::make_pair(hit_dist, obj_id);
+          //                       }
+          //                   }
+          //               }
+          //           }
+                    
+          //           #if GTIMERS
+          //           timers << l.end(); timer_labels << "raycast_sampling"; l.start();
+          //           #endif
+
+          //           int gap_start = -1;
+          //           list<vec3> gaps;
+          //           int rayspace = grid->cellSize * 5.0f;
+          //           //printnl("POS: ",agent->getPosition().to_string(),", RAYS: [");
+          //           for(int i = 1; i < num_rays; i++) {
+          //                float depth_jump = ray_distances[i] - ray_distances[i-1];
+          //                // if(i!=1) printnl(", ");
+          //                // printnl(ray_distances[i],"^",depth_jump);
+                         
+          //                if(gap_start < 0 && depth_jump > rayspace) {
+          //                     //printnl(" ->");
+          //                     //Entering a gap
+          //                     gap_start = i;
+          //                } else if(gap_start >= 0 && depth_jump < -grid->cellSize * 2.0f) {
+          //                     int left_edge_idx = gap_start - 1;
+          //                     float left_angle_deg = start_angle + left_edge_idx * angle_step;
+          //                     float left_angle_rad = left_angle_deg * 3.14159f / 180.0f;
+          //                     vec3 left_ray_dir = (forward * cos(left_angle_rad) + right * sin(left_angle_rad)).normalized();
+          //                     vec3 point_A = agent->getPosition() + left_ray_dir * ray_distances[left_edge_idx];
+          //                     int right_edge_idx = i;
+          //                     float right_angle_deg = start_angle + right_edge_idx * angle_step;
+          //                     float right_angle_rad = right_angle_deg * 3.14159f / 180.0f;
+          //                     vec3 right_ray_dir = (forward * cos(right_angle_rad) + right * sin(right_angle_rad)).normalized();
+          //                     vec3 point_B = agent->getPosition() + right_ray_dir * ray_distances[right_edge_idx];
+                              
+          //                     vec3 gap_pos = (point_A + point_B) * 0.5f;
+          //                     if(!grid->empty(gap_pos)) continue;
+          //                     //printnl(" GAP(",gap_pos.to_string(),")");
+                              
+          //                     gaps << gap_pos;
+
+          //                     #if VISPATHS
+          //                          auto marker = scene->create<Single>("white");
+          //                          marker->setPosition(gap_pos.addY(1.0f));
+          //                          marker->setScale({0.5f,1,0.5f});
+          //                          raycast_debug << marker;
+          //                     #endif
+
+          //                     gap_start = -1;
+          //                 }
+          //           }
+          //           //printnl("]\n");
+
+          //           // Cycle through strategies: 0=none, 1=left, 2=forward, 3=right
+          //           int gap_strategy = 1;
+          //           vec3 gap_bias(0, 0, 0);
+          //           float gap_curiosity = 1.0f;
+          //           vec3 best_gap(0, 0, 0);
+          //           float best_score = -1000.0f;
+
+          //           for(auto g : gaps) {
+          //                vec3 to_gap = (g - agent->getPosition()).normalized();
+          //                float forward_align = to_gap.dot(forward);
+          //                float right_align = to_gap.dot(right);
+                         
+          //                float score = 0.0f;
+          //                switch(gap_strategy) {
+          //                     case 0: continue; // none - skip gaps entirely
+          //                     case 1: score = -right_align; break; // left (negative right)
+          //                     case 2: score = forward_align; break; // forward
+          //                     case 3: score = right_align; break; // right
+          //                }
+                         
+          //                if(score > best_score) {
+          //                     best_score = score;
+          //                     best_gap = to_gap;
+          //                }
+
+          //                g_ptr<CategoryNode> node = memory->closest_visible_node(g,{},{"gap"});
+          //                if(node) {
+          //                     //memory->decrease_novelty(memory->physics_attention[found_id]);
+          //                     observed_objects << std::make_pair(5.0f,node->getID());
+          //                } else { //If we haven't seen this junction before
+          //                     auto marker = scene->create<Single>("crumb");
+          //                     marker->setPosition(g);
+          //                     marker->hide();
+          //                     marker->dtype = "gap";
+                              
+          //                     crumb gap;
+          //                     gap.form = marker;
+          //                     gap.mat[0][1] = 8.0f; //Make it quite novel                             
+          //                     crumbs.put(marker->ID, gap);
+          //                     observed_objects << std::make_pair(5.0f, marker->ID);
+          //                     new_crumbs << marker;
+          //                }
+          //           }
+
+          //            #if GTIMERS
+          //            timers << l.end(); timer_labels << "raycast_gap_sample"; l.start();
+          //            #endif
+                                
+          //           float gap_bias_strength = 10.6f;
+          //           float goal_bias_strength = 0.6f;
+          //           float wall_bias_strength = 0.4f;
+
+          //           if(best_score > 0.0f) {
+          //                gap_bias = best_gap * gap_bias_strength; // Weight for gap bias
+          //           }
+
+          //           // Decide movement: beeline if well-aligned and clear, otherwise use best scored direction
+          //           float beeline_threshold = 0.95f * goal_focus; // Scales with goal focus
+          //           bool can_beeline = (best_goal_alignment > beeline_threshold && 
+          //                               best_aligned_clearance >= goal_distance);
+                    
+          //           left_clearance /= left_count;
+          //           right_clearance /= right_count;
+          //           vec3 wall_bias = right * ((right_clearance - left_clearance) / ray_distance) * wall_bias_strength;
+                    
+          //           float wall_proximity = 1.0f / (std::min(left_clearance, right_clearance) + 1.0f);
+          //           float goal_weight = std::lerp(0.5f, 0.0f, wall_proximity);
+          //           vec3 goal_bias = to_goal * goal_weight * goal_bias_strength;
+                    
+          //           //print("BEST DIR: ",best_direction.to_string(),", WALL_BIAS: ",wall_bias.to_string(),", GOAL_BIAS: ",goal_bias.to_string(),", GAP_BIAS: ",gap_bias.to_string());
+          //           vec3 environmental_force = can_beeline ? 
+          //                to_goal.normalized() : 
+          //                (best_direction + wall_bias + goal_bias + gap_bias).normalized();
+          //           // print("ENVIRO FORCE: ",environmental_force.to_string());
+          //           //     (best_openness > 1.0f ? best_direction : vec3(randf(-1, 1), 0, randf(-1, 1)));
+                
+          //           agent->opt_ints[4] += observed_objects.length();
+                
+          //           vec3 familiarity_vector(0, 0, 0);
+          //           int familiar_count = 0;
+          //           g_ptr<CategoryNode> most_relevant = nullptr;
+          //           float highest_relevency = 0.0f;
+          //           for(auto info : observed_objects) {
+          //                #if GTIMERS
+          //                l.start();
+          //                #endif
+                
+          //                int obj_id = info.second;
+          //                //print("Crumbs has this key: ",obj_id,"? ",crumbs.hasKey(obj_id)?"Yes":"No");
+          //                crumb obj_crumb = crumbs[obj_id]; //Make a copy
+          //                crumb* obs = &obj_crumb;
+          //                g_ptr<Single> single = scene->singles[obj_id];
+          //                if(single->dtype=="wall") {
+          //                     // if(obs->mat[0][1]==0.0f) {
+          //                     //      obs->mat[0][1] = 3.0f; //Make walls novel
+          //                     // } 
+          //                     if(obs->mat[0][2]==0.0f) {
+          //                          obs->mat[0][2] = -100.0f; //Make walls unattractive
+          //                     } 
+          //                }
+
+          //                obs->form = single;
+          //                float dist_to_obj = info.first;
+                
+          //                #if GTIMERS
+          //                timers << l.end(); timer_labels << "observe_value_init"; l.start();
+          //                #endif
+                    
+          //                g_ptr<CategoryNode> seen_before = memory->has_seen_before_cheat(*obs);
+
+          //                #if GTIMERS
+          //                timers << l.end(); timer_labels << "has_seen_before"; l.start();
+          //                #endif
+
+          //                if(seen_before != nullptr) {
+          //                     obs = &seen_before->archetype;
+          //                     memory->decrease_novelty(seen_before);
+          //                     //print("I've seen this before... novelty is now ",obj_crumb->mat[0][1]);
+          //                     float novelty = seen_before->archetype.mat[0][1];
+          //                     if(novelty < 3.0f) { // Familiar
+          //                         vec3 to_familiar = (obs->form->getPosition() - agent->getPosition()).normalized();
+          //                         float familiarity_weight = (3.0f - novelty);
+                                  
+          //                         familiarity_vector = familiarity_vector + (to_familiar * familiarity_weight);
+          //                         familiar_count++;
+          //                     }
+          //                } 
+
+          //                #if GTIMERS
+          //                timers << l.end(); timer_labels << "seen_before_resolve"; l.start();
+          //                #endif
+
+          //                obs->mat[0][0] = 1.0f / (info.first + 1.0f); // Temporary distance for salience
+          //                float salience = memory->salience(*obs);
+          //                float relevance = memory->relevance(*obs, salience);
+          //                //print("Dist: ",1.0f / (info.first + 1.0f)," actual_dist: ",info.first," Sal: ",salience," Rel: ",relevance);
+          //                obs->mat[0][0] = 0.0f; // Clear temporary distance (don't persist)
+          //                #if GTIMERS
+          //                timers << l.end(); timer_labels << "sal_rel_calcs"; l.start();
+          //                #endif
+          //                if(relevance>0.3f) {
+          //                     //Remove the gap crumb if we used it
+          //                     int found_idx = new_crumbs.find(single);
+          //                     if(found_idx!=-1) {new_crumbs.removeAt(found_idx);}
+          //                     g_ptr<CategoryNode> node = nullptr;
+          //                     if(seen_before == nullptr) {
+          //                          //print("Look! Something new!");
+          //                          //obs->mat[0][1] = 3.0f; //Novelty
+          //                          //node = memory->observe(*obs,single);
+          //                     } else {
+          //                          node = seen_before;
+          //                        //  memory->push_attention_head(seen_before);
+          //                     }
+
+          //                     if(relevance>highest_relevency) {
+          //                          highest_relevency = relevance;
+          //                          most_relevant = node;
+          //                     }
+
+          //                     #if VISPATHS
+          //                          struct ray_debug {
+          //                               vec3 from;
+          //                               vec3 to;
+          //                               bool hit = false;
+          //                          };
+
+          //                          vec3 pos = single->getPosition();
+          //                          int best = memory->physics_attention.length()-1;
+          //                          float best_dist = 100.0f;
+          //                          list<ray_debug> visrays;
+          //                          for(int j = 0; j<memory->physics_attention.length();j++) {
+          //                               g_ptr<CategoryNode> n = memory->physics_attention[j];
+          //                               float dist = n->getPosition().distance(pos);
+          //                               vec3 dir = n->getPosition().direction(pos);
+          //                               auto cast = grid->raycast(n->getPosition(),dir,dist,{agent->ID,n->getID(),single->ID});
+          //                               if(cast.second==-1&&dist<best_dist&&n->getID()!=single->ID) {
+          //                                    best_dist = dist;
+          //                                    best = j;
+          //                               }
+          //                               vec3 ray_end = n->getPosition() + dir * cast.first;
+          //                               visrays << ray_debug{n->getPosition(),ray_end,cast.second!=-1};
+          //                               // bool cansee = grid->can_see(n->getPosition(),pos,{id,n->getID()});
+          //                          }
+          //                          for(int j = 0; j<memory->physics_attention.length();j++) {
+          //                               g_ptr<CategoryNode> n = memory->physics_attention[j];
+          //                               ray_debug d = visrays[j];
+          //                               raycast_debug << draw_line(d.from, d.to, j==best?"black":d.hit?"red":"cyan", j==best?2.8f:0.5f);
+          //                          }
+          //                     #endif
+
+          //                     if(relevance>0.9f) {
+          //                          //print("I wanna go there");
+          //                          goals[id] = vec3(scene->transforms[obj_id][3]);
+          //                          goal_focus = 1.0f; // Set high goal focus
+          //                     }
+          //                } 
+
+
+          //                #if GTIMERS
+          //                timers << l.end(); timer_labels << "observe_resolution";
+          //                #endif
+          //           }
+          //           if(most_relevant) {
+          //                memory->push_attention_head(most_relevant);
+          //           }
+          //           if(familiar_count > 0) {
+          //                familiarity_vector = familiarity_vector.normalized(); // Average direction
+                         
+          //                // Gentle override strength based on focus
+          //                float repulsion_blend = navigation_focus * goal_focus * 0.3f; // Tune this weight
+                         
+          //                // Blend away from familiarity into the environmental force
+          //                environmental_force = (environmental_force * (1.0f - repulsion_blend)) + 
+          //                                      (familiarity_vector * -repulsion_blend);
+          //                environmental_force = environmental_force.normalized();
+          //            }
+
+          //           for(auto r : new_crumbs) {
+          //                scene->recycle(r);
+          //           }
+          //           #if VISPATHS
+          //                memory->visualize_registry(memory->physics_attention.last());
+          //                memory->debug << raycast_debug;
+          //           #endif
+                    
+          //           #if GTIMERS
+          //           timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
+          //           #endif
+                
+          //           if(environmental_force.length() > 0.01f) {
+          //                environmental_force = environmental_force.normalized();
+                         
+          //                // Blend with momentum (if we're already moving)
+          //                vec3 final_direction;
+          //                if(current_velocity.length() > 0.1f) {
+          //                     final_direction = (current_velocity.normalized() * 0.2f + environmental_force * 0.8f).normalized();
+          //                } else {
+          //                     final_direction = environmental_force;
+          //                }
+                         
+          //                vec3 velocity = final_direction * desired_speed;
+          //                agent->faceTo(agent->getPosition() + velocity);
+          //                agent->setLinearVelocity(velocity);
+          //           }
+          //           #if GTIMERS
+          //           timers << l.end(); timer_labels << "velocity_application";
+          //           #endif
+          //       }
+
+          //      #if GTIMERS
+          //      timers << overall.end(); timer_labels << "overall";
+          //      #endif
+               
+          //      return true;
+          // };
+
+
+          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers, &crumbs](){
+               // #if GTIMERS
+               //      Log::Line overall, l;
+               //      list<double>& timers = agent->timers2;
+               //      list<std::string>& timer_labels = agent->timer_labels2;
+               //      timers.clear(); timer_labels.clear();
+               //      overall.start();
+               //      l.start();
+               //      // agent->opt_ints[5] = 0;
+               // #endif
+               
+               // static thread_local int on_frame = 0;
+
+
+               // int id = agent->opt_ints[1];
+               // g_ptr<crumb_manager> memory = crumb_managers[id];
+               // on_frame++; 
+               
+
+
+               // #if GTIMERS
+               // timers << l.end(); timer_labels << "value setup"; l.start();
+               // #endif
+
+     
+               // #if GTIMERS
+               // timers << l.end(); timer_labels << "thread flush";
+               // #endif
+
+               // int eval_interval = 600;
+               // if(on_frame % eval_interval == id % eval_interval) {
+               
+               // }
+
+               // int recategorize_interval = 600;
+               // if(on_frame % recategorize_interval == id % recategorize_interval) {
                //      #if GTIMERS
                //      l.start();
                //      #endif
 
-               //      list<vec3> directions = memory->come_up_with_a_path(accum5);
-
-               //      #if GTIMERS
-               //      timers << l.end(); timer_labels << "come_up_with_a_path";
-               //      #endif
+                    
                // }
-
-               if(agent->distance(marker) <= 10.0f) {
-                    goal = marker->getPosition();
-               }
-
-               // if(goal_focus>0.7f && agent->distance(goal) <= 10.0f) {
-               //      // agent->setLinearVelocity({0,0,0});
-               //      if(goal==marker->getPosition()) {
-               //           marker->setPosition(agent->getPosition().addZ(-40));
-               //           memory->current_state.mat[3][0] = 2.0f;
-               //           memory->current_state.mat[0][1] = 0.0f;
-
-               //           #if GTIMERS
-               //           l.start();
-               //           #endif
-
-               //           list<vec3> directions = memory->come_up_with_a_path(accum5);
-
-               //           #if GTIMERS
-               //           timers << l.end(); timer_labels << "come_up_with_a_path";
-               //           #endif
-               //           // print("Has seen a clover? ",agent->opt_ints[6]==1?"Yes":"No");
-               //           if(!directions.empty()) {
-               //                print("Came up with: ",directions.length()," directions");
-               //                directions.reverse();
-               //                goal = directions.last();
-               //                goal_focus = 1.0f;
-               //                for(auto d : directions) {
-               //                     path << grid->toIndex(d);
-               //                }
-               //                print("CURRENT TARGET: ",grid->indexToLoc(path[0]).to_string());
-               //                memory->clear_debug();
-               //           } else {
-               //                print("Failed to create directions");
-               //                goal_focus = 0.0f;
-               //           }
-               //           bool seen_berry = false;
-               //           for(auto e : memory->id_to_node.entrySet()) {
-               //                if(scene->singles[e.key]->dtype=="berry") 
-               //                     seen_berry = true;
-               //           }
-               //           print("has ",seen_berry?"":"not ","seen berry");
-
-               //      } else {
-               //           goals[id] = marker->getPosition();
-               //           goal_focus = 0.9f;
-               //      }
-               // }
-
-               float desired_speed = agent->opt_floats[1];  
-               on_frame++; 
-               bool enable_astar = false;
-               int pathing_interval = 15; 
-               //A* Unit
-                    if(enable_astar && (on_frame % (pathing_interval*20) == id % (pathing_interval*20)  || path.empty())) {
-                         path = grid->findPath(
-                              grid->toIndex(agent->getPosition()),
-                              grid->toIndex(goal),
-                              [agent](int idx) {
-                                   if(grid->cells[idx].empty()) return true;
-                                   if(grid->cells[idx].length() == 1 && grid->cells[idx].has(agent->ID)) return true;
-                                   return false; // Occupied by walls or other agents
-                              }
-                         );
-                         if(path.empty()) {
-                              // print("UNABLE TO FIND A PATH!");
-                              // vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
-                              // scene->reactivate(goal_crumb);
-                              // crumbs[id][0]->setPosition(new_goal);
-                              return true;
-                         }
-                    }
-
-               vec3 goal_loc = agent->opt_vec_3_4;
-
-               if(!path.empty()) {
-                    #if GTIMERS
-                    l.start();
-                    #endif
-
-                    vec3 waypoint = grid->indexToLoc(path[0]);
-                    float waypoint_dist = agent->getPosition().distance(waypoint);
-
-                    if(frames_since_progress>=30) {
-                         // list<int> new_path = grid->findPath(
-                         //      grid->toIndex(agent->getPosition()),
-                         //      grid->toIndex(waypoint),
-                         //      [agent](int idx) {
-                         //           if(grid->empty(idx)) return true;
-                         //           if(grid->has_only(idx,agent->ID)) return true;
-                         //           return false; // Occupied by walls or other agents
-                         //      }
-                         // );
-                         // print("Came up with a new path with: ",new_path.length()," nodes");
-                         // path << new_path;
-                         agent->setPosition(waypoint); //Cheating for now so I can focus on other things
-                    } 
-                    if(waypoint_dist < grid->cellSize) {
-                         path.removeAt(0);
-                         if(!path.empty()) {
-                              waypoint = grid->indexToLoc(path[0]);
-                         } else {
-                              // print("PATH COMPLETE!!");
-                         }
-                    }
-                    vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
-                    agent->faceTo(agent->getPosition() + direction);
-                    agent->setLinearVelocity(direction * desired_speed);
-
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "navigate_path";
-                    #endif
-               }
-               else if(on_frame % pathing_interval == id % pathing_interval) {
-                    vec3 current_velocity = agent->getVelocity().position;
-                    float actual_speed = current_velocity.length();
-                    float speed_ratio = actual_speed / std::max(desired_speed, 0.1f);
-                    #if GTIMERS
-                    l.start();
-                    #endif
-                    
-                    // Tunable parameters
-                    int num_rays = 24; 
-                    float ray_distance = 30.0f;
-                    float cone_width = 235.0f; 
-                    
-                    // Get goal direction for biasing
-                    vec3 to_goal = agent->getPosition().direction(goal).nY();
-                    float goal_distance = agent->getPosition().distance(goal);
-                    vec3 forward =  agent->facing().nY(); //to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
-                    vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
-                                        
-                    // Cast rays in a forward-biased cone
-                    float best_openness = 0.0f;
-                    vec3 best_direction = forward;
-                    
-                    float start_angle = -cone_width / 2.0f;
-                    float angle_step = cone_width / (num_rays - 1);
-
-                    float best_goal_alignment = -1.0f;
-                    float best_aligned_clearance = 0.0f;
-                    
-                    list<std::pair<float,int>> observed_objects;
-                    list<g_ptr<Single>> new_crumbs;
-                
-                    #if VISPATHS
-                    list<g_ptr<Single>> raycast_debug;
-                    #endif
-                    
-                    list<float> ray_distances;
-
-                    float left_clearance = 0.0f;
-                    float right_clearance = 0.0f;
-                    float left_count = 0.0f;
-                    float right_count = 0.0f;
-
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "raycast_setup"; l.start();
-                    #endif
-
-                    for(int i = 0; i < num_rays; i++) {
-                        float angle_deg = start_angle + i * angle_step;
-                        float angle_rad = angle_deg * 3.14159f / 180.0f;
-                        
-                        vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-                        
-                        std::pair<float,int> hit_info = grid->raycast(
-                            agent->getPosition(),
-                            ray_dir,
-                            ray_distance,
-                            agent->ID
-                        );
-                        float hit_dist = hit_info.first;
-                        int hit_cell = hit_info.second;
-                        ray_distances << hit_dist;
-
-                        if(angle_deg < 0) {
-                              left_clearance += hit_dist;
-                              left_count++;
-                         } else {
-                              right_clearance += hit_dist;
-                              right_count++;
-                         }
-                        
-                        #if VISPATHS
-                        vec3 ray_end = agent->getPosition() + ray_dir * hit_dist;
-                        raycast_debug << draw_line(agent->getPosition(), ray_end, "white", 0.5f);
-                        #endif
-                        
-                        if(std::abs(angle_deg) < 90.0f) {  // Within ±90° of forward
-                              if(hit_dist > best_openness) {
-                                   best_openness = hit_dist;
-                                   best_direction = ray_dir;
-                              }
-                              float goal_alignment = ray_dir.dot(to_goal.normalized());
-                              if(goal_alignment > best_goal_alignment) {
-                                  best_goal_alignment = goal_alignment;
-                                  best_aligned_clearance = hit_dist;
-                              }
-                         }
-
-                        bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
-                        if(curr_hit) {
-                            for(int obj_id : grid->cells[hit_cell]) {
-                                if(obj_id != agent->ID && 
-                                   !observed_objects.has({hit_dist, obj_id})) {
-                                    observed_objects << std::make_pair(hit_dist, obj_id);
-                                }
-                            }
-                        }
-                    }
-                    
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "raycast_sampling"; l.start();
-                    #endif
-
-                    int gap_start = -1;
-                    list<vec3> gaps;
-                    int rayspace = grid->cellSize * 5.0f;
-                    //printnl("POS: ",agent->getPosition().to_string(),", RAYS: [");
-                    for(int i = 1; i < num_rays; i++) {
-                         float depth_jump = ray_distances[i] - ray_distances[i-1];
-                         // if(i!=1) printnl(", ");
-                         // printnl(ray_distances[i],"^",depth_jump);
-                         
-                         if(gap_start < 0 && depth_jump > rayspace) {
-                              //printnl(" ->");
-                              //Entering a gap
-                              gap_start = i;
-                         } else if(gap_start >= 0 && depth_jump < -grid->cellSize * 2.0f) {
-                              int left_edge_idx = gap_start - 1;
-                              float left_angle_deg = start_angle + left_edge_idx * angle_step;
-                              float left_angle_rad = left_angle_deg * 3.14159f / 180.0f;
-                              vec3 left_ray_dir = (forward * cos(left_angle_rad) + right * sin(left_angle_rad)).normalized();
-                              vec3 point_A = agent->getPosition() + left_ray_dir * ray_distances[left_edge_idx];
-                              int right_edge_idx = i;
-                              float right_angle_deg = start_angle + right_edge_idx * angle_step;
-                              float right_angle_rad = right_angle_deg * 3.14159f / 180.0f;
-                              vec3 right_ray_dir = (forward * cos(right_angle_rad) + right * sin(right_angle_rad)).normalized();
-                              vec3 point_B = agent->getPosition() + right_ray_dir * ray_distances[right_edge_idx];
-                              
-                              vec3 gap_pos = (point_A + point_B) * 0.5f;
-                              if(!grid->empty(gap_pos)) continue;
-                              //printnl(" GAP(",gap_pos.to_string(),")");
-                              
-                              gaps << gap_pos;
-
-                              #if VISPATHS
-                                   auto marker = scene->create<Single>("white");
-                                   marker->setPosition(gap_pos.addY(1.0f));
-                                   marker->setScale({0.5f,1,0.5f});
-                                   raycast_debug << marker;
-                              #endif
-
-                              gap_start = -1;
-                          }
-                    }
-                    //printnl("]\n");
-
-                    // Cycle through strategies: 0=none, 1=left, 2=forward, 3=right
-                    int gap_strategy = 1;
-                    vec3 gap_bias(0, 0, 0);
-                    float gap_curiosity = 1.0f;
-                    vec3 best_gap(0, 0, 0);
-                    float best_score = -1000.0f;
-
-                    for(auto g : gaps) {
-                         vec3 to_gap = (g - agent->getPosition()).normalized();
-                         float forward_align = to_gap.dot(forward);
-                         float right_align = to_gap.dot(right);
-                         
-                         float score = 0.0f;
-                         switch(gap_strategy) {
-                              case 0: continue; // none - skip gaps entirely
-                              case 1: score = -right_align; break; // left (negative right)
-                              case 2: score = forward_align; break; // forward
-                              case 3: score = right_align; break; // right
-                         }
-                         
-                         if(score > best_score) {
-                              best_score = score;
-                              best_gap = to_gap;
-                         }
-
-                         g_ptr<CategoryNode> node = memory->closest_visible_node(g,{},{"gap"});
-                         if(node) {
-                              //memory->decrease_novelty(memory->physics_attention[found_id]);
-                              observed_objects << std::make_pair(5.0f,node->getID());
-                         } else { //If we haven't seen this junction before
-                              auto marker = scene->create<Single>("crumb");
-                              marker->setPosition(g);
-                              marker->hide();
-                              marker->dtype = "gap";
-                              
-                              crumb gap;
-                              gap.form = marker;
-                              gap.mat[0][1] = 8.0f; //Make it quite novel                             
-                              crumbs.put(marker->ID, gap);
-                              observed_objects << std::make_pair(5.0f, marker->ID);
-                              new_crumbs << marker;
-                         }
-                    }
-
-                     #if GTIMERS
-                     timers << l.end(); timer_labels << "raycast_gap_sample"; l.start();
-                     #endif
-                                
-                    float gap_bias_strength = 10.6f;
-                    float goal_bias_strength = 0.6f;
-                    float wall_bias_strength = 0.4f;
-
-                    if(best_score > 0.0f) {
-                         gap_bias = best_gap * gap_bias_strength; // Weight for gap bias
-                    }
-
-                    // Decide movement: beeline if well-aligned and clear, otherwise use best scored direction
-                    float beeline_threshold = 0.95f * goal_focus; // Scales with goal focus
-                    bool can_beeline = (best_goal_alignment > beeline_threshold && 
-                                        best_aligned_clearance >= goal_distance);
-                    
-                    left_clearance /= left_count;
-                    right_clearance /= right_count;
-                    vec3 wall_bias = right * ((right_clearance - left_clearance) / ray_distance) * wall_bias_strength;
-                    
-                    float wall_proximity = 1.0f / (std::min(left_clearance, right_clearance) + 1.0f);
-                    float goal_weight = std::lerp(0.5f, 0.0f, wall_proximity);
-                    vec3 goal_bias = to_goal * goal_weight * goal_bias_strength;
-                    
-                    //print("BEST DIR: ",best_direction.to_string(),", WALL_BIAS: ",wall_bias.to_string(),", GOAL_BIAS: ",goal_bias.to_string(),", GAP_BIAS: ",gap_bias.to_string());
-                    vec3 environmental_force = can_beeline ? 
-                         to_goal.normalized() : 
-                         (best_direction + wall_bias + goal_bias + gap_bias).normalized();
-                    // print("ENVIRO FORCE: ",environmental_force.to_string());
-                    //     (best_openness > 1.0f ? best_direction : vec3(randf(-1, 1), 0, randf(-1, 1)));
-                
-                    agent->opt_ints[4] += observed_objects.length();
-                
-                    vec3 familiarity_vector(0, 0, 0);
-                    int familiar_count = 0;
-                    g_ptr<CategoryNode> most_relevant = nullptr;
-                    float highest_relevency = 0.0f;
-                    for(auto info : observed_objects) {
-                         #if GTIMERS
-                         l.start();
-                         #endif
-                
-                         int obj_id = info.second;
-                         //print("Crumbs has this key: ",obj_id,"? ",crumbs.hasKey(obj_id)?"Yes":"No");
-                         crumb obj_crumb = crumbs[obj_id]; //Make a copy
-                         crumb* obs = &obj_crumb;
-                         g_ptr<Single> single = scene->singles[obj_id];
-                         if(single->dtype=="wall") {
-                              // if(obs->mat[0][1]==0.0f) {
-                              //      obs->mat[0][1] = 3.0f; //Make walls novel
-                              // } 
-                              if(obs->mat[0][2]==0.0f) {
-                                   obs->mat[0][2] = -100.0f; //Make walls unattractive
-                              } 
-                         }
-
-                         obs->form = single;
-                         float dist_to_obj = info.first;
-                
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "observe_value_init"; l.start();
-                         #endif
-                    
-                         g_ptr<CategoryNode> seen_before = memory->has_seen_before_cheat(*obs);
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "has_seen_before"; l.start();
-                         #endif
-
-                         if(seen_before != nullptr) {
-                              obs = &seen_before->archetype;
-                              memory->decrease_novelty(seen_before);
-                              //print("I've seen this before... novelty is now ",obj_crumb->mat[0][1]);
-                              float novelty = seen_before->archetype.mat[0][1];
-                              if(novelty < 3.0f) { // Familiar
-                                  vec3 to_familiar = (obs->form->getPosition() - agent->getPosition()).normalized();
-                                  float familiarity_weight = (3.0f - novelty);
-                                  
-                                  familiarity_vector = familiarity_vector + (to_familiar * familiarity_weight);
-                                  familiar_count++;
-                              }
-                         } 
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "seen_before_resolve"; l.start();
-                         #endif
-
-                         obs->mat[0][0] = 1.0f / (info.first + 1.0f); // Temporary distance for salience
-                         float salience = memory->salience(*obs);
-                         float relevance = memory->relevance(*obs, salience);
-                         //print("Dist: ",1.0f / (info.first + 1.0f)," actual_dist: ",info.first," Sal: ",salience," Rel: ",relevance);
-                         obs->mat[0][0] = 0.0f; // Clear temporary distance (don't persist)
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "sal_rel_calcs"; l.start();
-                         #endif
-                         if(relevance>0.3f) {
-                              //Remove the gap crumb if we used it
-                              int found_idx = new_crumbs.find(single);
-                              if(found_idx!=-1) {new_crumbs.removeAt(found_idx);}
-                              g_ptr<CategoryNode> node = nullptr;
-                              if(seen_before == nullptr) {
-                                   //print("Look! Something new!");
-                                   //obs->mat[0][1] = 3.0f; //Novelty
-                                   //node = memory->observe(*obs,single);
-                              } else {
-                                   node = seen_before;
-                                 //  memory->push_attention_head(seen_before);
-                              }
-
-                              if(relevance>highest_relevency) {
-                                   highest_relevency = relevance;
-                                   most_relevant = node;
-                              }
-
-                              #if VISPATHS
-                                   struct ray_debug {
-                                        vec3 from;
-                                        vec3 to;
-                                        bool hit = false;
-                                   };
-
-                                   vec3 pos = single->getPosition();
-                                   int best = memory->physics_attention.length()-1;
-                                   float best_dist = 100.0f;
-                                   list<ray_debug> visrays;
-                                   for(int j = 0; j<memory->physics_attention.length();j++) {
-                                        g_ptr<CategoryNode> n = memory->physics_attention[j];
-                                        float dist = n->getPosition().distance(pos);
-                                        vec3 dir = n->getPosition().direction(pos);
-                                        auto cast = grid->raycast(n->getPosition(),dir,dist,{agent->ID,n->getID(),single->ID});
-                                        if(cast.second==-1&&dist<best_dist&&n->getID()!=single->ID) {
-                                             best_dist = dist;
-                                             best = j;
-                                        }
-                                        vec3 ray_end = n->getPosition() + dir * cast.first;
-                                        visrays << ray_debug{n->getPosition(),ray_end,cast.second!=-1};
-                                        // bool cansee = grid->can_see(n->getPosition(),pos,{id,n->getID()});
-                                   }
-                                   for(int j = 0; j<memory->physics_attention.length();j++) {
-                                        g_ptr<CategoryNode> n = memory->physics_attention[j];
-                                        ray_debug d = visrays[j];
-                                        raycast_debug << draw_line(d.from, d.to, j==best?"black":d.hit?"red":"cyan", j==best?2.8f:0.5f);
-                                   }
-                              #endif
-
-                              if(relevance>0.9f) {
-                                   //print("I wanna go there");
-                                   goals[id] = vec3(scene->transforms[obj_id][3]);
-                                   goal_focus = 1.0f; // Set high goal focus
-                              }
-                         } 
-
-
-                         #if GTIMERS
-                         timers << l.end(); timer_labels << "observe_resolution";
-                         #endif
-                    }
-                    if(most_relevant) {
-                         memory->push_attention_head(most_relevant);
-                    }
-                    if(familiar_count > 0) {
-                         familiarity_vector = familiarity_vector.normalized(); // Average direction
-                         
-                         // Gentle override strength based on focus
-                         float repulsion_blend = navigation_focus * goal_focus * 0.3f; // Tune this weight
-                         
-                         // Blend away from familiarity into the environmental force
-                         environmental_force = (environmental_force * (1.0f - repulsion_blend)) + 
-                                               (familiarity_vector * -repulsion_blend);
-                         environmental_force = environmental_force.normalized();
-                     }
-
-                    for(auto r : new_crumbs) {
-                         scene->recycle(r);
-                    }
-                    #if VISPATHS
-                         memory->visualize_registry(memory->physics_attention.last());
-                         memory->debug << raycast_debug;
-                    #endif
-                    
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
-                    #endif
-                
-                    if(environmental_force.length() > 0.01f) {
-                         environmental_force = environmental_force.normalized();
-                         
-                         // Blend with momentum (if we're already moving)
-                         vec3 final_direction;
-                         if(current_velocity.length() > 0.1f) {
-                              final_direction = (current_velocity.normalized() * 0.2f + environmental_force * 0.8f).normalized();
-                         } else {
-                              final_direction = environmental_force;
-                         }
-                         
-                         vec3 velocity = final_direction * desired_speed;
-                         agent->faceTo(agent->getPosition() + velocity);
-                         agent->setLinearVelocity(velocity);
-                    }
-                    #if GTIMERS
-                    timers << l.end(); timer_labels << "velocity_application";
-                    #endif
-                }
-
-               #if GTIMERS
-               timers << overall.end(); timer_labels << "overall";
-               #endif
                
-               return true;
-          };
-
-
-          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers, &crumbs](){
-               #if GTIMERS
-                    Log::Line overall, l;
-                    list<double>& timers = agent->timers2;
-                    list<std::string>& timer_labels = agent->timer_labels2;
-                    timers.clear(); timer_labels.clear();
-                    overall.start();
-                    l.start();
-                    // agent->opt_ints[5] = 0;
-               #endif
-               
-               static thread_local int on_frame = 0;
-
-
-               int id = agent->opt_ints[1];
-               g_ptr<crumb_manager> memory = crumb_managers[id];
-               on_frame++; 
-               
-
-
-               #if GTIMERS
-               timers << l.end(); timer_labels << "value setup"; l.start();
-               #endif
-
-     
-               #if GTIMERS
-               timers << l.end(); timer_labels << "thread flush";
-               #endif
-
-               int eval_interval = 600;
-               if(on_frame % eval_interval == id % eval_interval) {
-               
-               }
-
-               int recategorize_interval = 600;
-               if(on_frame % recategorize_interval == id % recategorize_interval) {
-                    #if GTIMERS
-                    l.start();
-                    #endif
-
-                    
-               }
-               
-               #if GTIMERS
-               timers << overall.end(); timer_labels << "overall";
-               #endif
+               // #if GTIMERS
+               // timers << overall.end(); timer_labels << "overall";
+               // #endif
           };
      }
      vec3 cam_pos(0, side_length * 0.8f, side_length * 0.8f);
@@ -2063,6 +2664,37 @@ int main() {
      berry_crumb.form = berry;
      crumbs.put(berry->ID,berry_crumb);
      //crumb_managers[0]->observe(berry_crumb,berry);
+
+     // for(auto memory : crumb_managers) {
+     //      for(int c = 0; c < 10; c++) {
+     //           crumb mem;
+               
+     //           // Fill with random data for benchmark
+     //           for(int r = 0; r < CRUMB_ROWS; r++) {
+     //           for(int col = 0; col < 10; col++) {
+     //                mem.mat[r][col] = randf(-1, 1);
+     //           }
+     //           }
+               
+     //           // Embed position in first 3 rows, column 0
+     //           mem.mat[0][0] = randf(-side_length/2, side_length/2);
+     //           mem.mat[1][0] = 0.0f;
+     //           mem.mat[2][0] = randf(-side_length/2, side_length/2);
+               
+     //           auto form = scene->create<Single>("crumb");
+     //           mem.form = form;
+     //           form->setPosition({1000,100,100});
+     //           scene->deactivate(form);
+     //           // memory->addCrumb(mem);
+     //           crumbs.put(form->ID,mem);
+     //      }
+     // }
+
+     // g_ptr<Single> test_origin = make<Single>(make<Model>(makeTestBox(1.0f)));
+     // scene->add(test_origin);
+     // test_origin->setPosition(vec3(0, 0.5, 0));
+     // test_origin->setPhysicsState(P_State::NONE);
+     // test_origin->setColor({1, 0, 0, 1}); // Red marker
 
      // list<g_ptr<Single>> ray_markers;
      // for(int i = 0; i < 10000; i++) {
@@ -2090,58 +2722,60 @@ int main() {
      // }
 
      
+
+
      list<std::function<void()>> from_phys_to_update;
 
      map<std::string,double> total_times;
      S_Tool phys_logger;
      #if GTIMERS
      phys_logger.log = [agents,phys,&crumb_managers,&total_times,amt,&stats](){
-          map<std::string,double> times;
-          int accum4 = 0;
-          int accum5 = 0;
-          for(auto a : agents) {
-               for(int i=0;i<a->timers.length();i++) {
-                    times.getOrPut(a->timer_labels[i],0) += a->timers[i];
-               }
-               accum4 += a->opt_ints[4];
-               accum5 += a->opt_ints[5];
-               a->opt_ints[5] = 0;
-          }
-          print("------------\n AGENT JOINT TIMES");
-          for(auto e : times.entrySet()) {
-               print(e.key,": ",ftime(e.value)," (total: ",ftime(total_times.getOrDefault(e.key,0.0)),")");
-          }
-          for(auto e : total_times.entrySet()) {
-               if(!times.hasKey(e.key)) {
-                    print("(",e.key,": ",ftime(e.value),")");
-               }
+          // map<std::string,double> times;
+          // int accum4 = 0;
+          // int accum5 = 0;
+          // for(auto a : agents) {
+          //      for(int i=0;i<a->timers.length();i++) {
+          //           times.getOrPut(a->timer_labels[i],0) += a->timers[i];
+          //      }
+          //      accum4 += a->opt_ints[4];
+          //      accum5 += a->opt_ints[5];
+          //      a->opt_ints[5] = 0;
+          // }
+          // print("------------\n AGENT JOINT TIMES");
+          // for(auto e : times.entrySet()) {
+          //      print(e.key,": ",ftime(e.value)," (total: ",ftime(total_times.getOrDefault(e.key,0.0)),")");
+          // }
+          // for(auto e : total_times.entrySet()) {
+          //      if(!times.hasKey(e.key)) {
+          //           print("(",e.key,": ",ftime(e.value),")");
+          //      }
 
-          }
-          total_times.clear();
-          print("Total crumbs observed: ",accum4);
-          print("Evaluated spatial queries since last log: ",accum5);
+          // }
+          // total_times.clear();
+          // print("Total crumbs observed: ",accum4);
+          // print("Evaluated spatial queries since last log: ",accum5);
 
-          std::function<int(g_ptr<CategoryNode>)> instances_in_cateogry = [&](g_ptr<CategoryNode> c){
-               int total = c->store->crumbs.length();
-               for(auto child : c->children) {
-                    total += instances_in_cateogry(child);
-               }
-               return total;
-          };
+          // std::function<int(g_ptr<CategoryNode>)> instances_in_cateogry = [&](g_ptr<CategoryNode> c){
+          //      int total = c->store->crumbs.length();
+          //      for(auto child : c->children) {
+          //           total += instances_in_cateogry(child);
+          //      }
+          //      return total;
+          // };
 
-          int total = 0;
-          int start_idx = randi(0,amt-1);
-          for(int i=start_idx;i<start_idx+10;i++) {
-               if(i>=amt) break;
-               g_ptr<crumb_manager> c = crumb_managers[i];
-               total += instances_in_cateogry(c->meta_root);
-          }
-          print("Avg crumbs in memory: ",total/10);
+          // int total = 0;
+          // int start_idx = randi(0,amt-1);
+          // for(int i=start_idx;i<start_idx+10;i++) {
+          //      if(i>=amt) break;
+          //      g_ptr<crumb_manager> c = crumb_managers[i];
+          //      total += instances_in_cateogry(c->meta_root);
+          // }
+          // print("Avg crumbs in memory: ",total/10);
      };
      #endif
      run_thread->name = "Physics";
      Log::Line time; time.start();
-     run_thread->run([&time, phys,&phys_logger,&total_times,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
+     run_thread->run([&stats,&time, phys,&phys_logger,&total_times,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
                phys->collisonMethod = Physics::GRID;
@@ -2156,7 +2790,49 @@ int main() {
                     total_times.getOrPut(a->timer_labels[i],0) += a->timers[i];
                }
           }
-     },0.008f);
+          stats.frame_count++;
+               
+          // Clear debug visuals every 30 frames (keep them visible but fresh)
+          if(stats.frame_count % 30 == 0) {
+              stats.clear_debug();
+          }
+          
+
+          if(stats.frame_count % 50000 == 0) {
+               float avg_dist = stats.total_distance / (agents.length() * 500);
+               float avg_reward = stats.total_reward / (agents.length() * 500);
+               
+               auto sample_learner = (HotColdLearner*)agents[0]->opt_ptr.getPtr();
+               
+               print("\n=== LEARNING METRICS (frame ", stats.frame_count, ", time: ",ftime(time.end()),") ===");
+               print("Avg distance to target: ", avg_dist, " units");
+               print("Avg reward per step: ", avg_reward);
+               print("Sample mouse stats:");
+               print("  - Cumulative reward: ", sample_learner->cumulative_reward);
+               print("  - Best distance: ", sample_learner->best_distance);
+               print("  - Times reached goal: ", sample_learner->times_reached_goal);
+               print("  - Steps taken: ", sample_learner->steps_taken);
+               print("  - Replay buffer size: ", sample_learner->replay_buffer.length(), 
+                     "/", MAX_BUFFER_SIZE);
+               print("  - Learning rate: ", sample_learner->brain->get_lr());
+               time.start();
+               int close_count = 0;
+               int goal_count = 0;
+               for(auto a : agents) {
+                   auto l = (HotColdLearner*)a->opt_ptr.getPtr();
+                   float dist = a->getPosition().distance(l->hidden_target);
+                   if(dist < 20.0f) close_count++;
+                   goal_count += l->times_reached_goal;
+               }
+               
+               print("Mice within 20 units: ", close_count, "/", agents.length());
+               print("Total goals reached: ", goal_count);
+               print("Current exploration rate: ", 0.05f + 0.25f * exp(-stats.frame_count / 2000.0f));
+               
+               stats.total_distance = 0;
+               stats.total_reward = 0;
+           }
+     },0.0001f);
      #if GTIMERS
           run_thread->logSPS = true;
      #endif
@@ -2383,585 +3059,3 @@ int main() {
      });
      return 0;
 }
-
-        // list<g_ptr<Single>> d_boxes;
-          // for(int j=0;j<3;j++) {
-          //      g_ptr<Single> dbox = make<Single>(make<Model>(makeTestBox(0.5f)));
-          //      scene->add(dbox);
-          //      // Each box type gets different saturation/value
-          //      float saturation = 1.0f;
-          //      float value = 1.0f - (float(j) * 0.3f); // Boxes get darker: 1.0, 0.7, 0.4
-               
-          //      // Convert HSV to RGB
-          //      float h = agent_hue / 60.0f;
-          //      float c = value * saturation;
-          //      float x = c * (1.0f - abs(fmod(h, 2.0f) - 1.0f));
-          //      float m = value - c;
-               
-          //      vec3 rgb;
-          //      if(h < 1) rgb = vec3(c, x, 0);
-          //      else if(h < 2) rgb = vec3(x, c, 0);
-          //      else if(h < 3) rgb = vec3(0, c, x);
-          //      else if(h < 4) rgb = vec3(0, x, c);
-          //      else if(h < 5) rgb = vec3(x, 0, c);
-          //      else rgb = vec3(c, 0, x);
-               
-          //      rgb += vec3(m, m, m);
-          //      dbox->setColor({rgb.x(), rgb.y(), rgb.z(), 1.0f});
-          //      if(j==0)
-          //           dbox->scale({1,0.5,1});
-          //      else if(j==1)
-          //           dbox->scale({0.5,2,0.5});
-          //      else if(j==2)
-          //           dbox->scale({0.5,1,2});
-
-
-          //      dbox->setPosition(agent->getPosition());
-          //      dbox->setPhysicsState(P_State::NONE);
-          //      d_boxes << dbox;
-          // }
-          // debug << d_boxes;
-
-//Field based pathfinding unit:
-     // #if GTIMERS
-     // l.start();
-     // #endif
-
-
-     // //Could use the vector sum tracker instead, expeirment with approaches
-     //      vec3 last_pos = agent->opt_vec_3;
-     //      float progress = agent->getPosition().distance(last_pos);
-     //      agent->opt_vec_3 = agent->getPosition(); 
-          
-     //      float repel_radius = 8.0f;
-     //      BoundingBox query_bounds = agent->getWorldBounds();
-     //      query_bounds.expand(BoundingBox(
-     //           agent->position - vec3(repel_radius),
-     //           agent->position + vec3(repel_radius)
-     //      ));
-
-     // #if GTIMERS
-     // timers << l.end(); timer_labels << "query_setup"; l.start();
-     // #endif
-
-     // list<g_ptr<Single>> nearby;
-     // if(!use_grid) {
-     // list<g_ptr<S_Object>> queryResults;
-     //                     phys->queryTree(phys->treeRoot3d, query_bounds, queryResults);
-     //                     #if GTIMERS
-     //                     timers << l.end(); timer_labels << "tree_query"; l.start();
-     //                     #endif
-     //                     for(auto q : queryResults) {
-     //                          if(g_ptr<Single> obj = g_dynamic_pointer_cast<Single>(q)) 
-     //                               nearby << obj;
-     //                     }
-     //                     #if GTIMERS
-     //                     timers << l.end(); timer_labels << "query_convert"; l.start();
-     //                     #endif                         
-     //                } else {
-     //                     list<int> around = grid->cellsAround(query_bounds);
-     //                     #if GTIMERS
-     //                     timers << l.end(); timer_labels << "grid_query"; l.start();
-     //                     #endif
-     //                     static list<int> seen_flags;
-     //                     seen_flags = list<int>(scene->singles.length(), -1);
-     //                     int current_agent_id = agent->ID;
-     //                     for(auto cell : around) {
-     //                     for(auto i : grid->cells[cell]) {
-     //                          if(seen_flags[i] != current_agent_id) {
-     //                               seen_flags[i] = current_agent_id;
-     //                               if(i < scene->singles.length() && scene->active[i]) {
-     //                                    nearby << scene->singles[i];
-     //                               }
-     //                          }
-     //                     }
-     //                     }
-     //                     #if GTIMERS
-     //                     timers << l.end(); timer_labels << "unpack_cells"; l.start();
-     //                     #endif
-     //                }
-
-     //                     for(auto c : my_crumbs) {
-     //                          if(c->opt_floats[0]>=10.0f) { //Only distantly remember attractive crumbs (and possibly repulsive as well)
-     //                               nearby << c;
-     //                          }
-     //                     }
-     //                     // First pass: accumulate desired direction from attractors only
-     //                     vec3 desired_direction(0, 0, 0);
-     //                     float attractor_weight = 0.0f;
-     //                     for(auto obj : nearby) {
-     //                          if(obj == agent) continue;
-     //                          float score = obj->opt_floats[0];
-     //                          if(score <= 0) continue; // Only attractors
-                              
-     //                          vec3 to_obj = agent->direction(obj).nY();
-     //                          float dist = agent->distance(obj);
-     //                          float influence = score / std::max(dist, 0.1f); // Distance-weighted attraction
-                              
-     //                          desired_direction += to_obj * influence;
-     //                          attractor_weight += influence;
-     //                     }
-                         
-     //                     if(attractor_weight > 0.01f) {
-     //                          desired_direction = desired_direction.normalized() * std::min(attractor_weight, 5.0f); // Keep some magnitude
-     //                     }
-
-     //                #if GTIMERS
-     //                timers << l.end(); timer_labels << "attractor_pass"; l.start();
-     //                #endif
-     
-     //                     //my_debug[0]->setPosition((agent->getPosition()+desired_direction).addY(5.0f));
-     //                     //print(id,": Desired direction: ",desired_direction.to_string());
-                    
-     //                     // Second pass: let repulsors deflect from desired direction
-     //                     net_force = desired_direction;
-     //                     float force_budget = 1.0f;
-                         
-     //                     for(auto obj : nearby) {
-     //                          if(obj == agent) continue;
-     //                          float score = obj->opt_floats[0];
-     //                          if(score >= 0) continue; // Only repulsors
-                              
-     //                          // Distance to surface, not center!
-     //                          BoundingBox objBounds = obj->getWorldBounds();
-     //                          float dist = objBounds.distance(agent->getPosition());
-     //                          dist = std::max(dist, 0.1f); // Avoid division by zero
-                              
-     //                          // Direction away from closest point on surface
-     //                          vec3 closest = objBounds.closestPoint(agent->getPosition());
-     //                          vec3 away_from_obj = (agent->getPosition() - closest).normalized().nY();
-                              
-     //                          float repulsion_strength = abs(score) / (dist * dist);
-                              
-     //                          net_force += away_from_obj * repulsion_strength * force_budget;
-     //                          force_budget *= 0.8f;
-     //                     }
-     
-     //                     if(net_force.length() > 5.0f) {
-     //                          net_force = net_force.normalized() * 5.0f;
-     //                     }
-
-     //                #if GTIMERS
-     //                timers << l.end(); timer_labels << "repulsor_pass"; l.start();
-     //                #endif
-
-
-//Multi-modal pathfinding joint
-        // agent->physicsJoint = [agent, scene, &goals, &crumbs, &debug, phys]() {
-          //      int id = agent->opt_ints[1];
-          //      list<g_ptr<Single>>& my_crumbs = crumbs[id];
-          //      list<g_ptr<Single>>& my_debug = debug[id];
-          //      g_ptr<Single> goal_crumb = my_crumbs[0];
-          //      vec3 goal = goal_crumb->getPosition();
-          //      float goal_dist = agent->distance(goal_crumb);
-          //      if(goal_dist<=1.0f) {
-          //           if(agent->opt_ints[2]<650) {
-          //                if(goal_crumb->isActive()) {
-          //                     scene->recycle(goal_crumb);
-          //                     agent->setLinearVelocity(vec3(0,0,0));
-          //                }
-          //                if(agent->opt_ints[2]%100==0)
-          //                     agent->faceTo(agent->getPosition()+vec3(randf(-5,5),0,randf(-5,5)));
-          //                agent->opt_ints[2]++;
-          //                return true;
-          //           } else {
-          //                vec3 new_goal = agent->facing()*randf(10,100);
-          //                my_crumbs[0] = scene->create<Single>("crumb");
-          //                my_crumbs[0]->setPhysicsState(P_State::NONE);
-          //                my_crumbs[0]->opt_floats[0] = 100.0f; //Set attraction
-          //                my_crumbs[0]->opt_floats[1] = 1.0f;
-          //                my_crumbs[0]->setPosition(new_goal);
-          //                agent->opt_ints[2]=0;
-          //           }
-          //      }
-
-          //      float desired_speed = agent->opt_floats[1];
-          //      agent->opt_ints[3]++;
-          //      int interval = 30;
-          //      if(agent->opt_ints[3] % interval == 0) {
-          //           vec3 last_pos = agent->opt_vec_3;
-          //           float progress = agent->getPosition().distance(last_pos);
-          //           agent->opt_vec_3 = agent->getPosition(); //Reset
-          //           // print("PROG: ",progress);
-          //           // if(progress<0.4f) {
-          //           //      g_ptr<Single> frustrated = scene->create<Single>("crumb");
-          //           //      frustrated->setPosition(agent->getPosition());
-          //           //      frustrated->opt_floats[0] = -20.0f; // Repulsive!
-          //           // } else {
-          //           //      g_ptr<Single> trail_crumb = scene->create<Single>("crumb");
-          //           //      trail_crumb->setPosition(agent->getPosition());
-          //           //      trail_crumb->opt_floats[0] = 1.0f; // Mild initial attraction
-          //           //      // my_crumbs << trail_crumb;
-          //           // }
-                
-          //           float repel_radius = 8.0f;
-          //           BoundingBox query_bounds = agent->getWorldBounds();
-          //           query_bounds.expand(BoundingBox(
-          //                agent->position - vec3(repel_radius),
-          //                agent->position + vec3(repel_radius)
-          //           ));
-          //           list<g_ptr<S_Object>> queryResults;
-          //           phys->queryTree(phys->treeRoot3d, query_bounds, queryResults);
-          //           list<g_ptr<Single>> nearby;
-          //           for(auto q : queryResults) {
-          //                if(g_ptr<Single> obj = g_dynamic_pointer_cast<Single>(q)) 
-          //                     nearby << obj;
-          //           }
-
-          //           for(auto c : my_crumbs) {
-          //                if(c->opt_floats[0]>=10.0f) { //Only distantly remember attractive crumbs (and possibly repulsive as well)
-          //                     nearby << c;
-          //                }
-          //           }
-                    
-          //           // Sort by attractiveness/distance priority
-          //           nearby.sort([agent](g_ptr<Single> a, g_ptr<Single> b) {
-          //                float a_priority = abs(a->opt_floats[0]) / std::max(agent->distance(a), 0.1f);
-          //                float b_priority = abs(b->opt_floats[0]) / std::max(agent->distance(b), 0.1f);
-          //                return a_priority > b_priority;
-          //           });
-               
-          //           // First pass: accumulate desired direction from attractors only
-          //           vec3 desired_direction(0, 0, 0);
-          //           float attractor_weight = 0.0f;
-               
-          //           for(auto obj : nearby) {
-          //                if(obj == agent) continue;
-          //                float score = obj->opt_floats[0];
-          //                if(score <= 0) continue; // Only attractors
-                         
-          //                vec3 to_obj = agent->direction(obj).nY();
-          //                float dist = agent->distance(obj);
-          //                float influence = score / std::max(dist, 0.1f); // Distance-weighted attraction
-                         
-          //                desired_direction += to_obj * influence;
-          //                attractor_weight += influence;
-          //           }
-                    
-          //           if(attractor_weight > 0.01f) {
-          //                desired_direction = desired_direction.normalized() * std::min(attractor_weight, 5.0f); // Keep some magnitude
-          //           }
-
-          //           my_debug[0]->setPosition((agent->getPosition()+desired_direction).addY(5.0f));
-
-          //           vec3 current_velocity = agent->getVelocity().position;
-          //           float actual_speed = current_velocity.length();
-          //           float speed_ratio = actual_speed / std::max(desired_speed, 0.1f);
-         
-          //           bool placed_rating = false;
-          //           for(auto obj : nearby) {
-          //                if(obj == agent) continue;
-          //               // if(obj->dtype != "crumb") continue; // Only rate crumbs
-                         
-          //                float dist = agent->distance(obj);
-          //                if(dist > 3.0f) continue; // Only rate nearby crumbs
-          //                placed_rating = true;
-                         
-          //                float score = obj->opt_floats[0];
-          //                vec3 to_crumb = agent->direction(obj).nY();
-                         
-          //                // Are we moving toward this crumb?
-          //                float alignment = current_velocity.length() > 0.1f ? 
-          //                     current_velocity.normalized().dot(to_crumb) : 0.0f;
-                         
-          //                if(alignment > 0.5f) { // Moving toward it
-          //                     if(speed_ratio > 0.7f) {
-          //                          obj->opt_floats[0] = std::min(score + 1.0f, 100.0f);
-          //                     } else {
-          //                          obj->opt_floats[0] = std::max(score - 1.0f, -100.0f);
-          //                     }
-          //                }
-          //                }
-
-          //           if(!placed_rating) {  // No nearby crumbs - place new one
-          //                g_ptr<Single> new_crumb = scene->create<Single>("crumb");
-          //                new_crumb->setPosition(agent->getPosition());
-          //                new_crumb->opt_floats[0] = (speed_ratio > 0.7f) ? 10.0f : -10.0f;
-          //           }
-
-
-
-          //           //print(id,": Desired direction: ",desired_direction.to_string());
-               
-          //           // Second pass: let repulsors deflect from desired direction
-          //           vec3 net_force = desired_direction;
-          //           float force_budget = 1.0f;
-                    
-          //           for(auto obj : nearby) {
-          //                if(obj == agent) continue;
-          //                float score = obj->opt_floats[0];
-          //                if(score >= 0) continue; // Only repulsors
-                         
-          //                // Distance to surface, not center!
-          //                BoundingBox objBounds = obj->getWorldBounds();
-          //                float dist = objBounds.distance(agent->getPosition());
-          //                dist = std::max(dist, 0.1f); // Avoid division by zero
-                         
-          //                // Direction away from closest point on surface
-          //                vec3 closest = objBounds.closestPoint(agent->getPosition());
-          //                vec3 away_from_obj = (agent->getPosition() - closest).normalized().nY();
-                         
-          //                float repulsion_strength = abs(score) / (dist * dist);
-                         
-          //                net_force += away_from_obj * repulsion_strength * force_budget;
-          //                force_budget *= 0.8f;
-          //           }
-
-          //           if(net_force.length() > 5.0f) {
-          //                net_force = net_force.normalized() * 5.0f;
-          //           }
-
-          //           my_debug[1]->setPosition((agent->getPosition()+net_force).addY(5.0f));
-
-          //           // print(id,": Net force: ",net_force.to_string());
-
-          //           // Add exploration noise to net_force BEFORE normalization
-          //           float exploration_strength = (speed_ratio < 0.5f) ? 1.0f : 0.3f;
-          //           vec3 exploration(randf(-1.0f, 1.0f), 0, randf(-1.0f, 1.0f));
-          //           vec3 environmental_force = (net_force + exploration * exploration_strength);
-          //           //my_debug[2]->setPosition((agent->getPosition()+environmental_force).addY(5.0f));
-          //           // Only proceed if we have a force
-          //           if(environmental_force.length() > 0.01f) {
-          //                environmental_force = environmental_force.normalized();
-                         
-          //                // Blend with momentum (if we're already moving)
-          //                vec3 final_direction;
-          //                if(current_velocity.length() > 0.1f) {
-          //                     final_direction = (current_velocity.normalized() * 0.7f + environmental_force * 0.3f).normalized();
-          //                } else {
-          //                     final_direction = environmental_force;
-          //                }
-          //                //print(id,": Final direction: ",net_force.to_string());
-                         
-          //                vec3 velocity = final_direction * desired_speed;
-          //                agent->faceTo(agent->getPosition() + velocity);
-          //                agent->setLinearVelocity(velocity);
-          //           }
-          //      }
-               
-          //      return true;
-          // };
-
-
-//A* pathfinding joint
-
-       // agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
-          //      int id = agent->opt_ints[1];
-          //      g_ptr<Single> goal_crumb = crumbs[id][0];
-          //      vec3 goal = goal_crumb->getPosition();
-          //      float goal_dist = agent->distance(goal_crumb);
-               
-          //      // Goal reached behavior
-          //      if(goal_dist <= 1.0f) {
-          //      if(agent->opt_ints[2] < 650) {
-          //           if(goal_crumb->isActive()) {
-          //                scene->deactivate(goal_crumb);
-          //                agent->setLinearVelocity(vec3(0,0,0));
-          //           }
-          //           if(agent->opt_ints[2] % 100 == 0)
-          //                agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
-          //           agent->opt_ints[2]++;
-          //           return true;
-          //      } else {
-          //           vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
-          //           scene->reactivate(goal_crumb);
-          //           crumbs[id][0]->setPosition(new_goal);
-          //           agent->opt_ints[2] = 0;
-          //      }
-          //      }
-          
-          //      float desired_speed = agent->opt_floats[1];
-               
-          //      // A* pathfinding
-          //      auto isWalkable = [agent](int idx) {
-          //           if(grid->cells[idx].empty()) return true;
-          //           if(grid->cells[idx].length() == 1 && grid->cells[idx].has(agent->ID)) return true;
-          //           return false; // Occupied by walls or other agents
-          //       };
-               
-          //      list<int>& path = agent->opt_idx_cache_2;
-          //      if(agent->opt_ints[3] % 300 == id % 300  || path.empty()) {
-          //           path = grid->findPath(
-          //                grid->toIndex(agent->getPosition()),
-          //                grid->toIndex(goal),
-          //                isWalkable
-          //           );
-          //           if(path.empty()) {
-          //                vec3 new_goal = vec3(randf(-100,100),0,randf(-100,100));
-          //                scene->reactivate(goal_crumb);
-          //                crumbs[id][0]->setPosition(new_goal);
-          //                return true;
-          //           }
-          //      }
-          //     // debug[id][1]->setPosition(goal.addY(2.0f));
-          //      agent->opt_ints[3]++;
-               
-          //      if(!path.empty()) {
-          //           // Get next waypoint
-          //           vec3 waypoint = grid->indexToLoc(path[0]);
-          //           float waypoint_dist = agent->getPosition().distance(waypoint);
-                    
-          //           // Reached waypoint, advance to next
-          //           if(waypoint_dist < grid->cellSize) {
-          //                path.removeAt(0);
-          //                if(!path.empty()) {
-          //                     waypoint = grid->indexToLoc(path[0]);
-          //                }
-          //           }
-                    
-          //           // Move toward current waypoint
-          //           vec3 direction = (waypoint - agent->getPosition()).normalized().nY();
-          //           agent->faceTo(agent->getPosition() + direction);
-          //           agent->setLinearVelocity(direction * desired_speed);
-                    
-          //           // Debug: show waypoint
-          //          //debug[id][0]->setPosition(waypoint.addY(2.0f));
-          //      }
-               
-          //      return true;
-          // };
-
-
-
-//Crumb based
-
-          // scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
-          //      g_ptr<Single> q = make<Single>(c_model);
-          //      scene->add(q);
-          //      q->scale(0.5f);
-          //      q->setPhysicsState(P_State::GHOST);
-          //      q->opt_ints = list<int>(4,0);
-          //      q->opt_floats = list<float>(2,0);
-          //      q->opt_vec_3 = vec3(0,0,0);
-
-          //      //If you want to update a crumb each frame
-          //      // q->physicsJoint = [q](){
-
-          //      //      return true;
-          //      // };
-          //      ctx.set<g_ptr<Object>>("toReturn",q);
-          // }));
-
-          // agent->physicsJoint = [agent, &goals, &crumbs, &debug, phys]() {
-          //      int& frame = agent->opt_ints[3];
-          //      frame++;
-          //      int interval = 30;
-          //      if(frame % interval == 0) {
-
-          //           int id = agent->opt_ints[1];
-          //           list<g_ptr<Single>>& my_crumbs = crumbs[id];
-          //           list<g_ptr<Single>>& my_debug = debug[id];
-          //           g_ptr<Single> goal_crumb = crumbs[id][0];
-          //           vec3 goal = goal_crumb->getPosition();
-          //           float goal_dist = agent->distance(goal_crumb);
-                    
-          //           // Goal reached behavior
-          //           if(goal_dist <= 1.0f) {
-          //           if(agent->opt_ints[2] < 650) {
-          //                if(goal_crumb->isActive()) {
-          //                     scene->recycle(goal_crumb);
-          //                     agent->setLinearVelocity(vec3(0,0,0));
-          //                }
-          //                if(agent->opt_ints[2] % 100 == 0)
-          //                     agent->faceTo(agent->getPosition() + vec3(randf(-5,5), 0, randf(-5,5)));
-          //                agent->opt_ints[2]++;
-          //                return true;
-          //           } else {
-          //                // Pick new random goal
-          //                vec3 new_goal = agent->getPosition() + agent->facing() * randf(10, 100);
-          //                crumbs[id][0] = scene->create<Single>("crumb");
-          //                crumbs[id][0]->setPhysicsState(P_State::NONE);
-          //                crumbs[id][0]->setPosition(new_goal);
-          //                agent->opt_ints[2] = 0;
-          //           }
-          //           }
-
-          //           float desired_speed = agent->opt_floats[1];
-          //           float repel_radius = 8.0f;
-                    
-          //           // Query nearby objects
-          //           BoundingBox query_bounds = agent->getWorldBounds();
-          //           query_bounds.expand(BoundingBox(
-          //               agent->getPosition() - vec3(repel_radius),
-          //               agent->getPosition() + vec3(repel_radius)
-          //           ));
-          //           list<g_ptr<S_Object>> queryResults;
-          //           phys->queryTree(phys->treeRoot3d, query_bounds, queryResults);
-          //           list<g_ptr<Single>> nearby;
-          //           for(auto q : queryResults) {
-          //               if(g_ptr<Single> obj = g_dynamic_pointer_cast<Single>(q)) {
-          //                   if(obj->opt_floats.length() >= 1)
-          //                       nearby << obj;
-          //               }
-          //           }
-                    
-          //           for(auto c : my_crumbs) {
-          //               if(std::abs(c->opt_floats[0]) >= 10.0f) {
-          //                   nearby << c;
-          //               }
-          //           }
-                    
-          //           // Compute field from attractors/repulsors
-          //           vec3 net_force(0, 0, 0);
-          //           for(auto obj : nearby) {
-          //               if(obj == agent) continue;
-          //               if(obj->opt_floats[0] == 0) continue;
-                        
-          //               float strength = obj->opt_floats[0];
-          //               vec3 to_obj = agent->direction(obj).nY();
-          //               float dist = agent->distance(obj);
-                        
-          //               vec3 direction = (strength > 0) ? to_obj : to_obj*-1;
-          //               float influence = abs(strength) / (dist * dist + 0.1f);
-          //               net_force += direction * influence;
-          //           }
-                    
-          //           // If surrounded by obstacles, switch to gap-finding
-          //           int obstacle_count = queryResults.length();
-          //           if(obstacle_count > 3) {
-          //               vec3 forward = agent->facing().nY().normalized();
-          //               vec3 right = vec3(forward.z(), 0, -forward.x());
-                        
-          //               float angle_step = 360.0f / std::min(obstacle_count * 2, 24); // Finer search when more crowded
-          //               int num_samples = std::min(obstacle_count * 2, 12);
-                        
-          //               vec3 chosen_direction = forward;
-          //               float best_openness = 0.0f;
-                        
-          //               for(int i = 0; i < num_samples; i++) {
-          //                   float angle_deg = i * angle_step;
-          //                   float angle_rad = angle_deg * 3.14159f / 180.0f;
-                            
-          //                   vec3 dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-          //                   float hit_dist = phys->raycast(agent->getPosition(), dir, 10.0f);
-                            
-          //                   if(hit_dist > best_openness) {
-          //                       best_openness = hit_dist;
-          //                       chosen_direction = dir;
-          //                   }
-          //               }
-                        
-          //               net_force = chosen_direction;
-          //           }
-                    
-          //           my_debug[0]->setPosition((agent->getPosition() + net_force).addY(5.0f));
-                    
-          //           // if(frame%600==0) {
-          //           //      agent->opt_vec3_2 = vec3(0,0,0);
-          //           // }
-          //           if(agent->opt_vec3_2.length()<12.0f) {
-          //                net_force += vec3(randf(-1, 1), 0, randf(-1, 1)) * 2.0f;
-          //           }
-          //           // print("PROGRESS: ",agent->opt_vec3_2.length());
-          //           my_debug[1]->setPosition((agent->getPosition()+net_force).addY(5.0f));
-                    
-          //           // Apply movement
-          //           if(net_force.length() > 0.01f) {
-          //                agent->faceTo(agent->getPosition() + net_force);
-          //                vec3 final_move = net_force.normalized() * desired_speed;
-          //                agent->setLinearVelocity(final_move);
-          //                agent->opt_vec3_2 += final_move;
-          //           }
-          //      }
-          //      return true;
-          // };
