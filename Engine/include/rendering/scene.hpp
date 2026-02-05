@@ -621,7 +621,7 @@ public:
             if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
                 scene->deactivate(s_obj);
             }
-
+            
             item->recycled.store(true);
             return_id(item->UUID);
         }

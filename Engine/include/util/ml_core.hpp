@@ -2,7 +2,7 @@
 
 #include<util/ml_util.hpp>
 
-namespace Eigen {
+
 
     float time_1 = 0;
     float time_2 = 0;
@@ -153,21 +153,21 @@ namespace Eigen {
             case SOFTMAX_CE: {
                 auto x = output->as_matrix();
                 
-                VectorXf m = x.rowwise().maxCoeff();
+                Eigen::VectorXf m = x.rowwise().maxCoeff();
                 x = x.colwise() - m;
-                MatrixXf ex = x.array().exp().matrix();
-                VectorXf sumex = ex.rowwise().sum();
-                VectorXf lse = sumex.array().log() + m.array();
+                Eigen::MatrixXf ex = x.array().exp().matrix();
+                Eigen::VectorXf sumex = ex.rowwise().sum();
+                Eigen::VectorXf lse = sumex.array().log() + m.array();
                 
-                MatrixXf log_softmax = output->as_matrix().colwise() - lse;
+                Eigen::MatrixXf log_softmax = output->as_matrix().colwise() - lse;
                 return -(target->as_matrix().array() * log_softmax.array()).sum() / float(bs);
             }
             case SIGMOID_BCE: {
                 auto x = output->as_matrix();
                 auto y = target->as_matrix();
                 
-                MatrixXf max_val = x.cwiseMax(0.0f);
-                MatrixXf stable_bce = (max_val.array() - x.array() * y.array() + 
+                Eigen::MatrixXf max_val = x.cwiseMax(0.0f);
+                Eigen::MatrixXf stable_bce = (max_val.array() - x.array() * y.array() + 
                 ((-x.array().abs()).exp() + 1.0f).log()).matrix();
                 
                 return stable_bce.sum() / float(bs);
@@ -904,4 +904,3 @@ namespace Eigen {
             }
             
         }
-}

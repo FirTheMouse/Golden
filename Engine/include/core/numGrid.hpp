@@ -45,6 +45,20 @@ namespace Golden
             return cells.get(index);
         }
 
+        inline bool empty(int idx) {
+            return cells[idx].empty();
+        }
+        inline bool empty(const vec3& worldpos) {
+            return getCell(worldpos).empty();
+        }
+
+        inline bool has_only(const vec3& worldpos,int id) {
+            return getCell(worldpos).length() == 1 && getCell(worldpos).has(id);
+        }
+        inline bool has_only(int idx,int id) {
+            return cells[idx].length() == 1 && cells[idx].has(id);
+        }
+
         inline int cellIndex(int x, int z) const {
             return (z + half) * cellMap + (x + half);
         }
@@ -132,11 +146,14 @@ namespace Golden
             return around;
         }
 
+    //Add here to make raycast miss objects
+    list<int> seethru;
+    void make_seethru(int id) { seethru << id; }
+
     // Returns a pair of distance to first hit, or max_dist if no hit, as well as the index of the cell hit
     // exclude_ids: list of object IDs to ignore (e.g., the caster itself)
     std::pair<float,int> raycast(const vec3& origin, const vec3& direction, float max_dist, 
                 const list<int>& exclude_ids = list<int>{}) {
-        
         vec3 dir = direction.normalized();
         float step_size = cellSize * 0.5f; // Half cell for finer sampling
         int max_steps = (int)(max_dist / step_size) + 1;
@@ -151,6 +168,11 @@ namespace Golden
         static int raycast_generation = 0;
         raycast_generation++;
         for(int exclude_id : exclude_ids) {
+            if(exclude_id < seen_flags.length()) {
+                seen_flags[exclude_id] = raycast_generation;
+            }
+        }
+        for(int exclude_id : seethru) {
             if(exclude_id < seen_flags.length()) {
                 seen_flags[exclude_id] = raycast_generation;
             }
@@ -190,81 +212,84 @@ namespace Golden
         exclusions.push(exclude_id);
         return raycast(origin, direction, max_dist, exclusions);
     }
+    bool can_see(const vec3& from, const vec3& point, list<int> exclude_ids = list<int>{}) {
+        float dist = from.distance(point);
+        vec3 dir = from.direction(point);
+        return raycast(from,dir,dist+1.0f,exclude_ids).second==-1;
+    }
 
-
-        // Add to NumGrid class
-        list<int> findPath(int startIdx, int goalIdx, std::function<bool(int)> isWalkable) {
-            if(startIdx == goalIdx) return list<int>{goalIdx};
-            if(!isWalkable(startIdx) || !isWalkable(goalIdx)) return list<int>{};
-            
-            map<int, int> cameFrom;
-            map<int, float> gScore;
-            map<int, float> fScore;
-            map<int, bool> closed;
-            list<int> openSet;
-            
-            gScore[startIdx] = 0.0f;
-            fScore[startIdx] = (float)cellDistance(startIdx, goalIdx);
-            openSet.push(startIdx);
-            
-            int iterations = 0;
-            int max_iterations = 100000; // Safety limit
-            
-            while(!openSet.empty() && iterations < max_iterations) {
-                iterations++;
-                // Find node with lowest fScore
-                int current = openSet[0];
-                float lowestF = fScore.getOrDefault(current, std::numeric_limits<float>::max());
-                for(int idx : openSet) {
-                    float f = fScore.getOrDefault(idx, std::numeric_limits<float>::max());
-                    if(f < lowestF) {
-                        lowestF = f;
-                        current = idx;
-                    }
-                }
-                
-                if(current == goalIdx) {
-                    // Reconstruct path
-                    list<int> path;
-                    path.push(current);
-                    while(cameFrom.hasKey(current)) {
-                        current = cameFrom[current];
-                        path.insert(current,0);
-                    }
-                    return path;
-                }
-                
-                openSet.erase(current);
-                closed[current] = true;
-                
-                // 4-way neighbors
-                int neighbors[4] = {current - 1, current + 1, current - cellMap, current + cellMap};
-                
-                for(int neighbor : neighbors) {
-                    if(neighbor < 0 || neighbor >= cells.length()) continue;
-                    if(closed.getOrDefault(neighbor, false)) continue;
-                    if(!isWalkable(neighbor)) continue;
-                    
-                    float tentativeG = gScore.getOrDefault(current, std::numeric_limits<float>::max()) + 1.0f;
-                    
-                    if(!openSet.has(neighbor)) {
-                        openSet.push(neighbor);
-                    } else if(tentativeG >= gScore.getOrDefault(neighbor, std::numeric_limits<float>::max())) {
-                        continue;
-                    }
-                    
-                    cameFrom[neighbor] = current;
-                    gScore[neighbor] = tentativeG;
-                    fScore[neighbor] = tentativeG + (float)cellDistance(neighbor, goalIdx);
+    list<int> findPath(int startIdx, int goalIdx, std::function<bool(int)> isWalkable) {
+        if(startIdx == goalIdx) return list<int>{goalIdx};
+        if(!isWalkable(startIdx) || !isWalkable(goalIdx)) return list<int>{};
+        
+        map<int, int> cameFrom;
+        map<int, float> gScore;
+        map<int, float> fScore;
+        map<int, bool> closed;
+        list<int> openSet;
+        
+        gScore[startIdx] = 0.0f;
+        fScore[startIdx] = (float)cellDistance(startIdx, goalIdx);
+        openSet.push(startIdx);
+        
+        int iterations = 0;
+        int max_iterations = 100000; // Safety limit
+        
+        while(!openSet.empty() && iterations < max_iterations) {
+            iterations++;
+            // Find node with lowest fScore
+            int current = openSet[0];
+            float lowestF = fScore.getOrDefault(current, std::numeric_limits<float>::max());
+            for(int idx : openSet) {
+                float f = fScore.getOrDefault(idx, std::numeric_limits<float>::max());
+                if(f < lowestF) {
+                    lowestF = f;
+                    current = idx;
                 }
             }
-
-            if(iterations >= max_iterations) {
-                //print("A* exceeded iteration limit!");
-                return list<int>{}; // Failed to find path
+            
+            if(current == goalIdx) {
+                // Reconstruct path
+                list<int> path;
+                path.push(current);
+                while(cameFrom.hasKey(current)) {
+                    current = cameFrom[current];
+                    path.insert(current,0);
+                }
+                return path;
             }
             
-            return list<int>{};
+            openSet.erase(current);
+            closed[current] = true;
+            
+            // 4-way neighbors
+            int neighbors[4] = {current - 1, current + 1, current - cellMap, current + cellMap};
+            
+            for(int neighbor : neighbors) {
+                if(neighbor < 0 || neighbor >= cells.length()) continue;
+                if(closed.getOrDefault(neighbor, false)) continue;
+                if(!isWalkable(neighbor)) continue;
+                
+                float tentativeG = gScore.getOrDefault(current, std::numeric_limits<float>::max()) + 1.0f;
+                
+                if(!openSet.has(neighbor)) {
+                    openSet.push(neighbor);
+                } else if(tentativeG >= gScore.getOrDefault(neighbor, std::numeric_limits<float>::max())) {
+                    continue;
+                }
+                
+                cameFrom[neighbor] = current;
+                gScore[neighbor] = tentativeG;
+                fScore[neighbor] = tentativeG + (float)cellDistance(neighbor, goalIdx);
+            }
         }
+
+        if(iterations >= max_iterations) {
+            //print("A* exceeded iteration limit!");
+            return list<int>{}; // Failed to find path
+        }
+        
+        return list<int>{};
+    }
     };
 }
