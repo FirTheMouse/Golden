@@ -57,13 +57,18 @@ void Mesh::setupMesh() {
 
 
 
-void Mesh::setupInstancedVAO(const list<glm::mat4>& instanceMatrices) {
+void Mesh::setupInstancedVAO(const list<glm::mat4>& instanceMatrices, const list<vec4>& colors) {
     if (instancedVAO == 0) glGenVertexArrays(1, &instancedVAO);
     if (instanceVBO == 0) glGenBuffers(1, &instanceVBO);
+    if (instanceColorVBO == 0) glGenBuffers(1, &instanceColorVBO);
+
+    std::vector<glm::vec4> std_colors;
+    for(auto c : colors) {
+        std_colors.push_back(c.toGlm());
+    }
 
     glBindVertexArray(instancedVAO);
 
-    // Base mesh attributes
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glEnableVertexAttribArray(0);
@@ -73,16 +78,24 @@ void Mesh::setupInstancedVAO(const list<glm::mat4>& instanceMatrices) {
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, color));
 
-    // Instance transforms (mat4 = 4x vec4)
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-    glBufferData(GL_ARRAY_BUFFER, instanceMatrices.size() * sizeof(glm::mat4), instanceMatrices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, instanceMatrices.size() * sizeof(glm::mat4), 
+                 instanceMatrices.data(), GL_STATIC_DRAW);
 
     std::size_t vec4Size = sizeof(glm::vec4);
     for (unsigned int i = 0; i < 4; i++) {
         glEnableVertexAttribArray(3 + i);
         glVertexAttribPointer(3 + i, 4, GL_FLOAT, GL_FALSE, sizeof(glm::mat4), (void*)(i * vec4Size));
-        glVertexAttribDivisor(3 + i, 1); // Per-instance
+        glVertexAttribDivisor(3 + i, 1);
     }
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceColorVBO);
+    glBufferData(GL_ARRAY_BUFFER, std_colors.size() * sizeof(glm::vec4),
+                 std_colors.data(), GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, 0, (void*)0);
+    glVertexAttribDivisor(7, 1);
 
     glBindVertexArray(0);
     instance = true;

@@ -105,15 +105,15 @@ namespace Golden
     g_ptr<Quad> makeChar(char c,g_ptr<Font> font,g_ptr<Scene> scene)
     {
          //This is to intilize the pooling for text characters, it shouldn't really be here but I don't know where else to put it
-         if(!scene->pools.hasKey("_text_char")) {
-            Script<> make_char("make_char",[scene](ScriptContext& ctx){
-                auto q = make<Quad>();
-                scene->add(q);
-                q->setPhysicsState(P_State::NONE);
-                ctx.set<g_ptr<Object>>("toReturn",q);
-            });
-            scene->define("_text_char",make_char);
-        }
+        //  if(!scene->pools.hasKey("_text_char")) {
+        //     Script<> make_char("make_char",[scene](ScriptContext& ctx){
+        //         auto q = make<Quad>();
+        //         scene->add(q);
+        //         q->setPhysicsState(P_State::NONE);
+        //         ctx.set<g_ptr<Object>>("toReturn",q);
+        //     });
+        //     scene->define("_text_char",make_char);
+        // }
 
         if(c=='\n')
         {

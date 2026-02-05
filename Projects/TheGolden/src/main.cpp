@@ -13,6 +13,8 @@ const std::string MROOT = AROOT+"models/";
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> grid = nullptr;
+g_ptr<Geom> guiGeom = nullptr;
+g_ptr<Font> font = nullptr;
 ivec2 win(2560,1536);
 
 list<int> addToGrid(g_ptr<Single> q) {
@@ -1165,6 +1167,33 @@ public:
       }
 };
 
+g_ptr<Quad> make_button(std::string slot) {
+     g_ptr<Quad> q = scene->create<Quad>("gui_element");
+     q->scale(vec2(slot.length()*100.0f,40));
+     q->setColor(vec4(1,0,0,1));
+     q->addSlot("test");
+     q->addSlot("otherTest");
+     q->setDepth(1.0f);
+     q->addScript("onHover",[q](ScriptContext& ctx){
+          q->setColor(vec4(0,1,0,1));
+     });
+     q->addScript("onUnHover",[q](ScriptContext& ctx){
+          q->setColor(vec4(1,0,0,1));
+     });
+     q->addScript("onPress",[q,slot](ScriptContext& ctx){
+          print("You just pressed the ",slot," button");
+          q->setColor(q->getColor()*vec4(0.5,0.5,0.5,1));
+          q->setPosition(vec2(100,0));
+     });
+     q->addScript("onRelease",[q](ScriptContext& ctx){
+          q->setColor(vec4(0,1,0,1));
+          q->setPosition(vec2(0,0));
+     });
+     g_ptr<Text> twig = make<Text>(font,scene);
+     auto t = twig->makeText(slot);
+     q->addChild(t[0]);
+     return q;
+}
 
 int main() {
      // test_crumbs();
@@ -1178,6 +1207,18 @@ int main() {
      scene->tickEnvironment(1100);
 
      scene->enableInstancing();
+
+     guiGeom = make<Geom>();
+     font = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",50);
+
+     scene->define("gui_element",[](){
+          g_ptr<Quad> q = make<Quad>(guiGeom);
+          scene->add(q);
+          q->setPhysicsState(P_State::NONE);
+          return q;
+     });
+
+     make_button("test");
 
      int amt = 1;
      float agents_per_unit = 0.3f;
@@ -1460,6 +1501,7 @@ int main() {
                list<int>& path = agent->opt_idx_cache_2;
                //This is just for testing
                vec3 goal = goals[id];  //goal_crumb->getPosition();
+               
 
                float moved_recently = agent->getPosition().distance(agent->opt_vec3_2);
                if(moved_recently > 2.0f) {
@@ -2141,6 +2183,7 @@ int main() {
      #endif
      run_thread->name = "Physics";
      Log::Line time; time.start();
+     phys->gravity = 0.0f;
      run_thread->run([&time, phys,&phys_logger,&total_times,&agents,update_thread,&crumbs,&crumb_managers,&from_phys_to_update](ScriptContext& ctx){
           phys_logger.tick();
           if(use_grid&&phys->collisonMethod!=Physics::GRID) {
@@ -2215,10 +2258,20 @@ int main() {
 
      start::run(window,d,[&]{
           s_tool.tick();
+          if(scene->slotFired("test")) {
+               print("BOOM!");
+          }
+          if(scene->slotFired("otherTest")) {
+               print("BOOM! BOOM!");
+          }
           if(pressed(N)) {
                scene->camera.setTarget(agents[0]->getPosition()+vec3(0,20,20));
           }
           vec3 mousepos = scene->getMousePos();
+
+          auto q = scene->nearestElement();
+
+   
 
           if(pressed(SPACE)) {
                if(run_thread->runningTurn) run_thread->pause();
@@ -2301,24 +2354,26 @@ int main() {
                     mem->visualize_registry();
                }
 
-               if(pressed(MOUSE_LEFT)) {
-                    vec3 from = agents[0]->getPosition();
-                    vec3 point = scene->getMousePos();
-                    float dist = from.distance(point);
-                    print("Dist: ",dist);
-                    vec3 dir = from.direction(point);
-                    auto cast = grid->raycast(from,dir,dist+1.0f,agents[0]->ID);
-                    print("Hit at: ",cast.first," cell: ",cast.second," which has ",grid->getCell(cast.second).length()," objects");
-                    for(auto d : grid->getCell(cast.second)) {
-                         print("Blocked by a : ",scene->singles[d]->dtype);
-                    }
-                    crumb_managers[0]->debug << draw_line(from,from + dir * cast.first,"white",0.5f);
+               // if(pressed(MOUSE_LEFT)) {
+               //      vec3 from = agents[0]->getPosition();
+               //      vec3 point = scene->getMousePos();
+               //      float dist = from.distance(point);
+               //      print("Dist: ",dist);
+               //      vec3 dir = from.direction(point);
+               //      auto cast = grid->raycast(from,dir,dist+1.0f,agents[0]->ID);
+               //      print("Hit at: ",cast.first," cell: ",cast.second," which has ",grid->getCell(cast.second).length()," objects");
+               //      for(auto d : grid->getCell(cast.second)) {
+               //           print("Blocked by a : ",scene->singles[d]->dtype);
+               //      }
+               //      crumb_managers[0]->debug << draw_line(from,from + dir * cast.first,"white",0.5f);
      
-                    print("Can he see your mouse? ",grid->can_see(agents[0]->getPosition(),scene->getMousePos())?"Yes!":"No.");
-                    print("Can he see your mouse if he's exclued? ",grid->can_see(agents[0]->getPosition(),point,{agents[0]->ID})?"Yes!":"No.");
+               //      print("Can he see your mouse? ",grid->can_see(agents[0]->getPosition(),scene->getMousePos())?"Yes!":"No.");
+               //      print("Can he see your mouse if he's exclued? ",grid->can_see(agents[0]->getPosition(),point,{agents[0]->ID})?"Yes!":"No.");
      
-               }
+               // }
           }
+
+
 
 
 

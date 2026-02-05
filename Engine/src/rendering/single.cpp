@@ -318,8 +318,7 @@ BoundingBox Single::getWorldBounds()
     return worldBox;
 }
 
-void Single::setColor(const glm::vec4& color)
-{getModel()->setColor(color);}
+void Single::setColor(const vec4& color) {GET(scene->colors,ID)=color;}
 
 
 void Single::hide() {scene->culled.get(ID)=true;}

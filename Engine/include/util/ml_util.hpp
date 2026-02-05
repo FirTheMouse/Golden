@@ -9,7 +9,6 @@
 
 #include <Eigen/Dense>
 
-#include<core/gpuType.hpp>
 #include<util/ml_methods.hpp>
 
 #ifdef __APPLE__

@@ -196,6 +196,9 @@ vec4 Quad::getData() {
 unsigned int Quad::getTexture() {
     return getGeom()->texture;
 }
+vec4 Quad::getColor() {
+    return GET(scene->guiColor,ID);
+}
 
 CollisionLayer& Quad::getLayer() {
     if(checkGet(11)) {
@@ -260,7 +263,8 @@ Quad& Quad::addSlot(const std::string& slot)
 {
     if(!getSlots().has(slot))
     {
-    getSlots() << slot;
+        getSlots() << slot;
+        //scene->loaded_slots[slot] << this;
     }
     return *this;
 }

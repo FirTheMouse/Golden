@@ -239,14 +239,13 @@ public:
     {
         //Pooling is begging for an overhaul too... those strings are stinking up the codebase and ScriptContext is so ready to be axed
         std::string pool_name = font->name+"_char";
-         if(!scene->pools.hasKey(pool_name)) {
-            Script<> make_char("make_char",[&](ScriptContext& ctx){
+         if(!scene->types.hasKey(pool_name)) {
+            scene->define(pool_name,[&](){
                 auto q = make<Quad>(font->geom);
                 scene->add(q);
                 q->setPhysicsState(P_State::NONE);
-                ctx.set<g_ptr<Object>>("toReturn",q);
+                return q;
             });
-            scene->define(pool_name,make_char);
         }
         auto q = scene->create<Quad>(pool_name);
         q->opt_char = c;

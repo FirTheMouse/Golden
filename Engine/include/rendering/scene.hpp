@@ -8,6 +8,7 @@
 #include <gui/quad.hpp>
 #include <util/q_list.hpp>
 #include <util/d_list.hpp>
+#include <core/type.hpp>
 
 #define DEBUG 0
 
@@ -228,6 +229,7 @@ public:
     q_list<CollisionLayer> collisonLayers;
     q_list<CollisionShape> collisionShapes;
     q_list<P_Prop> physicsProp;
+    q_list<vec4> colors;
 
     //Quad Arrays:
     q_list<bool> quadActive;
@@ -251,6 +253,7 @@ public:
     //This way, we can feed the values into the instance shader more directly, without disrupting
     //our normal add/remove infrastructure.
     list<list<glm::mat4>> instancedTransforms;
+    list<list<vec4>> instancedColors;
     //Could optimize this into a map<g_ptr<Model>,list<glm::mat4>> later, when it isn't 11am on Christmas.
     list<g_ptr<Model>> instancedModels;
 
@@ -548,120 +551,44 @@ public:
     //Move an object between scenes, currently only works for singles
     void repo(const g_ptr<S_Object>& obj);
 
+    map<std::string,g_ptr<Type>> types;
 
-    class pool : public Object {
-    public:
-        pool() {
+    void define(const std::string& label, std::function<g_ptr<Object>(void)> make_func = nullptr) {
+        g_ptr<Type> type = make<Type>();
+        type->type_name = label;
+        if(make_func) {
+            type->make_func = make_func;
         }
-
-        pool(g_ptr<Scene> _scene,const std::string& name,list<Script<>> _make_funcs) 
-        : scene(_scene), pool_name(name), make_funcs(_make_funcs) {
-            free_stack_top.store(0);
-        }
-        ~pool() {}
-
-        std::string pool_name = "bullets";
-        g_ptr<Scene> scene;
-        list<Script<>> make_funcs;
-        list<g_ptr<Object>> members;
-        list<int> free_ids;
-        std::atomic<size_t> free_stack_top{0};  // Points to next free slot
-    
-        int get_next() {
-            size_t current_top, new_top;
-            do {
-                current_top = free_stack_top.load();
-                if (current_top == 0) return -1;
-                new_top = current_top - 1;
-            } while (!free_stack_top.compare_exchange_weak(current_top, new_top));
-            
-            return free_ids.get(new_top);
-        }
-        
-        void return_id(int id) {
-            size_t current_top = free_stack_top.load();
-            if (current_top < free_ids.size()) {
-                // There's space, just write and increment pointer
-                size_t slot = free_stack_top.fetch_add(1);
-                free_ids.get(slot) = id;
-            } else {
-                // Need to grow the list
-                free_ids.push(id);
-                free_stack_top.fetch_add(1);
-            }
-        }
-        
-
-        g_ptr<Object> get() {
-            int next_id = get_next();
-            if(next_id!=-1)
-            {
-                auto obj = members.get(next_id,"pool::535");
-                obj->recycled.store(false);
-                return obj;
-            }
-            else
-            {
-                ScriptContext makeNew;
-                make_funcs[0].run(makeNew);
-                for(int i=1;i<make_funcs.length();i++) {
-                    make_funcs[i].run(makeNew);
-                }
-                g_ptr<Object> new_item = makeNew.get<g_ptr<Object>>("toReturn");
-                new_item->UUID = members.size();
-                members.push(new_item);
-                return new_item;
-            }
-        }
-
-        void recycle(g_ptr<Object> item) {
-            if(item->recycled.load()) {
-                return;
-            }
-            if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
-                scene->deactivate(s_obj);
-            }
-            
-            item->recycled.store(true);
-            return_id(item->UUID);
-        }
-    };
-
-    map<std::string,g_ptr<pool>> pools;
-
+        types.put(label,type);
+    }
     void define(const std::string& type, Script<> make_func) {
-        if(!pools.hasKey(type))
-        {
-            pools.put(type,make<pool>(this,type,list<Script<>>{make_func}));
-        }
-        else
-        {
-           pools.get(type)->make_funcs.push(make_func);
-        }
+        define(type,[make_func](){
+            ScriptContext ctx;
+            make_func.run(ctx);
+            return ctx.get<g_ptr<Object>>("toReturn");
+        });
     }
 
-    void define(const std::string& type, list<Script<>> make_funcs) {
-        for(auto f : make_funcs) define(type,f);
+    g_ptr<Type> getType(const std::string& label) {
+        g_ptr<Type> fallback = nullptr;
+        return types.getOrDefault(label,fallback);
     }
-
 
     //I liked "make" better but that conflicts with Object
     template<typename T, typename = std::enable_if_t<std::is_base_of_v<Golden::Object, T>>>
-    g_ptr<T> create(const std::string& type) {
-        if(pools.hasKey(type))
-        {
-            g_ptr<Object> obj = pools.get(type)->pool::get();
+    g_ptr<T> create(const std::string& label) {
+        g_ptr<Type> type = getType(label);
+        if(type) {
+            g_ptr<Object> obj = type->create();
             if(auto cobj = g_dynamic_pointer_cast<T>(obj))
             {
-                cobj->dtype = type;
+                cobj->dtype = label;
                 reactivate(cobj);
                 return cobj;
             }
             return nullptr;
-        }
-        else
-        {
-            print("scene::create::641 attempted to create an undefined type!");
+        } else {
+            print("scene::create::641 attempted to create an undefined type: ",label,"!");
             return nullptr;
         }
     }
@@ -669,19 +596,17 @@ public:
     /// @brief Deactivates an object and puts it back in the Object pool
     /// @param item You can call recycle on this directly
     /// @param type Not nessecary if a dtype was already specified
-    void recycle(g_ptr<Object> item, const std::string& type = "undefined") {
-        std::string useType = type;
-        if(type=="undefined")
-        {
-            useType = item->dtype;
-        }
-        if(pools.hasKey(useType))
-        {
-            pools.get(useType)->recycle(item);
+    void recycle(g_ptr<Object> item, const std::string& label = "undefined") {
+        std::string useType = label;
+        if(label=="undefined") {useType = item->dtype;}
+
+        g_ptr<Type> type = getType(useType);
+        if(type) {
+            type->recycle(item);
         }
         else
         {
-            print("scene::recycle::601 attempted to recycle an undefined type: ",type,"!");
+            print("scene::recycle::601 attempted to recycle an undefined type: ",label,"!");
         }
     }
     
@@ -1236,3 +1161,84 @@ public:
 };
 
 }
+
+
+    // class pool : public Object {
+    // public:
+    //     pool() {
+    //     }
+
+    //     pool(g_ptr<Scene> _scene,const std::string& name,list<Script<>> _make_funcs) 
+    //     : scene(_scene), pool_name(name), make_funcs(_make_funcs) {
+    //         free_stack_top.store(0);
+    //     }
+    //     ~pool() {}
+
+    //     std::string pool_name = "bullets";
+    //     g_ptr<Scene> scene;
+    //     list<Script<>> make_funcs;
+    //     list<g_ptr<Object>> members;
+    //     list<int> free_ids;
+    //     std::atomic<size_t> free_stack_top{0};  // Points to next free slot
+    
+    //     int get_next() {
+    //         size_t current_top, new_top;
+    //         do {
+    //             current_top = free_stack_top.load();
+    //             if (current_top == 0) return -1;
+    //             new_top = current_top - 1;
+    //         } while (!free_stack_top.compare_exchange_weak(current_top, new_top));
+            
+    //         return free_ids.get(new_top);
+    //     }
+        
+    //     void return_id(int id) {
+    //         size_t current_top = free_stack_top.load();
+    //         if (current_top < free_ids.size()) {
+    //             // There's space, just write and increment pointer
+    //             size_t slot = free_stack_top.fetch_add(1);
+    //             free_ids.get(slot) = id;
+    //         } else {
+    //             // Need to grow the list
+    //             free_ids.push(id);
+    //             free_stack_top.fetch_add(1);
+    //         }
+    //     }
+        
+
+    //     g_ptr<Object> get() {
+    //         int next_id = get_next();
+    //         if(next_id!=-1)
+    //         {
+    //             auto obj = members.get(next_id,"pool::535");
+    //             obj->recycled.store(false);
+    //             return obj;
+    //         }
+    //         else
+    //         {
+    //             ScriptContext makeNew;
+    //             make_funcs[0].run(makeNew);
+    //             for(int i=1;i<make_funcs.length();i++) {
+    //                 make_funcs[i].run(makeNew);
+    //             }
+    //             g_ptr<Object> new_item = makeNew.get<g_ptr<Object>>("toReturn");
+    //             new_item->UUID = members.size();
+    //             members.push(new_item);
+    //             return new_item;
+    //         }
+    //     }
+
+    //     void recycle(g_ptr<Object> item) {
+    //         if(item->recycled.load()) {
+    //             return;
+    //         }
+    //         if(auto s_obj = g_dynamic_pointer_cast<S_Object>(item)) {
+    //             scene->deactivate(s_obj);
+    //         }
+            
+    //         item->recycled.store(true);
+    //         return_id(item->UUID);
+    //     }
+    // };
+
+    // map<std::string,g_ptr<pool>> pools;

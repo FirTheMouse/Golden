@@ -85,6 +85,7 @@ public:
     vec2 getCenter();
     vec2 getScale();
     vec4 getData();
+    vec4 getColor();
     unsigned int getTexture();
     CollisionLayer& getLayer();
     BoundingBox getWorldBounds() override;

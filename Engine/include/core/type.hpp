@@ -18,10 +18,61 @@ struct value_ {
 struct _note {
     _note() {}
     _note(int _index, size_t _size) : index(_index), size(_size) {}
-    _note(int _index, size_t _size, int _sub_index) : index(_index), size(_size), sub_index(_sub_index) {}
+    _note(int _index, size_t _size, int _sub_index) 
+        : index(_index), size(_size), sub_index(_sub_index) {}
+    
+    // Copy constructor - deep copy the fallback
+    _note(const _note& other) 
+        : index(other.index), sub_index(other.sub_index), size(other.size) {
+        if(other.fallback) {
+            fallback = new std::any(*other.fallback);
+        }
+    }
+    
+    // Move constructor - steal the pointer
+    _note(_note&& other) noexcept
+        : index(other.index), sub_index(other.sub_index), 
+          size(other.size), fallback(other.fallback) {
+        other.fallback = nullptr;  // Don't delete when other dies
+    }
+    
+    // Copy assignment
+    _note& operator=(const _note& other) {
+        if(this != &other) {
+            if(fallback) delete fallback;
+            index = other.index;
+            sub_index = other.sub_index;
+            size = other.size;
+            if(other.fallback) {
+                fallback = new std::any(*other.fallback);
+            } else {
+                fallback = nullptr;
+            }
+        }
+        return *this;
+    }
+    
+    // Move assignment
+    _note& operator=(_note&& other) noexcept {
+        if(this != &other) {
+            if(fallback) delete fallback;
+            index = other.index;
+            sub_index = other.sub_index;
+            size = other.size;
+            fallback = other.fallback;
+            other.fallback = nullptr;
+        }
+        return *this;
+    }
+    
+    ~_note() {
+        if(fallback) delete fallback;
+    }
+    
     int index = -1;
     int sub_index = -1;
     size_t size = 0;
+    std::any* fallback = nullptr;
 };
 
 static _note note_fallback;
@@ -225,7 +276,7 @@ public:
             }
             if(objects.size()!=0) { //Do we have objects?
                 for(int o=0;o<objects.length();o++) {
-                    int rid = objects[o]->ID;
+                    int rid = objects[o]->TID;
                     for(int c=0;c<columns.length();c++) {
                         if(ids[c][rid]=="") {
                             std::string s_of = type_name+":"+std::to_string(rid);
@@ -479,36 +530,62 @@ public:
         break;
         }
     }
-
-    // Adds a new row to a column
+    
+    //Adds a new column and intilizes the rows
     void add_column(size_t size = 0) {
+        size_t default_rows = objects.size();  
+        
         switch(size) {
         case 0:
             for(int i=0;i<8;i++) add_column(sizes[i]);
         break;
-        case 1:
-            byte1_columns.push(list<uint8_t>());
+        case 1: {
+            list<uint8_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = uint8_t{};
+            byte1_columns.push(col);
+        }
         break;
-        case 2:
-            byte2_columns.push(list<uint16_t>());
+        case 2: {
+            list<uint16_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = uint16_t{};
+            byte2_columns.push(col);
+        }
         break;
-        case 4:
-            byte4_columns.push(list<uint32_t>());
+        case 4: {
+            list<uint32_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = uint32_t{};
+            byte4_columns.push(col);
+        }
         break;
-        case 8:
-            byte8_columns.push(list<uint64_t>());
+        case 8: {
+            list<uint64_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = uint64_t{};
+            byte8_columns.push(col);
+        }
         break;
-        case 16:
-            byte16_columns.push(list<byte16_t>());
+        case 16: {
+            list<byte16_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = byte16_t{};
+            byte16_columns.push(col);
+        }
         break;
-        case 24:
-            byte24_columns.push(list<byte24_t>());
+        case 24: {
+            list<byte24_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = byte24_t{};
+            byte24_columns.push(col);
+        }
         break;
-        case 32:
-            byte32_columns.push(list<byte32_t>());
+        case 32: {
+            list<byte32_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = byte32_t{};
+            byte32_columns.push(col);
+        }
         break;
-        case 64:
-            byte64_columns.push(list<byte64_t>());
+        case 64: {
+            list<byte64_t> col(default_rows);
+            for(size_t i = 0; i < default_rows; i++) col[i] = byte64_t{};
+            byte64_columns.push(col);
+        }
         break;
         default: 
             size_t o_size = next_size(size);
@@ -556,6 +633,10 @@ public:
         else {
         _note note(column_length(size),size); add_column(size); notes.put(name,note);
         }
+    }
+    template<typename T>
+    void note_value(const std::string& name) {
+        note_value(name,sizeof(T));
     }
 
     // void note_value(const std::string& name, size_t size,int t = 0) {
@@ -697,6 +778,9 @@ public:
         if constexpr (std::is_trivially_copyable_v<T>) {
             add(name,&value,sizeof(T),t);
         } else {
+            _note note(-1, 0, -1);
+            note.fallback = new std::any(value);  // Allocate and store
+            array << note;
             fallback_map.put(name,std::any(value));
         }
     }
@@ -735,7 +819,7 @@ public:
 
     inline void* get(int index,int sub_index,size_t size) {
         switch(size) {
-            case 0: return nullptr; 
+            case 0: return nullptr;
             case 1: return &byte1_columns[index][sub_index];
             case 2: return &byte2_columns[index][sub_index];
             case 4: return &byte4_columns[index][sub_index];
@@ -782,7 +866,11 @@ public:
    //Uses array get
    template<typename T>
    T& get(int index) {
-    return *(T*)array_get(index);
+    if constexpr (std::is_trivially_copyable_v<T>) {
+        return *(T*)array_get(index);
+    } else {
+        return std::any_cast<T&>(*array[index].fallback);
+    }
    }
 
    template<typename T>
@@ -921,9 +1009,15 @@ public:
 
     /// @brief For use in the ARRAY strategy
     template<typename T>
-    void push(T value,int t = 0) {
-        push(&value,sizeof(T),t);
-    }    
+    void push(T value, int t = 0) {
+        if constexpr (std::is_trivially_copyable_v<T>) {
+            push(&value, sizeof(T), t);
+        } else {
+            _note note(-1, 0, -1);
+            note.fallback = new std::any(value);  // Allocate and store
+            array << note;
+        }
+    }
 
     std::string type_name = "bullets";
     list< std::function<void(g_ptr<Object>)> > init_funcs;
@@ -984,29 +1078,16 @@ public:
     private:
     void store(g_ptr<Object> object)
     {
-        object->ID = objects.size();
+        object->TID = objects.size();
         add_rows();
         objects.push(object);
     }
     public:
 
-    void add_initializers(list<std::function<void(g_ptr<Object>)>> inits) {
-        for(auto i : inits) add_initializer(i);
-    }
-
-    void add_initializer(std::function<void(g_ptr<Object>)> init) {
-        init_funcs << init;
-    }
-
-    void operator+(std::function<void(g_ptr<Object>)> init) {
-        add_initializer(init);
-    }
-
-    void operator+(list<std::function<void(g_ptr<Object>)>> inits) {
-        for(auto i : inits) add_initializer(i);
-    }
-
-
+    void add_initializers(list<std::function<void(g_ptr<Object>)>> inits) {for(auto i : inits) add_initializer(i);}
+    void add_initializer(std::function<void(g_ptr<Object>)> init) {init_funcs << init;}
+    void operator+(std::function<void(g_ptr<Object>)> init) {add_initializer(init);}
+    void operator+(list<std::function<void(g_ptr<Object>)>> inits) {for(auto i : inits) add_initializer(i);}
 
     void recycle(g_ptr<Object> object) {
         if(object->recycled.load()) {
@@ -1014,7 +1095,7 @@ public:
         }
         object->recycled.store(true);
 
-        return_id(object->ID);
+        return_id(object->TID);
         deactivate(object);
     }
 

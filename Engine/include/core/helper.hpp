@@ -637,6 +637,9 @@ namespace Golden
             bool has_exit_key = exit_key!=-1;
             float lastTime = glfwGetTime();
 
+            g_ptr<Quad> hovered = nullptr;
+            g_ptr<Quad> pressed_element = nullptr;
+
             while (!window.shouldClose()) {
                 float currentTime = glfwGetTime();
                 float deltaTime = currentTime - lastTime;
@@ -644,14 +647,32 @@ namespace Golden
                 if(has_exit_key)
                     if(Input::get().keyJustPressed(exit_key)) return;
                 if(scene&&!disable_click) {
-                    // if(auto g = scene->nearestElement())
-                    // {
-                    //     if(helper::pressed(MOUSE_LEFT))
-                    //     {
-                    //         g->run("onClick");
-                    //         scene->fireSlots(g);
-                    //     }
-                    // }
+                    if(auto g = scene->nearestElement())
+                    {
+                        if(hovered) {
+                            if(hovered!=g) {
+                                 hovered->run("onUnHover");
+                                 g->run("onHover");
+                            }
+                        }
+                        hovered = g;
+                        
+                        if(helper::pressed(MOUSE_LEFT) && g) {
+                                g->run("onPress");
+                                pressed_element = g;
+                        }
+                        
+                        if(!helper::held(MOUSE_LEFT) && pressed_element) {
+                            pressed_element->run("onRelease");
+                            
+                            if(pressed_element == g) {
+                                pressed_element->run("onClick");
+                                scene->fireSlots(pressed_element);
+                            }
+                            
+                            pressed_element = nullptr;
+                        }
+                    }
                 }
                 gameLogic();
                 if(scene) scene->updateScene(1.0f); //Switch to deltaTime when I'm ready to fix camera

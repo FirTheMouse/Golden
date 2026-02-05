@@ -59,7 +59,7 @@ public:
     Material material;
     bool instance = false;
     unsigned int VAO = 0, VBO = 0, EBO = 0;
-    unsigned int instancedVAO = 0, instanceVBO = 0;
+    unsigned int instancedVAO = 0, instanceVBO = 0, instanceColorVBO = 0;
     size_t instanceCount = 0;
 
     Mesh() {}
@@ -104,7 +104,7 @@ public:
     }
 
     void setupMesh();
-    void setupInstancedVAO(const list<glm::mat4>& instanceMatrices);
+    void setupInstancedVAO(const list<glm::mat4>& instanceMatrices,const list<vec4>& colors);
     void draw(unsigned int shaderProgram) const;
 
     inline void updateInstanceTransform(size_t idx, const glm::mat4& mat) {
@@ -117,10 +117,20 @@ public:
         glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
 
-    inline void fullInstanceUpdate(const list<glm::mat4>& instanceTransforms) {
+    inline void fullInstanceUpdate(const list<glm::mat4>& instanceTransforms, const list<vec4>& colors) {
+        std::vector<glm::vec4> std_colors;
+        for(auto c : colors) {
+            std_colors.push_back(c.toGlm());
+        }
+    
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
         glBufferData(GL_ARRAY_BUFFER, instanceTransforms.size() * sizeof(glm::mat4),
-                instanceTransforms.data(), GL_DYNAMIC_DRAW);
+                     instanceTransforms.data(), GL_DYNAMIC_DRAW);
+        
+        glBindBuffer(GL_ARRAY_BUFFER, instanceColorVBO);
+        glBufferData(GL_ARRAY_BUFFER, std_colors.size() * sizeof(glm::vec4),
+                     std_colors.data(), GL_DYNAMIC_DRAW);
+        
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         instanceCount = instanceTransforms.size();
     }
@@ -268,12 +278,12 @@ public:
         }
     }
 
-    void transformInstances(const list<glm::mat4>& transforms) {
+    void transformInstances(const list<glm::mat4>& transforms, const list<vec4>& colors) {
         for (auto& mesh : meshes) {
             if (mesh.instanceVBO == 0) {
-                mesh.setupInstancedVAO(transforms);
+                mesh.setupInstancedVAO(transforms,colors);
             } else {
-                mesh.fullInstanceUpdate(transforms);
+                mesh.fullInstanceUpdate(transforms,colors);
             }
         }
     }

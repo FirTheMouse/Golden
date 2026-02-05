@@ -6,7 +6,7 @@
 namespace Golden
 {
 
-    #define TIMERS 0
+    #define SCENETIMERS 0
 
 unsigned int loadTexture2D(const std::string& path, bool flipY,int& w, int& h)
 {
@@ -96,13 +96,14 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         collisonLayers.push(CollisionLayer());
         collisionShapes.push(CollisionShape());
         physicsProp.push(P_Prop());
+        colors.push(vec4(1,1,1,1));
     }
 }
 
 void Scene::updateScene(float tpf)
 {
 
-#if TIMERS 
+#if SCENETIMERS 
     Log::Line overall;
     overall.start();
 #endif
@@ -127,24 +128,25 @@ void Scene::updateScene(float tpf)
 
     instancedTransforms.clear();
     instancedModels.clear();
+    colors.clear();
 
     guiInstancedTransforms.clear();
     guiInstancedData.clear();
     guiInstancedColors.clear();
     instancedGeoms.clear();
 
-#if TIMERS
-    double gather_time = 0;
-    double depth_render_time = 0;
-    double render_time = 0;
-    double instance_render_time = 0;
-    double a,b,c;
-    Log::Line l;
+    #if SCENETIMERS
+        double gather_time = 0;
+        double depth_render_time = 0;
+        double render_time = 0;
+        double instance_render_time = 0;
+        double a,b,c;
+        Log::Line l;
 
 
-    static int FRAME;
-    FRAME++;
-#endif
+        static int FRAME;
+        FRAME++;
+    #endif
 
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
@@ -154,25 +156,29 @@ void Scene::updateScene(float tpf)
         if(culled[i]) continue;
 
         if(models[i]->instance) {
-#if TIMERS 
-l.start();
-#endif
+            #if SCENETIMERS 
+            l.start();
+            #endif
             int existing_instance_id = instancedModels.find(models[i]);
             if(existing_instance_id!=-1) {
                 instancedTransforms[existing_instance_id].push(transforms[i]);
+                instancedColors[existing_instance_id].push(colors[i]);
             } else {
                 instancedModels.push(models[i]);
                 list<glm::mat4> temp(12);
                 temp << transforms[i];
                 instancedTransforms.push(temp);
+                list<vec4> temp2(12);
+                temp2 << colors[i];
+                instancedColors.push(temp2);
             }
-#if TIMERS
-gather_time += l.end();
-#endif
+            #if SCENETIMERS
+            gather_time += l.end();
+            #endif
         } else {
-#if TIMERS 
-l.start();
-#endif
+            #if SCENETIMERS 
+            l.start();
+            #endif
             depthShader.setMat4("model", glm::value_ptr(transforms[i]));
             bool hasBones = models[i]->boneDirty.length()>0;
             depthShader.setInt("hasSkeleton", hasBones ? 1 : 0);
@@ -182,9 +188,9 @@ l.start();
                 models[i]->uploadBoneMatrices(depthShader.getID());
             }
             models[i]->draw(depthShader.getID());
-#if TIMERS
-depth_render_time += l.end();
-#endif
+            #if SCENETIMERS
+            depth_render_time += l.end();
+            #endif
         }
 
     }
@@ -193,7 +199,7 @@ depth_render_time += l.end();
     instanceDepthShader.setMat4("lightSpaceMatrix", glm::value_ptr(lightSpaceMatrix));
     for (size_t i = 0; i < instancedModels.size(); ++i) {
         instanceDepthShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
-        instancedModels[i]->transformInstances(instancedTransforms[i]);
+        instancedModels[i]->transformInstances(instancedTransforms[i],instancedColors[i]);
         instancedModels[i]->draw(instanceDepthShader.getID());
     }
 
@@ -241,10 +247,11 @@ depth_render_time += l.end();
         if(culled[i]) continue;
 
         if(!models[i]->instance) {
-#if TIMERS 
+#if SCENETIMERS 
 l.start();
 #endif
             singleShader.setMat4("model", glm::value_ptr(transforms[i]));
+            singleShader.setVec4("color", colors[i].toGlm());
             bool hasBones = models[i]->boneDirty.length()>0;
             singleShader.setInt("hasSkeleton", hasBones ? 1 : 0);
             if(hasBones)
@@ -252,9 +259,9 @@ l.start();
                 models[i]->uploadBoneMatrices(singleShader.getID());
             }
             models[i]->draw(singleShader.getID());
-#if TIMERS 
-render_time += l.end();
-#endif
+            #if SCENETIMERS 
+            render_time += l.end();
+            #endif
         } else {
             //Catch for instanced models that were already gathered here?
         }
@@ -262,18 +269,18 @@ render_time += l.end();
 
     instanceShader.use();
     for (size_t i = 0; i < instancedModels.size(); ++i) {
-#if TIMERS 
-l.start();
-#endif
+        #if SCENETIMERS 
+        l.start();
+        #endif
         //No checks here, may need to introduce them later if this becomes a weak point
         instanceShader.setMat4("model", glm::value_ptr(glm::mat4(1.0f)));
         instancedModels[i]->draw(instanceShader.getID());
-#if TIMERS 
-instance_render_time += l.end();
-#endif
+        #if SCENETIMERS 
+        instance_render_time += l.end();
+        #endif
     }
 
-#if TIMERS
+#if SCENETIMERS
 if(FRAME%60==0) {
     print("-------------\nFRAME: ",FRAME);
     print("gather_time: ",gather_time/1000000,"ms");
@@ -380,9 +387,9 @@ if(FRAME%60==0) {
     glDepthMask(GL_TRUE);          // restore for 3-D, if needed
     glEnable(GL_DEPTH_TEST);
 
-    #if TIMERS
+    #if SCENETIMERS
     if(FRAME%60==0) {
-        print("Overall frame time: ",overall.end()/1000000,"ms");
+        print("Overall frame time: ",ftime(overall.end()),"ms");
     }
     #endif
 }

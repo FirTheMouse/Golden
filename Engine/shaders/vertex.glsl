@@ -8,6 +8,7 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform mat4 lightSpaceMatrix;
+uniform vec4 color;
 
 uniform mat4 boneMatrices[100];
 uniform bool hasSkeleton = false;
@@ -36,7 +37,7 @@ void main() {
     vec4 worldPos = model * localPos;
     FragPos = vec3(worldPos);
     Normal = mat3(transpose(inverse(model))) * localNormal;
-    vertexColor = aColor;
+    vertexColor = aColor * color;
     FragPosLightSpace = lightSpaceMatrix * worldPos;
     gl_Position = projection * view * worldPos;
 }
