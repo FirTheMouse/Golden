@@ -606,7 +606,7 @@ public:
         }
         else
         {
-            print("scene::recycle::601 attempted to recycle an undefined type: ",label,"!");
+            print("scene::recycle::601 attempted to recycle an undefined type: ",useType,"!");
         }
     }
     

@@ -88,6 +88,7 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         } else {
             models.push(make<Model>());
         }
+        colors.push(vec4(1,1,1,1));
         transforms.push(glm::mat4(1.0f));
         endTransforms.push(glm::mat4(1.0f));
         animStates.push(AnimState());
@@ -96,7 +97,6 @@ void Scene::add(const g_ptr<S_Object>& sobj) {
         collisonLayers.push(CollisionLayer());
         collisionShapes.push(CollisionShape());
         physicsProp.push(P_Prop());
-        colors.push(vec4(1,1,1,1));
     }
 }
 
@@ -128,7 +128,7 @@ void Scene::updateScene(float tpf)
 
     instancedTransforms.clear();
     instancedModels.clear();
-    colors.clear();
+    instancedColors.clear();
 
     guiInstancedTransforms.clear();
     guiInstancedData.clear();

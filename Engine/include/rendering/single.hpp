@@ -125,8 +125,8 @@ public:
     virtual Single& impulseR(const vec3& v);
     virtual Single& setScaleVelocity(const vec3& v);
     virtual Single& impulseS(const vec3& v);
-    void setColor(const vec4& color);
-    void setColor(const glm::vec4& color) {setColor(vec4(color));}
+    void setColor(vec4 color);
+    void setColor(glm::vec4 color) {setColor(vec4(color));}
 
     void hide();
     void show();

@@ -271,7 +271,7 @@ int main() {
           auto s = make<Single>(model);
           scene->add(s);
           s->setPhysicsState(P_State::NONE);
-          s->setColor({1,0,0,1});
+          s->setColor(vec4(1,0,0,1));
           if(torus_mode) {
                s->setPosition(gridToTorus(i, width, height, mR, mr));
                } else {

@@ -318,7 +318,7 @@ BoundingBox Single::getWorldBounds()
     return worldBox;
 }
 
-void Single::setColor(const vec4& color) {GET(scene->colors,ID)=color;}
+void Single::setColor(vec4 color) {GET(scene->colors,ID)=color;}
 
 
 void Single::hide() {scene->culled.get(ID)=true;}
