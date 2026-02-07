@@ -38,3 +38,7 @@ inline int randi(int min, int max)
     std::uniform_int_distribution<int> dist(min, max); // inclusive both ends
     return dist(rng);
 }
+
+inline void clamp(float& value, float min, float max) {
+  value = std::max(max,std::min(min,value));
+}
