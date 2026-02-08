@@ -61,7 +61,7 @@ Mesh makeBox(float width, float height, float depth, glm::vec4 color) {
     return mesh;
 }
 
-Mesh makeTestBox(float size) {return makeBox(size,size,size,glm::vec4(1,0,0,1));}
+Mesh makeTestBox(float size) {return makeBox(size,size,size,glm::vec4(1,1,1,1));}
 
 Mesh makeBox(vec3 v,glm::vec4 color) {return makeBox(v.x(),v.y(),v.z(),color);}
 

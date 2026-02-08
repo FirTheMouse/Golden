@@ -40,42 +40,6 @@ g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
      
      return line;
  }
-    g_ptr<Single> draw_line_3d(vec3 start, vec3 end, vec4 color) {
-        g_ptr<Single> line = scene->create<Single>("white");
-        line->setColor(color);
-        
-        float dist = start.distance(end);
-        line->setScale({0.1f, 0.1f, dist});
-        
-        vec3 midpoint = (start + end) * 0.5f;
-        line->setPosition(midpoint);
-        
-        // Assuming line geometry points along +Z axis by default
-        vec3 default_dir = vec3(0, 0, 1);
-        vec3 target_dir = (end - start).normalized();
-        
-        // Calculate rotation axis and angle
-        vec3 axis = default_dir.cross(target_dir);
-        float axis_len = axis.length();
-        
-        if(axis_len < 0.0001f) {
-            // Parallel or anti-parallel
-            if(default_dir.dot(target_dir) < 0) {
-                // Anti-parallel: 180° rotation
-                line->rotation = glm::angleAxis(glm::radians(180.0f), glm::vec3(1, 0, 0));
-            }
-            // Else: already aligned, identity rotation (default)
-        } else {
-            // Normal case
-            axis = axis.normalized();
-            float angle = acos(std::clamp(default_dir.dot(target_dir), -1.0f, 1.0f));
-            line->rotation = glm::angleAxis(angle, axis.toGlm());
-        }
-        
-        line->updateTransform();
-        return line;
-    }
-
  list<g_ptr<Single>> maze_walls;
  void make_maze() {
     if(!maze_walls.empty()) {
@@ -100,9 +64,6 @@ g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
          wall->getLayer().setCollision(0);
          wall->setPosition(pos);
          wall->setScale(scale);
-
-         if(randf(0,1)<0.5f)
-            wall->setColor(vec4(1,0,0,1));
          wall->setPhysicsState(P_State::PASSIVE);
          addToGrid(wall);
          maze_walls << wall;
@@ -504,17 +465,8 @@ struct c_node : public q_object {
     }
 };
 
-
-static g_ptr<tensor> W_spatial = weight(24, 24, 0.1f);    // Local edge detection
-static g_ptr<tensor> W_invariant = weight(24, 10, 0.1f);  // Position-invariant pooling
-static g_ptr<tensor> W_grouping = weight(10, 6, 0.1f);    // spatial integration
 static int total_connections = 0;
 static float min_sal = 1.0f;
-
-static list<g_ptr<Single>> agents;
-static list<vec3> goals;
-static map<int,Crumb> crumbs;
-
 class nodenet : public Object {
 public:
     nodenet() {
@@ -748,436 +700,13 @@ public:
         return node;
     }
 
-    //Standard action unit made to be used across any platform or purpouse
-    struct Action {
-        int part_id;
-        list<float> params;  // Could be positions, velocities, etc.
-        float duration;      // Timing
-        float max_effort;    // Force/torque limits (optional)
-
-        vec3 asvec3(int offset=0) const {
-            vec3 to_return;
-            for(int i=0;i<3;i++) {
-                if(i==0) to_return.x(params[i+offset]);
-                if(i==1) to_return.y(params[i+offset]);
-                if(i==2) to_return.z(params[i+offset]);
-            }
-            return to_return;
-        }
-    };
-
-    //Visual abstraction (what each see pass populates, carries metadata about its production for reflection)
-    struct Vis : public q_object {
-        Vis() {}
-        Vis(int nrays, float rdist, float cwidth) : num_rays(nrays), ray_distance(rdist), cone_width(cwidth) {}
-
-        list<float> dists;
-        list<vec3> dirs;
-        list<int> cells;
-        int num_rays = 0;
-        float ray_distance = 0.0f;
-        float cone_width = 0.0f;
-        
-        vec3 forward;
-        vec3 pos;
-
-        list<vec3> features;
-
-        //For 3d
-        list<vec3> colors;
-        list<vec3> normals;
-        int elevation_samples = 0; 
-        int azimuth_samples = 0; 
-        float vertical_fov = 0.0f; 
-    };
-
-    g_ptr<Vis> vis = nullptr; //The cached struct for the data of the visual pass
-    g_ptr<tensor> visual_signature = nullptr; //Produced features by the visual system
-
-    //Visual cortex method, when called it populates the vis for other passes to use
-    void see2d(g_ptr<Single> agent,int num_rays,float ray_distance,float cone_width) {
-        vis = make<Vis>(num_rays,ray_distance,cone_width);
-
-        vec3 forward =  agent->facing().nY();
-        vec3 right = vec3(forward.z(), 0, -forward.x());
-        float start_angle = -cone_width / 2.0f;
-        float angle_step = cone_width / (num_rays - 1);
-
-        vis->forward = forward;
-        vis->pos = agent->getPosition();
-
-        for(int i = 0; i < num_rays; i++) {
-            float angle_deg = start_angle + i * angle_step;
-            float angle_rad = angle_deg * 3.14159f / 180.0f;
-            vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-            std::pair<float,int> hit_info = grid->raycast(
-                agent->getPosition(),
-                ray_dir,
-                ray_distance,
-                agent->ID
-            );
-            vis->dists << hit_info.first;
-            vis->cells << hit_info.second;   
-            vis->dirs << ray_dir;      
-            #if VISPATHS
-                vec3 ray_end = agent->getPosition() + ray_dir * hit_info.first;
-                debug << draw_line(agent->getPosition(), ray_end, "white", 0.5f);
-            #endif
-        }
+    void decrease_novelty(g_ptr<c_node> seen_before) {
+        Crumb mask;
+        mask.setmat(1.0f); //Initilize to 1.0f
+        mask.mat[0][1] = 0.98f;
+        mult_mask(seen_before->archetype, META, mask, META);
     }
 
-    //This is an example of something which could and possibly should be hardcoded.
-    //One of the main reasons I haven't is because it is also a good example of a small modular ML component, which are good.
-    //Plus, if we change the visual detection system this may need the flexibility.
-    void process_visual_for_gaps(g_ptr<Single> agent) {
-        int input_size = vis->num_rays;
-    
-        g_ptr<tensor> W_spatial = weight(input_size, input_size, 0.1f);
-        g_ptr<tensor> W_invariant = weight(input_size, 10, 0.1f);
-        g_ptr<tensor> W_grouping = weight(10, 6, 0.1f);
-        
-        auto ray_tensor = make<tensor>(list<int>{1, input_size}, vis->dists);
-
-        auto edges = ray_tensor->forward({MATMUL, W_spatial});
-        edges = edges->forward({RELU});
-        auto signature = edges->forward({MATMUL, W_invariant});
-        signature = signature->forward({RELU});
-        auto consolidated = signature->forward({MATMUL, W_grouping});
-        consolidated = consolidated->forward({RELU});
-
-        visual_signature = consolidated;
-
-        float mean = 0.0f;
-        for(int f = 0; f < 6; f++) {
-            mean += consolidated->at({0, f});
-        }
-        mean /= 6.0f;
-        
-        float variance = 0.0f;
-        for(int f = 0; f < 6; f++) {
-            float diff = consolidated->at({0, f}) - mean;
-            variance += diff * diff;
-        }
-        variance /= 6.0f;
-        variance *= 100.0f; //To keep the numbers reasonable
-
-        int search_energy = 150;
-        float& variance_threshold = agent->opt_floats[3];
-        //[4] is unused
-        float& match_threshold = agent->opt_floats[5];
-        float& growth_rate = agent->opt_floats[6];
-        float& sig_weight = agent->opt_floats[7];
-        float& spatial_weight = agent->opt_floats[8];
-
-        list<g_ptr<c_node>> matching_nodes;
-
-        #if GTIMERS
-        timers << l.end(); timer_labels << "gap_forward_passes"; l.start();
-        #endif
-
-        if(variance >= variance_threshold) {  
-            vec3 forward = vis->forward;
-            vec3 right = vec3(forward.z(), 0, -forward.x()); 
-            float start_angle = -vis->cone_width / 2.0f;
-            float angle_step = vis->cone_width / (vis->num_rays - 1);                  
-            for(int feat = 0; feat < 1; feat++) {
-                //Because almost all the activations for a run seem to be the same on a 24 dim cast, just do one for now.
-                //Could do 6 but they always seem to just overlap
-                float activation = consolidated->at({0, feat});
-                // print(activation,"/",threshold);
-                                // Find the "center of mass" for this feature
-                // Weight each ray by how much it contributed to this feature
-                vec3 weighted_pos(0, 0, 0);
-                float total_weight = 0.0f;
-                
-                float longest_contributing_ray = 0.0f;
-                vec3 most_open_direction;
-                
-                for(int i = 0; i < 24; i++) {
-                    float edge_activation = edges->at({0, i});
-                    if(edge_activation < 0.01f) continue;
-                    
-                    if(vis->dists[i] > longest_contributing_ray) {
-                        longest_contributing_ray = vis->dists[i];
-                        
-                        float angle_deg = start_angle + i * angle_step;
-                        float angle_rad = angle_deg * 3.14159f / 180.0f;
-                        most_open_direction = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
-                    }
-                }
-                if(longest_contributing_ray < 2.0f) continue; // Not a real gap
-                vec3 gap_pos = vis->pos + most_open_direction * (longest_contributing_ray * 0.7f);
-
-                vis->features << gap_pos; //Add it for others to look at
-
-                #if VISPATHS
-                    auto vismark = scene->create<Single>("white");
-                    vismark->setPosition(gap_pos+vec3(0,6,0));
-                    vismark->setScale({0.5f, 1, 0.5f});
-                    debug << vismark;
-                #endif
-                if(!grid->empty(gap_pos)) {
-                    continue;
-                }
-                
-                Crumb query;
-
-                for(int f = 0; f < 6; f++) {
-                    query.mat[0][f] = consolidated->at({0, f});
-                }
-                
-                // Search for matching gap memory
-                g_ptr<c_node> best_match = nullptr;
-                float best_score = 0.0f;
-                
-                propagate(physics_attention.last(), search_energy, 
-                [&](g_ptr<c_node> node) {
-                    if(scene->singles[node->getID()]->dtype != "gap") return true;
-                    
-                    // Inflate during propagation
-                    for(int f = 0; f < 6; f++) {
-                        node->archetype.mat[0][f] *= growth_rate;
-                    }
-                    
-                    float spatial_dist = gap_pos.distance(node->getPosition());
-                    
-                    // Signature similarity
-                    float sig_score = 0.0f;
-                    for(int f = 0; f < 6; f++) {
-                        sig_score += query.mat[0][f] * node->archetype.mat[0][f];
-                    }
-                    
-                    float spatial_score = 1.0f / (1.0f + spatial_dist);
-                    float combined = sig_score * sig_weight + spatial_score * spatial_weight;
-                    
-                    // Collect ALL good matches, not just best
-                    if(combined > match_threshold) {
-                        matching_nodes << node;
-                    }
-                    
-                    return true;
-                });
-
-
-            // If ANY matches found, update them all and don't create new
-            if(!matching_nodes.empty()) {
-                for(auto match : matching_nodes) {
-                    for(int f = 0; f < 6; f++) {
-                        float delta = (query.mat[0][f] - match->archetype.mat[0][f]) * 0.1f;
-                        match->archetype.mat[0][f] += delta;
-                    }
-                }
-                push_attention_head(matching_nodes[0]);  // Attend to first match
-            } else {
-                    // Novel gap - create new memory
-                    auto marker = scene->create<Single>("crumb");
-                    marker->setPosition(gap_pos);
-                    marker->hide();
-                    marker->dtype = "gap";
-                    
-                    Crumb gap_crumb = query;
-                    gap_crumb.id = marker->ID;
-                    
-                    crumbs.put(marker->ID, gap_crumb);
-                    push_attention_head(observe(gap_crumb, marker));
-                }
-            }
-            variance_threshold*=1.05f;
-        } else {
-            variance_threshold*=0.95f;
-        }
-        // variance_threshold = 0.005f;
-        //print(variance,"->",variance_threshold);
-        variance_threshold = std::max(0.0001f, std::min(3.0f, variance_threshold));
-    }
-
-    vec3 steering_force(g_ptr<Single> agent,const vec3& goal,float goal_focus) {
-        vec3 to_goal = agent->getPosition().direction(goal).nY();
-        float goal_distance = agent->getPosition().distance(goal);      
-
-        vec3 forward =  vis->forward;
-        vec3 right = vec3(forward.z(), 0, -forward.x()); 
-        float start_angle = -vis->cone_width / 2.0f;
-        float angle_step = vis->cone_width / (vis->num_rays - 1);
-
-        float best_openness = 0.0f;
-        vec3 best_direction = forward;
-
-        float best_goal_alignment = -1.0f;
-        float best_aligned_clearance = 0.0f;
-            
-        vec3 left_clearance_vec(0, 0, 0);
-        vec3 right_clearance_vec(0, 0, 0);
-        float left_count = 0.0f;
-        float right_count = 0.0f;
-
-        for(int i = 0; i < vis->num_rays; i++) {
-            float angle_deg = start_angle + i * angle_step;
-            float angle_rad = angle_deg * 3.14159f / 180.0f;
-            
-            vec3 ray_dir = vis->dirs[i];
-            float hit_dist = vis->dists[i];
-            float hit_cell = vis->cells[i];
-    
-            float side = forward.cross(ray_dir).y();  // Positive = right, negative = left
-            
-            if(side < 0) {
-                left_clearance_vec = left_clearance_vec + ray_dir * hit_dist;
-                left_count++;
-            } else {
-                right_clearance_vec = right_clearance_vec + ray_dir * hit_dist;
-                right_count++;
-            }
-            
-            if(std::abs(angle_deg) < 90.0f) {  // Within ±90° of forward
-                  if(hit_dist > best_openness) {
-                       best_openness = hit_dist;
-                       best_direction = ray_dir;
-                  }
-                  float goal_alignment = ray_dir.dot(to_goal.normalized());
-                  if(goal_alignment > best_goal_alignment) {
-                      best_goal_alignment = goal_alignment;
-                      best_aligned_clearance = hit_dist;
-                  }
-             }
-
-            // bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
-            // if(curr_hit) {
-            //     for(int obj_id : grid->cells[hit_cell]) {
-            //         if(obj_id != agent->ID && 
-            //            !observed_objects.has({hit_dist, obj_id})) {
-            //             observed_objects << std::make_pair(hit_dist, obj_id);
-            //         }
-            //     }
-            // }
-        }
-
-        //Going to be not just gaps eventually
-        list<vec3> gaps = vis->features;
-
-        float gap_bias_strength = randf(0.0f,0.6f);
-        float goal_bias_strength = 0.4f;
-        float wall_bias_strength = 0.8f;
-
-        vec3 gap_bias(0, 0, 0);        
-        if(!gaps.empty())
-            gap_bias = agent->direction(gaps[0]) * gap_bias_strength; // Weight for gap bias
-        
-        vec3 wall_bias(0, 0, 0);
-        if(left_count > 0 && right_count > 0) {
-            vec3 left_avg = left_clearance_vec / left_count;
-            vec3 right_avg = right_clearance_vec / right_count;
-            wall_bias = (right_avg - left_avg).normalized() * 0.8f;
-        }
-    
-        // Goal bias
-        float wall_proximity = 1.0f / (best_openness + 1.0f);
-        float goal_weight = std::lerp(0.5f, 0.0f, wall_proximity);
-        vec3 goal_bias = to_goal * goal_weight * 0.4f;
-        
-        // Beeline check
-        float beeline_threshold = 0.95f * goal_focus;
-        bool can_beeline = (best_goal_alignment > beeline_threshold && 
-                            best_aligned_clearance >= goal_distance);
-        
-        print("BEST DIR: ",best_direction.to_string(),"\n  WALL_BIAS: ",wall_bias.to_string(),"\n  GOAL_BIAS: ",goal_bias.to_string(),"\n  GAP_BIAS: ",gap_bias.to_string());
-        vec3 environmental_force = can_beeline ? 
-             to_goal.normalized() : 
-             (best_direction + wall_bias + goal_bias + gap_bias).normalized();
-        return environmental_force;
-    }
-
-    struct RayHit {
-        float distance;
-        int cell_id;
-        vec3 color;
-        vec3 normal;
-    };
-
-    RayHit sample_ray_with_color(vec3 origin, vec3 direction, float max_dist, int exclude_id) {
-        RayHit hit;
-        
-        // Stage 1: Grid raycast (what you already have)
-        auto grid_hit = grid->raycast(origin, direction, max_dist, exclude_id);
-        hit.distance = grid_hit.first;
-        hit.cell_id = grid_hit.second;
-        
-        // Stage 2: Color sampling
-        if(grid_hit.second >= 0 && !grid->cells[grid_hit.second].empty()) {
-            // Get first object in cell
-            int obj_id = grid->cells[grid_hit.second].first();
-            
-            // Sample color from object
-            hit.color = vec4_to_vec3(scene->colors[obj_id]);
-            
-            // Approximate normal (just reverse ray for now)
-            hit.normal = direction*-1;
-            
-        } else {
-            // Sky/empty space
-            hit.color = vec3(0.5f, 0.7f, 1.0f);  // Sky blue
-            hit.normal = vec3(0, 1, 0);
-        }
-        
-        return hit;
-    }
-
-    void see_3d(g_ptr<Single> agent, int elevation_samples, int azimuth_samples, float horizontal_fov, float vertical_fov, float ray_distance) {
-
-        vec3 forward = agent->facing().nY();
-        vec3 up = vec3(0, 1, 0);
-        vec3 right = forward.cross(up);
-        if(right.length() < 0.001f) {
-            right = vec3(1, 0, 0);
-        } else {
-            right = right.normalized();
-        }
-        up = right.cross(forward).normalized(); 
-
-        vis = make<Vis>();
-        vis->elevation_samples = elevation_samples;
-        vis->azimuth_samples = azimuth_samples;
-        vis->num_rays = elevation_samples * azimuth_samples;
-        vis->vertical_fov = vertical_fov;
-        vis->cone_width = horizontal_fov;
-        vis->ray_distance = ray_distance;
-        vis->forward = forward;
-        vis->pos = agent->getPosition();
-
-        float elev_step = vertical_fov / (elevation_samples - 1);
-        float azim_step = horizontal_fov / (azimuth_samples - 1);
-
-        for(int e = 0; e < elevation_samples; e++) {
-            // Elevation: -vertical_fov/2 to +vertical_fov/2
-            float elev_angle = -vertical_fov/2.0f + e * elev_step;
-            float elev_rad = elev_angle * 3.14159f / 180.0f;
-            
-            for(int a = 0; a < azimuth_samples; a++) {
-                // Azimuth: -horizontal_fov/2 to +horizontal_fov/2 (centered on forward)
-                float azim_angle = -horizontal_fov/2.0f + a * azim_step;  // Changed
-                float azim_rad = azim_angle * 3.14159f / 180.0f;
-                
-                // Spherical to Cartesian (same math, different range)
-                vec3 horizontal = (forward * cos(azim_rad) + right * sin(azim_rad)).normalized();
-                vec3 ray_dir = (horizontal * cos(elev_rad) + up * sin(elev_rad)).normalized();
-                
-                RayHit hit = sample_ray_with_color(agent->getPosition(), ray_dir, 
-                                                ray_distance, agent->ID);
-                
-                vis->dists << hit.distance;
-                vis->cells << hit.cell_id;
-                vis->colors << hit.color;
-                vis->normals << hit.normal;
-                vis->dirs << ray_dir;
-                
-                #if VISPATHS
-                    vec3 ray_end = agent->getPosition() + ray_dir * hit.distance;
-                    vec3 c = hit.color;
-                    debug << draw_line_3d(agent->getPosition(), ray_end, vec4(c.x(),c.y(),c.z(),1));
-                #endif
-            }
-        }
-    }
 
     g_ptr<c_node> has_seen_before(const Crumb& thing, float focus) {
         if(physics_attention.empty()) return nullptr;
@@ -1214,14 +743,6 @@ public:
         return results;
     }
 
-
-    //Example interpreter unit (like the cerbellum creates) turns the standard action struct into specific actions
-    void execute_action_on_agent(const Action& action,g_ptr<Single> agent) {
-        switch(action.part_id) {
-            case 0: agent->setLinearVelocity(action.asvec3());
-            case 1: agent->faceTo(action.asvec3());
-        }
-    }
 
      // Core visualization primitive
      void visualize_nodes(const list<g_ptr<c_node>>& nodes, g_ptr<c_node> highlight = nullptr) {
@@ -1314,8 +835,6 @@ public:
         visualize_nodes(all_nodes, root);
     }
 };
-
-static list<g_ptr<nodenet>> crumb_managers;
 
 g_ptr<Quad> make_button(std::string slot) {
     g_ptr<Quad> q = scene->create<Quad>("gui_element");
@@ -1683,6 +1202,8 @@ struct Trial : public q_object {
 
 int main() {
 
+
+
      Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.7");
 
      scene = make<Scene>(window,2);
@@ -1782,7 +1303,7 @@ int main() {
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
 
-
+     map<int,Crumb> crumbs;
 
      //I am very, very, very much going to remove the pointless script system in scene's pooling and simplify things.
      scene->define("agent",Script<>("make_agent",[a_model](ScriptContext& ctx){
@@ -1879,7 +1400,15 @@ int main() {
      // clover_crumb.form = clover;
      // crumbs.put(clover->ID,clover_crumb);
 
+     list<g_ptr<Single>> agents;
+     list<vec3> goals;
+     list<list<g_ptr<Single>>> debug;
+     list<g_ptr<nodenet>> crumb_managers;
 
+
+     g_ptr<tensor> W_spatial = weight(24, 24, 0.1f);    // Local edge detection
+     g_ptr<tensor> W_invariant = weight(24, 10, 0.1f);  // Position-invariant pooling
+     g_ptr<tensor> W_grouping = weight(10, 6, 0.1f);    // spatial integration
 
      g_ptr<Thread> run_thread = make<Thread>();
      g_ptr<Thread> update_thread = make<Thread>();
@@ -1977,7 +1506,7 @@ int main() {
                          
           crumb_managers << memory;
     
-          agent->physicsJoint = [agent, memory, marker, update_thread, phys, side_length]() {
+          agent->physicsJoint = [agent, W_grouping, W_spatial, W_invariant, memory, marker, update_thread, &crumb_managers, &goals, &agents, &crumbs, &debug, phys, side_length]() {
                #if GTIMERS
                Log::Line overall;
                Log::Line l;
@@ -1991,6 +1520,7 @@ int main() {
                //Always setup getters for sketchpad properties because chances are they'll change later
                //Plus it helps with clarity to name them
                int id = agent->opt_ints[1];
+               list<g_ptr<Single>>& my_debug = debug[id];
                g_ptr<Single> goal_crumb = marker;
                int& spin_accum = agent->opt_ints[2];
                int& on_frame = agent->opt_ints[3];
@@ -1998,6 +1528,7 @@ int main() {
                int& accum5 = agent->opt_ints[5];
                int& frames_since_progress = agent->opt_ints[7];
                int& nav_strat = agent->opt_ints[8];
+               float& variance_threshold = agent->opt_floats[3];
                float navigation_focus = memory->navigation_focus();
                //The path can always be grabbed, and used to install directions in situations beyond A*, it's the only continous movment method that isn't velocity depentent.
                list<int>& path = agent->opt_idx_cache_2;
@@ -2040,6 +1571,8 @@ int main() {
                               return true;
                          }
                     }
+
+               vec3 goal_loc = agent->opt_vec_3_4;
 
                if(!path.empty()) {
                     #if GTIMERS
@@ -2087,35 +1620,457 @@ int main() {
                     l.start();
                     #endif
                     
-                    #if VISPATHS
-                        memory->visualize_registry(memory->physics_attention.last());
-                    #endif
-
                     // Tunable parameters
                     int num_rays = 24; 
                     float ray_distance = 30.0f;
                     float cone_width = 235.0f; 
-                    // memory->see_3d(agent, 
-                    //     8,      // elevation_samples
-                    //     24,     // azimuth_samples  
-                    //     120.0f, // horizontal_fov (120° left-right, human is ~114°)
-                    //     90.0f,  // vertical_fov (90° up-down, human is ~135° but asymmetric)
-                    //     30.0f   // ray_distance
-                    // );
-                    memory->see2d(agent,num_rays,ray_distance,cone_width);
-                    #if GTIMERS
-                        timers << l.end(); timer_labels << "raycast_sample"; l.start();
+                    
+                    // Get goal direction for biasing
+                    vec3 to_goal = agent->getPosition().direction(goal).nY();
+                    float goal_distance = agent->getPosition().distance(goal);
+                    vec3 forward =  agent->facing().nY(); //to_goal.length() > 0.01f ? to_goal.normalized() : agent->facing().nY();
+                    vec3 right = vec3(forward.z(), 0, -forward.x()); // Perpendicular
+                                        
+                    // Cast rays in a forward-biased cone
+                    float best_openness = 0.0f;
+                    vec3 best_direction = forward;
+                    
+                    float start_angle = -cone_width / 2.0f;
+                    float angle_step = cone_width / (num_rays - 1);
+
+                    float best_goal_alignment = -1.0f;
+                    float best_aligned_clearance = 0.0f;
+                    
+                    list<std::pair<float,int>> observed_objects;
+                    list<g_ptr<Single>> new_crumbs;
+                
+                    #if VISPATHS
+                    list<g_ptr<Single>> raycast_debug;
                     #endif
-                    memory->process_visual_for_gaps(agent);
+                    
+                    list<float> ray_distances;
+
+                    float left_clearance = 0.0f;
+                    float right_clearance = 0.0f;
+                    float left_count = 0.0f;
+                    float right_count = 0.0f;
+
                     #if GTIMERS
-                        timers << l.end(); timer_labels << "feature_detection"; l.start();
+                    timers << l.end(); timer_labels << "raycast_setup"; l.start();
                     #endif
-                    vec3 environmental_force = memory->steering_force(agent,goal,goal_focus).nY(); //nY so that it's 2d
+
+                    for(int i = 0; i < num_rays; i++) {
+                        float angle_deg = start_angle + i * angle_step;
+                        float angle_rad = angle_deg * 3.14159f / 180.0f;
+                        
+                        vec3 ray_dir = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                        
+                        std::pair<float,int> hit_info = grid->raycast(
+                            agent->getPosition(),
+                            ray_dir,
+                            ray_distance,
+                            agent->ID
+                        );
+                        float hit_dist = hit_info.first;
+                        int hit_cell = hit_info.second;
+                        ray_distances << hit_dist;
+
+                        if(angle_deg < 0) {
+                              left_clearance += hit_dist;
+                              left_count++;
+                         } else {
+                              right_clearance += hit_dist;
+                              right_count++;
+                         }
+                        
+                        #if VISPATHS
+                        vec3 ray_end = agent->getPosition() + ray_dir * hit_dist;
+                        raycast_debug << draw_line(agent->getPosition(), ray_end, "white", 0.5f);
+                        #endif
+                        
+                        if(std::abs(angle_deg) < 90.0f) {  // Within ±90° of forward
+                              if(hit_dist > best_openness) {
+                                   best_openness = hit_dist;
+                                   best_direction = ray_dir;
+                              }
+                              float goal_alignment = ray_dir.dot(to_goal.normalized());
+                              if(goal_alignment > best_goal_alignment) {
+                                  best_goal_alignment = goal_alignment;
+                                  best_aligned_clearance = hit_dist;
+                              }
+                         }
+
+                        bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
+                        if(curr_hit) {
+                            for(int obj_id : grid->cells[hit_cell]) {
+                                if(obj_id != agent->ID && 
+                                   !observed_objects.has({hit_dist, obj_id})) {
+                                    observed_objects << std::make_pair(hit_dist, obj_id);
+                                }
+                            }
+                        }
+                    }
                     
                     #if GTIMERS
-                    timers << l.end(); timer_labels << "derive_force"; l.start();
+                    timers << l.end(); timer_labels << "raycast_sampling"; l.start();
                     #endif
-                                                        
+
+                    auto ray_tensor = make<tensor>(list<int>{1, 24}, ray_distances);
+    
+                    Pass matmul1 = {MATMUL, W_spatial};
+                    auto edges = ray_tensor->forward(matmul1);
+                    Pass relu1 = {RELU};
+                    edges = edges->forward(relu1);
+
+                    Pass matmul2 = {MATMUL, W_invariant};
+                    auto signature = edges->forward(matmul2);
+                    Pass relu2 = {RELU};
+                    signature = signature->forward(relu2);
+
+                    Pass matmul3 = {MATMUL, W_grouping};
+                    auto consolidated = signature->forward(matmul3);
+                    Pass relu3 = {RELU};
+                    consolidated = consolidated->forward(relu3);
+
+                    float mean = 0.0f;
+                    for(int f = 0; f < 6; f++) {
+                        mean += consolidated->at({0, f});
+                    }
+                    mean /= 6.0f;
+                    
+                    float variance = 0.0f;
+                    for(int f = 0; f < 6; f++) {
+                        float diff = consolidated->at({0, f}) - mean;
+                        variance += diff * diff;
+                    }
+                    variance /= 6.0f;
+                    variance *= 100.0f; //To keep the numbers reasonable
+
+                    int search_energy = 150;
+                    float& match_threshold = agent->opt_floats[5];
+                    float& growth_rate = agent->opt_floats[6];
+                    float& sig_weight = agent->opt_floats[7];
+                    float& spatial_weight = agent->opt_floats[8];
+
+                    list<g_ptr<c_node>> matching_nodes;
+
+                    // Only process gaps if there's enough spatial structure
+                    list<vec3> gaps;
+                    list<float> gap_sal;
+                    list<g_ptr<tensor>> gap_sig;
+
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "gap_forward_passes"; l.start();
+                    #endif
+
+                    if(variance >= variance_threshold) {                    
+                        for(int feat = 0; feat < 1; feat++) {
+                            //Because almost all the activations for a run seem to be the same on a 24 dim cast, just do one for now.
+                            //Could do 6 but they always seem to just overlap
+                            float activation = consolidated->at({0, feat});
+                            // print(activation,"/",threshold);
+                                            // Find the "center of mass" for this feature
+                            // Weight each ray by how much it contributed to this feature
+                            vec3 weighted_pos(0, 0, 0);
+                            float total_weight = 0.0f;
+                            
+                            float longest_contributing_ray = 0.0f;
+                            vec3 most_open_direction;
+                            
+                            for(int i = 0; i < 24; i++) {
+                                float edge_activation = edges->at({0, i});
+                                if(edge_activation < 0.01f) continue;
+                                
+                                if(ray_distances[i] > longest_contributing_ray) {
+                                    longest_contributing_ray = ray_distances[i];
+                                    
+                                    float angle_deg = start_angle + i * angle_step;
+                                    float angle_rad = angle_deg * 3.14159f / 180.0f;
+                                    most_open_direction = (forward * cos(angle_rad) + right * sin(angle_rad)).normalized();
+                                }
+                            }
+                            
+                            if(longest_contributing_ray < 2.0f) continue; // Not a real gap
+                            
+                            // Position gap at 70% of the way into the opening
+                            vec3 gap_pos = agent->getPosition() + most_open_direction * (longest_contributing_ray * 0.7f);
+
+                            #if VISPATHS
+                                auto vismark = scene->create<Single>("white");
+                                vismark->setPosition(gap_pos+vec3(0,6,0));
+                                vismark->setScale({0.5f, 1, 0.5f});
+                                raycast_debug << vismark;
+                            #endif
+                            if(!grid->empty(gap_pos)) {
+                                continue;
+                            }
+                            
+                            Crumb query;
+
+                            for(int f = 0; f < 6; f++) {
+                                query.mat[0][f] = consolidated->at({0, f});
+                            }
+                            
+                            // Search for matching gap memory
+                            g_ptr<c_node> best_match = nullptr;
+                            float best_score = 0.0f;
+                            
+                            memory->propagate(memory->physics_attention.last(), search_energy, 
+                            [&](g_ptr<c_node> node) {
+                                if(scene->singles[node->getID()]->dtype != "gap") return true;
+                                
+                                // Inflate during propagation
+                                for(int f = 0; f < 6; f++) {
+                                    node->archetype.mat[0][f] *= growth_rate;
+                                }
+                                
+                                float spatial_dist = gap_pos.distance(node->getPosition());
+                                
+                                // Signature similarity
+                                float sig_score = 0.0f;
+                                for(int f = 0; f < 6; f++) {
+                                    sig_score += query.mat[0][f] * node->archetype.mat[0][f];
+                                }
+                                
+                                float spatial_score = 1.0f / (1.0f + spatial_dist);
+                                float combined = sig_score * sig_weight + spatial_score * spatial_weight;
+                                
+                                // Collect ALL good matches, not just best
+                                if(combined > match_threshold) {
+                                    matching_nodes << node;
+                                }
+                                
+                                return true;
+                            });
+
+
+                        // If ANY matches found, update them all and don't create new
+                        if(!matching_nodes.empty()) {
+                            for(auto match : matching_nodes) {
+                                for(int f = 0; f < 6; f++) {
+                                    float delta = (query.mat[0][f] - match->archetype.mat[0][f]) * 0.1f;
+                                    match->archetype.mat[0][f] += delta;
+                                }
+                            }
+                            memory->push_attention_head(matching_nodes[0]);  // Attend to first match
+                        } else {
+                                // Novel gap - create new memory
+                                auto marker = scene->create<Single>("crumb");
+                                marker->setPosition(gap_pos);
+                                marker->hide();
+                                marker->dtype = "gap";
+                                
+                                Crumb gap_crumb = query;
+                                gap_crumb.id = marker->ID;
+                                
+                                crumbs.put(marker->ID, gap_crumb);
+                                memory->push_attention_head(memory->observe(gap_crumb, marker));
+                            }
+                        }
+                        variance_threshold*=1.05f;
+                    } else {
+                        variance_threshold*=0.95f;
+                    }
+                    // variance_threshold = 0.005f;
+                    //print(variance,"->",variance_threshold);
+                    variance_threshold = std::max(0.0001f, std::min(3.0f, variance_threshold));
+
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "gap_processing"; l.start();
+                    #endif
+
+                    //print(gaps.length(),"<- ",variance,"/",variance_threshold);
+                    //printnl("]\n");
+
+                    // Cycle through strategies: 0=none, 1=left, 2=forward, 3=right
+                    // int gap_strategy = 1;
+                    vec3 gap_bias(0, 0, 0);
+                    vec3 best_gap(0, 0, 0);
+                    // float gap_curiosity = 1.0f;
+                    float best_score = -1000.0f;
+
+                    int gidx = -1;
+                    for(int i=0;i<gaps.length();i++) {
+                        float score = gap_sal[i];
+                        vec3 to_gap = (gaps[i] - agent->getPosition()).normalized();
+                        if(score > best_score) {
+                              best_score = score;
+                              best_gap = to_gap;
+                              gidx = i;
+                         }
+                    }
+                                
+                    float gap_bias_strength = 10.6f;
+                    float goal_bias_strength = 0.6f;
+                    float wall_bias_strength = 0.4f;
+
+                    gap_bias = best_gap * gap_bias_strength; // Weight for gap bias
+
+                    // Decide movement: beeline if well-aligned and clear, otherwise use best scored direction
+                    float beeline_threshold = 0.95f * goal_focus; // Scales with goal focus
+                    bool can_beeline = (best_goal_alignment > beeline_threshold && 
+                                        best_aligned_clearance >= goal_distance);
+                    
+                    left_clearance /= left_count;
+                    right_clearance /= right_count;
+                    vec3 wall_bias = right * ((right_clearance - left_clearance) / ray_distance) * wall_bias_strength;
+                    
+                    float wall_proximity = 1.0f / (std::min(left_clearance, right_clearance) + 1.0f);
+                    float goal_weight = std::lerp(0.5f, 0.0f, wall_proximity);
+                    vec3 goal_bias = to_goal * goal_weight * goal_bias_strength;
+                    
+                    //print("BEST DIR: ",best_direction.to_string(),", WALL_BIAS: ",wall_bias.to_string(),", GOAL_BIAS: ",goal_bias.to_string(),", GAP_BIAS: ",gap_bias.to_string());
+                    vec3 environmental_force = can_beeline ? 
+                         to_goal.normalized() : 
+                         (best_direction + wall_bias + goal_bias + gap_bias).normalized();
+                    // print("ENVIRO FORCE: ",environmental_force.to_string());
+                    //     (best_openness > 1.0f ? best_direction : vec3(randf(-1, 1), 0, randf(-1, 1)));
+                
+                    agent->opt_ints[4] += observed_objects.length();
+                
+                    vec3 familiarity_vector(0, 0, 0);
+                    int familiar_count = 0;
+                    g_ptr<c_node> most_relevant = nullptr;
+                    float highest_relevency = 0.0f;
+                    // for(auto info : observed_objects) {
+                    //      #if GTIMERS
+                    //      l.start();
+                    //      #endif
+                
+                    //      int obj_id = info.second;
+                    //      //print("Crumbs has this key: ",obj_id,"? ",crumbs.hasKey(obj_id)?"Yes":"No");
+                    //      Crumb obj_crumb = crumbs[obj_id]; //Make a copy
+                    //      Crumb* obs = &obj_crumb;
+                    //      g_ptr<Single> single = scene->singles[obj_id];
+
+                    //      obs->id = single->ID;
+                    //      float dist_to_obj = info.first;
+                
+                    //      #if GTIMERS
+                    //      timers << l.end(); timer_labels << "observe_value_init"; l.start();
+                    //      #endif
+                    
+                    //      g_ptr<c_node> seen_before = memory->has_seen_before_cheat(*obs);
+
+                    //      #if GTIMERS
+                    //      timers << l.end(); timer_labels << "has_seen_before"; l.start();
+                    //      #endif
+
+                    //      if(seen_before != nullptr) {
+                    //           obs = &seen_before->archetype;
+                    //           //memory->decrease_novelty(seen_before);
+                    //           //print("I've seen this before... novelty is now ",obj_crumb->mat[0][1]);
+                    //         //   float novelty = seen_before->archetype.mat[0][1];
+                    //         //   if(novelty < 3.0f) { // Familiar
+                    //         //       vec3 to_familiar = (obs->getPosition() - agent->getPosition()).normalized();
+                    //         //       float familiarity_weight = (3.0f - novelty);
+                                  
+                    //         //       familiarity_vector = familiarity_vector + (to_familiar * familiarity_weight);
+                    //         //       familiar_count++;
+                    //         //   }
+                    //      } 
+
+                    //      #if GTIMERS
+                    //      timers << l.end(); timer_labels << "seen_before_resolve"; l.start();
+                    //      #endif
+
+                    //      obs->mat[0][0] = 1.0f / (info.first + 1.0f); // Temporary distance for salience
+                    //      float salience = memory->salience(*obs);
+                    //      float relevance = memory->relevance(*obs, salience);
+                    //      //print("Dist: ",1.0f / (info.first + 1.0f)," actual_dist: ",info.first," Sal: ",salience," Rel: ",relevance);
+                    //      obs->mat[0][0] = 0.0f; // Clear temporary distance (don't persist)
+                    //      #if GTIMERS
+                    //      timers << l.end(); timer_labels << "sal_rel_calcs"; l.start();
+                    //      #endif
+                    //      if(relevance>0.3f) {
+                    //           //Remove the gap Crumb if we used it
+                    //           int found_idx = new_crumbs.find(single);
+                    //           if(found_idx!=-1) {new_crumbs.removeAt(found_idx);}
+                    //           g_ptr<c_node> node = nullptr;
+                    //           if(seen_before == nullptr) {
+                    //                //print("Look! Something new!");
+                    //                //obs->mat[0][1] = 3.0f; //Novelty
+                    //                //node = memory->observe(*obs,single);
+                    //           } else {
+                    //                node = seen_before;
+                    //              //  memory->push_attention_head(seen_before);
+                    //           }
+
+                    //           if(relevance>highest_relevency) {
+                    //                highest_relevency = relevance;
+                    //                most_relevant = node;
+                    //           }
+
+                    //           #if VISPATHS
+                    //                struct ray_debug {
+                    //                     vec3 from;
+                    //                     vec3 to;
+                    //                     bool hit = false;
+                    //                };
+
+                    //                vec3 pos = single->getPosition();
+                    //                int best = memory->physics_attention.length()-1;
+                    //                float best_dist = 100.0f;
+                    //                list<ray_debug> visrays;
+                    //                for(int j = 0; j<memory->physics_attention.length();j++) {
+                    //                     g_ptr<c_node> n = memory->physics_attention[j];
+                    //                     float dist = n->getPosition().distance(pos);
+                    //                     vec3 dir = n->getPosition().direction(pos);
+                    //                     auto cast = grid->raycast(n->getPosition(),dir,dist,{agent->ID,n->getID(),single->ID});
+                    //                     if(cast.second==-1&&dist<best_dist&&n->getID()!=single->ID) {
+                    //                          best_dist = dist;
+                    //                          best = j;
+                    //                     }
+                    //                     vec3 ray_end = n->getPosition() + dir * cast.first;
+                    //                     visrays << ray_debug{n->getPosition(),ray_end,cast.second!=-1};
+                    //                     // bool cansee = grid->can_see(n->getPosition(),pos,{id,n->getID()});
+                    //                }
+                    //                for(int j = 0; j<memory->physics_attention.length();j++) {
+                    //                     g_ptr<c_node> n = memory->physics_attention[j];
+                    //                     ray_debug d = visrays[j];
+                    //                     raycast_debug << draw_line(d.from, d.to, j==best?"black":d.hit?"red":"cyan", j==best?2.8f:0.5f);
+                    //                }
+                    //           #endif
+
+                    //           if(relevance>0.9f) {
+                    //                //print("I wanna go there");
+                    //                goals[id] = vec3(scene->transforms[obj_id][3]);
+                    //                goal_focus = 1.0f; // Set high goal focus
+                    //           }
+                    //      } 
+
+
+                    //      #if GTIMERS
+                    //      timers << l.end(); timer_labels << "observe_resolution";
+                    //      #endif
+                    // }
+                    // if(most_relevant) {
+                    //      memory->push_attention_head(most_relevant);
+                    // }
+                    // if(familiar_count > 0) {
+                    //      familiarity_vector = familiarity_vector.normalized(); // Average direction
+                         
+                    //      // Gentle override strength based on focus
+                    //      float repulsion_blend = navigation_focus * goal_focus * 0.3f; // Tune this weight
+                         
+                    //      // Blend away from familiarity into the environmental force
+                    //      environmental_force = (environmental_force * (1.0f - repulsion_blend)) + 
+                    //                            (familiarity_vector * -repulsion_blend);
+                    //      environmental_force = environmental_force.normalized();
+                    //  }
+
+                    for(auto r : new_crumbs) {
+                        scene->recycle(r,"crumb");
+                    }
+                    #if VISPATHS
+                        memory->visualize_registry(memory->physics_attention.last());
+                        memory->debug << raycast_debug;
+                    #endif
+                    
+                    #if GTIMERS
+                    timers << l.end(); timer_labels << "raycast_postprocess"; l.start();
+                    #endif
+                
                     if(environmental_force.length() > 0.01f) {
                          environmental_force = environmental_force.normalized();
                          
@@ -2144,7 +2099,7 @@ int main() {
           };
 
 
-          agent->threadUpdate = [agent, i, memory, update_thread](){
+          agent->threadUpdate = [agent, i, memory, update_thread, &agents, &crumb_managers, &crumbs](){
                #if GTIMERS
                     Log::Line overall, l;
                     list<double>& timers = agent->timers2;
@@ -2156,6 +2111,10 @@ int main() {
                #endif
                
                static thread_local int on_frame = 0;
+
+
+               g_ptr<Single> s = make<Single>();
+               s->add<std::string>("name","hello!");
 
                int id = agent->opt_ints[1];
                g_ptr<nodenet> memory = crumb_managers[id];
@@ -2241,7 +2200,7 @@ int main() {
      map<std::string,double> total_times;
      S_Tool phys_logger;
      #if GTIMERS
-     phys_logger.log = [phys,&total_times,amt](){
+     phys_logger.log = [agents,phys,&crumb_managers,&total_times,amt](){
           map<std::string,double> times;
           int accum4 = 0;
           int accum5 = 0;
@@ -2409,7 +2368,7 @@ int main() {
 
      S_Tool update_logger;
      #if GTIMERS
-     update_logger.log = [](){
+     update_logger.log = [agents,&crumb_managers](){
           map<std::string,double> times;
           int accum4 = 0;
           int accum5 = 0;
@@ -2430,7 +2389,7 @@ int main() {
      };
      #endif
      update_thread->name = "Update";
-     update_thread->run([&update_logger,&from_phys_to_update](ScriptContext& ctx){
+     update_thread->run([&update_logger,&agents,&from_phys_to_update](ScriptContext& ctx){
           update_logger.tick();
         //   for(auto a : agents) {
         //        if(a->threadUpdate&&a->isActive())
@@ -2463,6 +2422,9 @@ int main() {
      int child_index = 0;  // Which child we're looking at
      int parent_index = 0; // Which parent we're looking at
 
+
+
+
      start::run(window,d,[&]{
           s_tool.tick();
           if(pressed(N)) {
@@ -2471,6 +2433,8 @@ int main() {
           vec3 mousepos = scene->getMousePos();
 
           auto q = scene->nearestElement();
+
+   
 
           if(pressed(SPACE)) {
                if(run_thread->runningTurn) run_thread->pause();

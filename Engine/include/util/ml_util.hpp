@@ -1041,6 +1041,136 @@ public:
                 }
                 break;
             }
+            case CONCAT: {
+                if(is_forward) {
+                    // Gather all tensors to concatenate
+                    list<g_ptr<tensor>> tensors;
+                    tensors << this;
+                    if(other) tensors << other;
+                    
+                    if(tensors.length() < 2) {
+                        print("CONCAT: need at least 2 tensors");
+                        return nullptr;
+                    }
+                    
+                    // Validate: all must have same number of dimensions
+                    int ndims = tensors[0]->ndim();
+                    for(int i = 1; i < tensors.length(); i++) {
+                        if(tensors[i]->ndim() != ndims) {
+                            print("CONCAT: all tensors must have same number of dimensions");
+                            return nullptr;
+                        }
+                    }
+                    
+                    // Validate: all dimensions except last must match
+                    for(int dim = 0; dim < ndims - 1; dim++) {
+                        int ref_size = tensors[0]->shape_[dim];
+                        for(int i = 1; i < tensors.length(); i++) {
+                            if(tensors[i]->shape_[dim] != ref_size) {
+                                print("CONCAT: dimension ", dim, " size mismatch");
+                                return nullptr;
+                            }
+                        }
+                    }
+                    
+                    // Compute output shape (same as input except last dim)
+                    result->shape_ = tensors[0]->shape_;
+                    int total_last_dim = 0;
+                    for(auto t : tensors) {
+                        total_last_dim += t->shape_[ndims - 1];
+                    }
+                    result->shape_[ndims - 1] = total_last_dim;
+                    
+                    result->strides_ = derive_strides(result->shape_);
+                    result->storage_ = make<Storage>(result->numel());
+                    result->grad_.resize(result->numel());
+                    for(int i = 0; i < result->numel(); i++) {
+                        result->grad_[i] = 0.0f;
+                    }
+                    
+                    // Copy data - handle general N-D case
+                    int outer_size = 1;
+                    for(int i = 0; i < ndims - 1; i++) {
+                        outer_size *= result->shape_[i];
+                    }
+                    
+                    for(int outer = 0; outer < outer_size; outer++) {
+                        int output_offset = outer * result->shape_[ndims - 1];
+                        int concat_offset = 0;
+                        
+                        for(auto t : tensors) {
+                            int inner_size = t->shape_[ndims - 1];
+                            int input_offset = outer * inner_size;
+                            
+                            // Copy this tensor's contribution
+                            for(int i = 0; i < inner_size; i++) {
+                                result->flat(output_offset + concat_offset + i) = t->flat(input_offset + i);
+                            }
+                            
+                            concat_offset += inner_size;
+                        }
+                    }
+                    
+                    result->device_ = CPU;
+                    result->inputs_ = tensors;  // Store all inputs for backward
+                }
+                else { // Backward: split gradient back to inputs
+                    int ndims = shape_.length();
+                    int outer_size = 1;
+                    for(int i = 0; i < ndims - 1; i++) {
+                        outer_size *= shape_[i];
+                    }
+                    
+                    for(int outer = 0; outer < outer_size; outer++) {
+                        int grad_offset = outer * shape_[ndims - 1];
+                        int concat_offset = 0;
+                        
+                        for(auto input : inputs_) {
+                            int inner_size = input->shape_[ndims - 1];
+                            int input_grad_offset = outer * inner_size;
+                            
+                            // Accumulate gradient for this input
+                            for(int i = 0; i < inner_size; i++) {
+                                input->grad_[input_grad_offset + i] += grad_[grad_offset + concat_offset + i];
+                            }
+                            
+                            concat_offset += inner_size;
+                        }
+                    }
+                    
+                    // Backprop through all inputs
+                    for(auto input : inputs_) {
+                        input->backward();
+                    }
+                }
+                break;
+            }
+            case TANH: {
+                if(is_forward) {
+                    result->shape_ = shape_;
+                    result->strides_ = strides_;
+                    result->storage_ = make<Storage>(numel());
+                    result->grad_.resize(numel());
+                    for(int i = 0; i < numel(); i++) {
+                        result->grad_[i] = 0.0f;
+                    }
+                    
+                    // Apply tanh
+                    for(int i = 0; i < numel(); i++) {
+                        result->flat(i) = std::tanh(flat(i));
+                    }
+                    result->device_ = CPU;
+                }
+                else { // Backward: gradient = grad * (1 - tanh(x)^2)
+                    for(int i = 0; i < inputs_[0]->numel(); i++) {
+                        float tanh_val = std::tanh(inputs_[0]->flat(i));
+                        float grad_tanh = 1.0f - tanh_val * tanh_val;
+                        inputs_[0]->grad_[i] += grad_[i] * grad_tanh;
+                    }
+                    inputs_[0]->backward();
+                }
+                break;
+            }
             
             default:
                 print("WARNING: invalid op in operate: ", op);
@@ -1062,6 +1192,11 @@ public:
         }
 
         return result;
+    }
+
+    g_ptr<tensor> forward(Pass&& pass) {
+        Pass dummy = pass;
+        return operate(true,dummy);
     }
 
     g_ptr<tensor> forward(Pass& pass) {
@@ -1093,6 +1228,23 @@ static void prepare_result_device(g_ptr<tensor> result) {
         result->gpu_grad_ = result->gpu_allocator->allocate(bytes);
         result->gpu_allocator->memset_gpu(result->gpu_grad_, 0, bytes);
     }
+}
+
+static g_ptr<tensor> concat(const list<g_ptr<tensor>>& tensors, int dim = -1) {
+    if(tensors.empty()) return nullptr;
+    if(tensors.length() == 1) return tensors[0];
+    
+    // For now, only support concatenating along last dimension (dim=-1)
+    // tensors[0] is the "this" pointer in the Pass
+    auto result = tensors[0]->forward({CONCAT, tensors[1]});
+    
+    // Store all inputs (not just first two)
+    result->inputs_.clear();
+    for(auto t : tensors) {
+        result->inputs_ << t;
+    }
+    
+    return result;
 }
 
 
