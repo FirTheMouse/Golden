@@ -386,7 +386,7 @@ public:
     // }
     
 
-    void deactivate(const g_ptr<S_Object>& sobj)
+    void deactivate(const g_ptr<Object>& sobj)
     {
         if(sobj) {
             sobj->stop();
@@ -602,6 +602,7 @@ public:
 
         g_ptr<Type> type = getType(useType);
         if(type) {
+            deactivate(item);
             type->recycle(item);
         }
         else

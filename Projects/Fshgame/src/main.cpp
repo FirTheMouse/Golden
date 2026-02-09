@@ -105,7 +105,7 @@ int main()  {
     std::string MROOT = root()+"/Projects/Fshgame/assets/models/";
     std::string IROOT = root()+"/Projects/Fshgame/assets/images/";
     Window window = Window(win.x()/2, win.y()/2, "GUI Testing");
-    scene = make<Scene>(window,2);
+    scene = make<Scene>(window,1);
     Data d = make_config(scene,NUM_0);
     scene->tickEnvironment(0);
 
@@ -125,7 +125,7 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 0;
+    int TESTING = 10;
     if(TESTING == 0) {
         g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",8);
         twig = make<Text>(font,scene);
@@ -759,6 +759,8 @@ int main()  {
 
         cube->parent = cube2;
         cube2->children << cube;
+
+        cube->setColor(vec4(1,0,0,1));
 
         cube->joint = [cube]() {
                 g_ptr<Single> parent = cube->parent;
