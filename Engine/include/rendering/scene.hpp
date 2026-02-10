@@ -574,6 +574,11 @@ public:
         return types.getOrDefault(label,fallback);
     }
 
+    void add_initilizer(const std::string& label, std::function<void(g_ptr<Object>)> init_func) {
+        g_ptr<Type> type = getType(label);
+        type->add_initializer(init_func);
+    }
+
     //I liked "make" better but that conflicts with Object
     template<typename T, typename = std::enable_if_t<std::is_base_of_v<Golden::Object, T>>>
     g_ptr<T> create(const std::string& label) {

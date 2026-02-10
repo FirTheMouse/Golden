@@ -241,8 +241,8 @@ g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
      }
  }
 #define GTIMERS 0
-#define VISPATHS 0
-#define VISGRID 1
+#define VISPATHS 1
+#define VISGRID 0
 #define TRIALS 0
 // #define CRUMB_ROWS 40 
 // // Packed ints with start / count so we can be more dynamic!
@@ -254,15 +254,21 @@ g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
 // const int ALL = (0 << 16) | CRUMB_ROWS;
 
 #define CRUMB_ROWS 20
-// Packed ints with start / count so we can be more dynamic!
+//Verbs
 const int META  = (0 << 16) | 1; 
 const int IS    = (1 << 16) | 10;
 const int DOES  = (6 << 16) | 9;
 const int ALL = (0 << 16) | CRUMB_ROWS;
 
-const int MET = 0;
-const int OBS = 1;
-const int LER = 11;
+//Columns
+const int MET = 0; //Meta
+const int OBS = 1; //Observed
+const int CUR = 11; //Curiositiy
+const int LER = 12; //Learned
+
+//Rows
+const int CUR_OBSERVE = 0; const int CUR_INTERACT = 1; const int CUR_USE = 2; const int CUR_DROP = 3; const int CUR_HIT = 4;
+const int BOREDOM = 0; const int HUNGER = 1; const int FATIGUE = 2;
 
 struct Crumb {
     Crumb() {
@@ -332,10 +338,8 @@ static float evaluate_matmul(const Crumb& eval, const Crumb& against, Crumb& res
  
 
 static float evaluate_elementwise(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
-     int eval_start = (eval_verb >> 16) & 0xFFFF;
-     int eval_count = eval_verb & 0xFFFF;
-     int against_start = (against_verb >> 16) & 0xFFFF;
-     int against_count = against_verb & 0xFFFF;
+    int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
+    int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
 
      assert(eval_count == against_count); 
 
@@ -352,6 +356,23 @@ static float evaluate_elementwise(const Crumb& eval, int eval_verb, const Crumb&
 
 static float evaluate(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
     return evaluate_elementwise(eval, eval_verb, against, against_verb);
+}
+
+static float sub_evaluate(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
+    int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
+    int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
+
+    assert(eval_count == against_count); 
+
+    float score = 0.0f;
+    const float* eval_ptr = &eval.mat[eval_start][0];
+    const float* against_ptr = &against.mat[against_start][0];
+    int total = eval_count * 10;
+    for(int i = 0; i < total; i++) {
+         score += eval_ptr[i] - against_ptr[i];
+    }
+
+    return score;
 }
 
 static float evaluate_binary(const Crumb& a, int a_verb, const Crumb& b, int b_verb) {
@@ -432,19 +453,36 @@ static Crumb randcrumb() {
      return seed;
  }
 
-struct crumb_store : public q_object {
-    list<Crumb> crumbs;
+ struct c_node;
+
+static list<g_ptr<Single>> agents;
+static list<vec3> goals;
+static map<int,Crumb> crumbs;
+
+ struct Instance : public q_object {
+    g_ptr<Single> form = nullptr;
+    vec3 position = vec3(0,0,0);
+    int last_seen = 0;
+    c_node* vantage = nullptr;
+    c_node* category = nullptr; 
+
+    bool is_stale(int current_frame, int max_age = 1000) const {
+        return (current_frame - last_seen) > max_age;
+    }
+    
+    bool verify() const {
+        if(!scene->active[form->ID]) return false;
+        float dist = (form->getPosition() - position).length();
+        return dist < 2.0f;
+    }
 };
 
 struct c_node : public q_object {
-
     c_node() {
-        store = make<crumb_store>();
         cmask.setmat(1.0f);
     }
     c_node(std::string _label) {
         label = _label;
-        store = make<crumb_store>();
         cmask.setmat(1.0f);
     }
 
@@ -454,7 +492,7 @@ struct c_node : public q_object {
     
     list<c_node*> parents;
     list<g_ptr<c_node>> children;
-    g_ptr<crumb_store> store = nullptr;
+    list<g_ptr<Instance>> instances; 
 
     //DEBUG ONLY METHOD
     vec3 getPosition() {
@@ -469,14 +507,40 @@ struct c_node : public q_object {
     bool operator==(g_ptr<c_node> other) {
         return *this == other.getPtr();
     }
-        
-    list<Crumb>& get_crumbs() {
-        return store->crumbs;
+    
+    void update_instance(int instid,int onframe,const vec3& pos, c_node* new_node) {
+        instances[instid]->last_seen = onframe;
+        instances[instid]->vantage = this;
+        instances[instid]->category = new_node;
+        instances[instid]->position = pos;
+    }
+    void add_instance(g_ptr<Single> inst,int onframe,c_node* node) {
+        int instid = -1;
+        for(int i=instances.length()-1;i>=0;i--) {
+            if(instances[i]->verify()) {
+                if(instances[i]->form == inst) {
+                    instid = i;
+                    break;
+                } 
+            } else { //Just cleaning up instances here because we're iterating anyways
+                instances[i]->category->instances.erase(instances[i]);
+                instances.removeAt(i);
+            }
+        }
+        if(instid!=-1) {
+            update_instance(instid,onframe,inst->getPosition(),node);
+        } else {
+            g_ptr<Instance> ninst = make<Instance>();
+            ninst->form = inst; ninst->category = node; ninst->vantage = this;
+            ninst->last_seen = onframe; ninst->position = inst->getPosition();
+            instances << ninst;
+            ninst->vantage = this;
+            if(node != this) {
+                node->instances << ninst;
+            }
+        }
     }
 
-    void set_crumbs(list<Crumb>& n_crumbs) {
-        store->crumbs = std::move(n_crumbs);
-    }
 
     list<g_ptr<c_node>> neighbors() {
         list<g_ptr<c_node>> n;
@@ -485,9 +549,21 @@ struct c_node : public q_object {
         return n;
     }
 
-    void add_to_category(Crumb& n_crumb) {
-        get_crumbs() << n_crumb;
-    }
+    float matches_category(const Crumb& item) {
+        return std::abs(sub_evaluate(archetype,IS,item,IS));
+    }   
+    float matches_category(g_ptr<Single> item) {
+        if(crumbs.hasKey(item->ID)) {
+            return matches_category(crumbs.get(item->ID));
+        } else {
+            print("c_node::matches_cateogry no crumb found in global registry for ",item->dtype,"-",item->ID);
+            return 1000.0f;
+        }
+    }   
+
+    // void add_to_category(Crumb& n_crumb) {
+    //     get_crumbs() << n_crumb;
+    // }
     
     g_ptr<c_node> subnode(const Crumb& seed) {
         g_ptr<c_node> new_cat = make<c_node>();
@@ -497,35 +573,30 @@ struct c_node : public q_object {
         
         return new_cat;
     }
-    void split(const list<list<int>>& to_split, int verb = ALL) {
-        for(int s = 0; s<to_split.length();s++) {
-            list<Crumb> crumbs;
-            for(int i=0;i<to_split[s].length();i++) {
-                    crumbs.push(get_crumbs()[to_split[s][i]]);
-            }
+    // void split(const list<list<int>>& to_split, int verb = ALL) {
+    //     for(int s = 0; s<to_split.length();s++) {
+    //         list<Crumb> crumbs;
+    //         for(int i=0;i<to_split[s].length();i++) {
+    //                 crumbs.push(get_crumbs()[to_split[s][i]]);
+    //         }
             
-            Crumb new_arc;
-            for(Crumb& c : crumbs) {
-                    add_mask(new_arc,verb,c,verb);
-            }
-            scale_mask(new_arc,verb,1.0f / crumbs.length());
+    //         Crumb new_arc;
+    //         for(Crumb& c : crumbs) {
+    //                 add_mask(new_arc,verb,c,verb);
+    //         }
+    //         scale_mask(new_arc,verb,1.0f / crumbs.length());
 
-            auto new_cat = subnode(new_arc);
-            new_cat->set_crumbs(crumbs);
-        }
-    }
+    //         auto new_cat = subnode(new_arc);
+    //         new_cat->set_crumbs(crumbs);
+    //     }
+    // }
 };
 
 
-static g_ptr<tensor> W_spatial = weight(24, 24, 0.1f);    // Local edge detection
-static g_ptr<tensor> W_invariant = weight(24, 10, 0.1f);  // Position-invariant pooling
-static g_ptr<tensor> W_grouping = weight(10, 6, 0.1f);    // spatial integration
+
+
 static int total_connections = 0;
 static float min_sal = 1.0f;
-
-static list<g_ptr<Single>> agents;
-static list<vec3> goals;
-static map<int,Crumb> crumbs;
 
 struct Event {
     Event(float _time, std::function<void()> _func) : time(_time), func(_func) {}
@@ -556,18 +627,35 @@ g_ptr<Single> objInFront(g_ptr<Single> agent) {
     return nullptr;
 }
 
+list<g_ptr<Single>> objInSweep(g_ptr<Single> agent) {
+    list<g_ptr<Single>> to_return;
+    vec3 pos = agent->getPosition()+agent->facing()*2.0f;
+    float r = 1.0f;
+    list<int> cells = grid->cellsAround(pos,r);
+    #if VISPATHS
+        g_ptr<Single> vismark = scene->create<Single>("white");
+        vismark->setColor(vec4(1,0,0,1));
+        vismark->setPosition(pos);
+        vismark->setScale({r*2,r,r*2});
+        events << Event(1.0f,[vismark](){scene->recycle(vismark);});
+    #endif
+    for(auto idx : cells) {
+        for(auto sidx : grid->cells[idx]) {       
+            to_return << scene->singles[sidx];
+        }
+    }
+    return to_return;
+}
+
 
 class nodenet : public Object {
 public:
     nodenet(Crumb& agent_state) : state(agent_state) {
         meta_root = make<c_node>("meta");
-        is_root = make<c_node>("is");
-        does_root = make<c_node>("does");
-        wants_root = make<c_node>("wants");
-        has_root = make<c_node>("has");
+        obs_root = make<c_node>("observed");
 
         physics_attention << meta_root;
-        cognitive_attention << is_root;
+        cognitive_attention << obs_root;
 
         for(int i = 0; i < CRUMB_ROWS; i++)
         for(int j = 0; j < 10; j++)
@@ -578,10 +666,7 @@ public:
     Crumb cmask;
 
     g_ptr<c_node> meta_root = nullptr;
-    g_ptr<c_node> is_root = nullptr;
-    g_ptr<c_node> does_root = nullptr;
-    g_ptr<c_node> wants_root = nullptr;
-    g_ptr<c_node> has_root = nullptr;
+    g_ptr<c_node> obs_root = nullptr;
 
     Crumb& state;
     int agent_id = -1;
@@ -605,7 +690,7 @@ public:
 
     
     //Visit should return false to stop, true to expand.
-   void walk_graph(g_ptr<c_node> start, 
+    void walk_graph(g_ptr<c_node> start, 
                 std::function<bool(g_ptr<c_node>)> visit,
                 std::function<list<g_ptr<c_node>>(g_ptr<c_node>)> expand,
                 bool breadth_first = false) {
@@ -749,36 +834,20 @@ public:
         g_ptr<c_node> node = make<c_node>();
         node->archetype = thing;
 
-        int l = physics_attention.length();
-        //Do the N last objects of our attention list
-        int n = 1;
-        for(int i= l<n ? 0: l-n ;i<l;i++) {
-             auto recent = physics_attention[i];
-             node->parents << recent.getPtr();
-             recent->children << node;
-             total_connections += 2;
-        }
+        g_ptr<c_node> best_node = closest_attended_node(single);
+        node->parents << best_node.getPtr();
+        best_node->children << node;
+        total_connections+=2;
 
-        //Should also add some measure of grid collision detection here too
-        // float best_dist = 1000.0f;
-        // g_ptr<c_node> best_node = physics_attention.last();
-        // vec3 pos = single->getPosition();
-        // for(auto n : physics_attention) {
-        //      float dist = n->getPosition().distance(pos);
-        //      if(dist<best_dist) {
-        //           if(grid->can_see(n->getPosition(),pos,{agent_id,single->ID,n->getID()})) {
-        //                best_node = n;
-        //                best_dist = dist;
-        //           }
-        //      }
+        // int l = physics_attention.length();
+        // //Do the N last objects of our attention list
+        // int n = 1;
+        // for(int i= l<n ? 0: l-n ;i<l;i++) {
+        //      auto recent = physics_attention[i];
+        //      node->parents << recent.getPtr();
+        //      recent->children << node;
+        //      total_connections += 2;
         // }
-
-        // g_ptr<c_node> best_node = closest_visible_node(single);
-        // if(!best_node) best_node = physics_attention.last();
-
-        // node->parents << best_node.getPtr();
-        // best_node->children << node;
-        // total_connections++;
 
         if(!node) {
             print("OBSERVE WARNING: formless archetpye for category!");
@@ -787,13 +856,13 @@ public:
         } else {
             //Push to some grid form?
         }
-        // push_attention_head(node);
         return node;
     }
 
     //Standard action unit made to be used across any platform or purpouse
     struct Action {
         Action(int _id) : part_id(_id) {}
+        Action(int _id, list<float> _params) : part_id(_id), params(_params) {}
         ~Action() {}
 
         int part_id;
@@ -840,6 +909,26 @@ public:
     g_ptr<Vis> vis = nullptr; //The cached struct for the data of the visual pass
     g_ptr<tensor> visual_signature = nullptr; //Produced features by the visual system
 
+    // g_ptr<c_node> find_goal() {
+
+    // }
+
+    g_ptr<c_node> closest_attended_node(g_ptr<Single> single) {
+        float best_dist = 1000.0f;
+        g_ptr<c_node> best_node = physics_attention.last();
+        vec3 pos = single->getPosition();
+        for(auto n : physics_attention) {
+            float dist = n->getPosition().distance(pos);
+            if(dist<best_dist) {
+                if(grid->can_see(n->getPosition(),pos,{agent_id,single->ID,n->getID()})) {
+                    best_node = n;
+                    best_dist = dist;
+                }
+            }
+        }
+        return best_node;
+    }
+
     //Visual cortex method, when called it populates the vis for other passes to use
     void see2d(g_ptr<Single> agent,int num_rays,float ray_distance,float cone_width) {
         vis = make<Vis>(num_rays,ray_distance,cone_width);
@@ -872,9 +961,76 @@ public:
         }
     }
 
-    //This is an example of something which could and possibly should be hardcoded.
-    //One of the main reasons I haven't is because it is also a good example of a small modular ML component, which are good.
-    //Plus, if we change the visual detection system this may need the flexibility.
+    void observe_instances(g_ptr<Single> agent,int on_frame) {
+        vec3 forward =  vis->forward;
+        vec3 right = vec3(forward.z(), 0, -forward.x()); 
+        float start_angle = -vis->cone_width / 2.0f;
+        float angle_step = vis->cone_width / (vis->num_rays - 1);
+        list<g_ptr<Single>> observed_objects;
+        for(int i = 0; i < vis->num_rays; i++) {
+            float angle_deg = start_angle + i * angle_step;
+            float angle_rad = angle_deg * 3.14159f / 180.0f;
+            
+            vec3 ray_dir = vis->dirs[i];
+            float hit_dist = vis->dists[i];
+            float hit_cell = vis->cells[i];
+            bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
+            if(curr_hit) {
+                for(int obj_id : grid->cells[hit_cell]) {
+                    g_ptr<Single> single = scene->singles[obj_id];
+                    if(obj_id != agent->ID && !observed_objects.has(single)) {
+                        observed_objects << single;
+                    }
+                }
+            }
+        }
+
+        list<std::pair<g_ptr<Single>,c_node*>> add_inst;
+
+        int energy = 1000;
+        propagate(obs_root,energy,[&observed_objects,&add_inst](g_ptr<c_node> node){
+            for(int i=observed_objects.length()-1;i>=0;i--) {
+                g_ptr<Single> s = observed_objects[i];
+                if(node->matches_category(s)==0.0f) { //setting it at 0.1 for now because we don't have big object diversity in the crumb
+                    add_inst <<  std::make_pair(s,node.getPtr());
+                    observed_objects.removeAt(i);
+                }
+            }   
+            return !observed_objects.empty();
+        });
+
+        list<g_ptr<c_node>> new_cats;
+
+        //All the ones with no category match found
+        for(auto o : observed_objects) {
+            bool catagorized = false;
+            for(auto c : new_cats) { //Same as above
+                if(c->matches_category(o)==0.0f) { 
+                    add_inst << std::make_pair(o,c.getPtr());
+                    catagorized = true;
+                    break;
+                }
+            }
+            if(!catagorized) {
+                Crumb arct = crumbs.get(o->ID);
+                arct.mat[CUR][CUR_OBSERVE] = 10.0f;
+                arct.mat[CUR][CUR_INTERACT] = 10.0f;
+                arct.mat[CUR][CUR_USE] = 10.0f;
+                arct.mat[CUR][CUR_DROP] = 10.0f;
+                arct.mat[CUR][CUR_HIT] = 10.0f;
+                g_ptr<c_node> new_node = obs_root->subnode(arct);
+                new_node->label = o->dtype; //debug label
+                new_cats << new_node;
+                add_inst << std::make_pair(o,new_node.getPtr());
+            }
+        }
+
+        // print("ID OF PHYS_HEAD: ",physics_attention.last()->getID()," LABEL: ",physics_attention.last()->label);
+        for(auto instpair : add_inst) {
+            closest_attended_node(instpair.first)->add_instance(instpair.first,on_frame,instpair.second);
+        }
+    }
+
     void process_visual_for_gaps(g_ptr<Single> agent) {
         int input_size = vis->num_rays;
         int search_energy = 150;
@@ -908,6 +1064,7 @@ public:
 
                 propagate(physics_attention.last(), search_energy, 
                 [&](g_ptr<c_node> node) {
+                    if(node->getID()==-1) return true;
                     if(scene->singles[node->getID()]->dtype != "gap") return true;
                     float spatial_dist = gap_pos.distance(node->getPosition());
                     if(spatial_dist<rayspace) {
@@ -1004,15 +1161,7 @@ public:
                   }
              }
 
-            // bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
-            // if(curr_hit) {
-            //     for(int obj_id : grid->cells[hit_cell]) {
-            //         if(obj_id != agent->ID && 
-            //            !observed_objects.has({hit_dist, obj_id})) {
-            //             observed_objects << std::make_pair(hit_dist, obj_id);
-            //         }
-            //     }
-            // }
+
         }
 
         //Going to be not just gaps eventually
@@ -1047,6 +1196,27 @@ public:
         vec3 environmental_force = can_beeline ? 
              to_goal.normalized() : 
              (best_direction + wall_bias + goal_bias + gap_bias).normalized();
+
+                                                                     
+        if(environmental_force.length() > 0.01f) {
+            environmental_force = environmental_force.normalized();
+            
+            // Blend with momentum (if we're already moving)
+            // vec3 final_direction;
+            // if(current_velocity.length() > 0.1f) {
+            //         final_direction = (current_velocity.normalized() * 0.2f + environmental_force * 0.8f).normalized();
+            // } else {
+            //         final_direction = environmental_force;
+            // }
+            
+            vec3 velocity = environmental_force * agent->opt_floats[1]; //<- desired speed
+            vec3 f = agent->getPosition()+velocity;
+            execute_action_on_agent({0,{velocity.x(),velocity.y(),velocity.z()}},agent);
+            execute_action_on_agent({1,{f.x(),f.y(),f.z()}},agent);
+
+            // agent->faceTo(agent->getPosition() + velocity);
+            // agent->setLinearVelocity(velocity);
+        }
         return environmental_force;
     }
 
@@ -1159,7 +1329,7 @@ public:
         return result;
     }
 
-    //Returns a list of c_nodes in order of how strongly the activated in response to the crumb query, propagates with energy.
+    //Returns a list of c_nodes in order of how strongly they activated in response to the crumb query, propagates with energy.
     list<std::pair<g_ptr<c_node>, float>> imagine(g_ptr<c_node> source,  const Crumb& query, int query_verb, int target_verb, int energy) {
         map<c_node*, float> activations;
         
@@ -1199,6 +1369,16 @@ public:
             case 4: { //DROP
                 if(!agent->children.empty()) {
                     agent->children[0]->run("onDrop");
+                }
+            } break;
+            case 5: {
+                list<g_ptr<Single>> objs = objInSweep(agent);
+                for(auto obj : objs) {
+                    if(obj==agent) continue;
+                    if(obj) {
+                        ScriptContext ctx; ctx.set<g_ptr<Single>>("from",agent);
+                        obj->run("onHit",ctx);
+                    }
                 }
             } break;
         }
@@ -1666,6 +1846,7 @@ struct Trial : public q_object {
 bool pickUp(g_ptr<Single> item, g_ptr<Single> agent) {
     if(agent->markers().has("grip_pos")&&!agent->children.has(item)) {
         removeFromGrid(item);
+        //for(auto c : item->children) removeFromGrid(c); //Needs to recurse to all children of children
         agent->addChild(item); 
         item->setPosition(agent->markerPos("grip_pos"));
         return true;
@@ -1679,6 +1860,7 @@ bool drop(g_ptr<Single> item) {
         item->parent->removeChild(item);
         item->move(vec3(0,-item->getPosition().y(),0));
         addToGrid(item);
+        // for(auto c : item->children) addToGrid(c); //Needs to recurse to all children of children
         return true;
     } else {
         return false;
@@ -1809,24 +1991,18 @@ int main() {
 
 
      scene->define("agent",[a_model](){
-          g_ptr<Single> q = make<Single>(a_model);
-          scene->add(q);
-          q->opt_idx_cache = addToGrid(q);
-          q->opt_vec_3_3 = q->getPosition();
-          q->joint = [q](){
-            q->updateTransform(false);
-            vec3 current_pos = q->getPosition();
-            float moved = current_pos.distance(q->opt_vec_3_3);
-            
-            // Only update grid if moved more than half a cell
-            if(moved > grid->cellSize * 0.5f) {
+        g_ptr<Single> q = make<Single>(a_model);
+        scene->add(q);
+        addToGrid(q);
+        q->opt_vec_3_3 = q->getPosition();
+        q->joint = [q](){
+            q->unlockJoint = true; q->updateTransform(); q->unlockJoint = false;
             for(auto i : q->opt_idx_cache) {grid->cells[i].erase(q->ID);}
-                    q->opt_idx_cache = grid->addToGrid(q->ID, q->getWorldBounds());
-                    q->opt_vec_3_3 = current_pos;
-            }
-            return true;
-          };
-          return q;
+            q->opt_idx_cache = grid->addToGrid(q->ID, q->getWorldBounds());
+            return false;
+        };
+        q->isAnchor = true;
+        return q;
      });
      scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
           g_ptr<Single> q = make<Single>(c_model);
@@ -1840,63 +2016,150 @@ int main() {
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
 
-     scene->define("berry",[&](){
+    scene->define("berry",[berry_model](){
         g_ptr<Single> berry= make<Single>(berry_model);
-        scene->add(berry);
-        berry->setPhysicsState(P_State::PASSIVE);
-        addToGrid(berry);
-        Crumb berry_crumb; //Intilize it with evrything
+        scene->add(berry);    
+        return berry;
+    });
+    scene->add_initilizer("berry",[](g_ptr<Object> obj){ 
+        if(g_ptr<Single> berry = g_dynamic_pointer_cast<Single>(obj)) {
+            //Cleanup
+            berry->scripts.clear(); //Clear all scipts
+            removeFromGrid(berry); //Remove it from grid
 
-        berry->addScript("onInteract",[berry](ScriptContext& ctx){
-            g_ptr<Single> from = ctx.get<g_ptr<Single>>("from");
-            pickUp(berry,from);
-        });
-        berry->addScript("onDrop",[berry](ScriptContext& ctx){drop(berry);});
+            //Intilize
+            berry->setPhysicsState(P_State::PASSIVE);
+            addToGrid(berry);
+            Crumb berry_crumb; //Intilize it with evrything
+            berry_crumb.id = berry->ID;
+            berry_crumb.mat[OBS][0] = 0.01f; //Is small
+            
+            berry_crumb.mat[LER][BOREDOM] = 1.1f; 
+            berry_crumb.mat[LER][HUNGER] = 2.3f; 
+            crumbs.put(berry->ID,berry_crumb);
 
-        berry->addScript("onUse",[berry](ScriptContext& ctx){
-            g_ptr<Single> from = nullptr;
-            if(ctx.has("from")) from = ctx.get<g_ptr<Single>>("from");
-            else from = berry->parent;
+            berry->addScript("onInteract",[berry](ScriptContext& ctx){
+                g_ptr<Single> from = ctx.get<g_ptr<Single>>("from");
+                pickUp(berry,from);
+            });
+            berry->addScript("onDrop",[berry](ScriptContext& ctx){drop(berry);});
 
-            Crumb delta(0);
-            delta.mat[LER][1] = 1.1f; // Reduces boredom
-            delta.mat[LER][1] = 2.3f; // Reduces hunger
-            sub_mask(crumbs[from->ID], DOES, delta, DOES);
+            berry->addScript("onUse",[berry](ScriptContext& ctx){
+                g_ptr<Single> from = nullptr;
+                if(ctx.has("from")) from = ctx.get<g_ptr<Single>>("from");
+                else from = berry->parent;
+                sub_mask(crumb_managers[from->UUID]->state, DOES, crumbs.get(berry->ID), DOES);
 
-            if(berry->parent) {
-                berry->parent->removeChild(berry);
-            } else {
-                removeFromGrid(berry);
-            }
-            scene->recycle(berry);
-        });
-        
-        //This is the classic Snap lock-to-parent joint, it works because getPosition() is the current transform in the scene's matrix while ->position is the intended position accumulated as snap joints are calculated.
-        //Plus a grid updater snap as well
-        berry->joint = [berry](){
-            g_ptr<Single> parent = berry->parent; 
-            berry->opt_vec_3_3 = berry->getPosition();
-            if(parent) {
-                // vec3 offset = berry->getPosition() - parent->getPosition();
-                // berry->position = parent->position + offset;
-                berry->position = parent->markerPos("grip_pos");
-                return true;
-            } else {
-                berry->updateTransform(false);
-    
-                vec3 current_pos = berry->getPosition();
-                float moved = current_pos.distance(berry->opt_vec_3_3);
-                
-                // Only update grid if moved more than half a cell
-                if(moved > grid->cellSize * 0.5f) {
+                if(berry->parent) {
+                    berry->parent->removeChild(berry);
+                } else {
+                    removeFromGrid(berry);
+                }
+                scene->recycle(berry);
+            });
+
+            berry->joint = [berry](){
+                g_ptr<Single> parent = berry->parent; 
+                if(parent) {
+                    if(parent->isAnchor) {
+                        berry->position = parent->markerPos("grip_pos");
+                    } else {
+                        vec3 offset = berry->getPosition() - parent->getPosition();
+                        berry->position = parent->position + offset;
+                    }
+                } else {    
+                    berry->unlockJoint = true; berry->updateTransform(); berry->unlockJoint = false;
                     for(auto i : berry->opt_idx_cache) {grid->cells[i].erase(berry->ID);}
                     berry->opt_idx_cache = grid->addToGrid(berry->ID, berry->getWorldBounds());
+                    return false;
                 }
-               return false;
+                return true;
+            };
+        }
+    });
+
+    //WARNING:
+    //The crumbs map isn't being updated when new instanecs are created via pooling, so once crumb defs are hammered out
+    //ensure they're defined in the actual intilization code. Honestly define here is being a bit more than it actually should
+    //there should be a create berry opperation so that these things don't accidently get brought through by pooling!
+    //But that's a later problem
+
+    scene->define("berry_bush",[c_model](){
+        g_ptr<Single> bush= make<Single>(c_model);
+        scene->add(bush);
+        return bush;
+    });
+    scene->add_initilizer("berry_bush",[](g_ptr<Object> obj){ 
+        if(g_ptr<Single> bush = g_dynamic_pointer_cast<Single>(obj)) {
+            bush->scripts.clear();
+            removeFromGrid(bush);
+
+            bush->setScale(vec3(1,8.0f,1));
+            bush->setColor(vec4(0.6f,0.3f,0.1f,1));
+            bush->setPhysicsState(P_State::PASSIVE);
+            addToGrid(bush);
+            Crumb bush_crumb; //Intilize it with evrything
+            bush_crumb.id = bush->ID;
+            bush_crumb.mat[OBS][0] = 0.06f; //Is slightly bigger than a mouse
+            bush_crumb.mat[CUR][CUR_OBSERVE] = 10.0f;
+            bush_crumb.mat[CUR][CUR_INTERACT] = 10.0f;
+    
+            crumbs.put(bush->ID,bush_crumb);
+    
+            for(int i=0;i<randi(2,6);i++) {
+                auto b = scene->create<Single>("berry");
+                b->setPosition(vec3(randf(-0.5f,0.5f),randf(1,4),randf(-0.5f,0.5f)));
+                removeFromGrid(b);
+                bush->addChild(b);
             }
-        };
-        
-        return berry;
+    
+            bush->addScript("onInteract",[bush](ScriptContext& ctx){
+                g_ptr<Single> from = ctx.get<g_ptr<Single>>("from");
+                if(!bush->children.empty()) {
+                    auto c = bush->children.last();
+                    bush->removeChild(c);
+                    pickUp(c,from);
+                }
+            });
+            bush->addScript("onDrop",[bush](ScriptContext& ctx){drop(bush);});
+    
+            bush->addScript("onUse",[bush](ScriptContext& ctx){
+                g_ptr<Single> from = nullptr;
+                if(ctx.has("from")) from = ctx.get<g_ptr<Single>>("from");
+                else from = bush->parent;
+                sub_mask(crumb_managers[from->UUID]->state, DOES, crumbs.get(bush->ID), DOES);
+    
+                if(bush->parent) {
+                    bush->parent->removeChild(bush);
+                } else {
+                    removeFromGrid(bush);
+                }
+                scene->recycle(bush);
+            });
+    
+            bush->addScript("onHit",[bush](ScriptContext& ctx){
+                bush->setColor(vec4(1,0,0,1));
+                events << Event(1.0f,[bush](){bush->setColor(vec4(0.6f,0.3f,0.1f,1));});
+            });
+    
+            bush->joint = [bush](){
+                g_ptr<Single> parent = bush->parent; 
+                if(parent) {
+                    if(parent->isAnchor) {
+                        bush->position = parent->markerPos("grip_pos");
+                    } else {
+                        vec3 offset = bush->getPosition() - parent->getPosition();
+                        bush->position = parent->position + offset;
+                    }
+                } else {    
+                    bush->unlockJoint = true; bush->updateTransform(); bush->unlockJoint = false;
+                    for(auto i : bush->opt_idx_cache) {grid->cells[i].erase(bush->ID);}
+                    bush->opt_idx_cache = grid->addToGrid(bush->ID, bush->getWorldBounds());
+                    return false;
+                }
+                return true;
+            };
+        }
     });
 
      //Make path stones
@@ -1928,6 +2191,8 @@ int main() {
          g_ptr<Single> box = make<Single>(grass_model);
          scene->add(box);
          box->dtype = "grass";
+         box->getLayer().setLayer(1);
+         box->getLayer().setCollision(0);
          float s = randf(3, 8);
          vec3 pos(randf(-grid_size/2, grid_size/2), 0, randf(-grid_size/2, grid_size/2));
          box->setPosition(pos);
@@ -1942,8 +2207,7 @@ int main() {
                  mem.mat[r][col] = 0.0f;
              }
          }
-         mem.mat[3][0] = randf(1.0f,1.04f); //Satiety
-         mem.mat[3][1] = randf(0.2f,0.6f); //Shelter
+         mem.mat[OBS][0] = 0.2f; //Grass sized
          mem.id = box->ID;
          crumbs.put(box->ID,mem);
      }
@@ -1992,6 +2256,9 @@ int main() {
             agent->getLayer().setCollision(1);
             grid->make_seethru(agent->ID);
         //   #endif
+
+          agent->UUID = i; //ITR id
+
           agent->opt_ints << randi(1,10); // [0]
           agent->opt_ints << i; // [1] = ITR id
           agent->opt_ints << 0; // [2] = Accumulator
@@ -2030,9 +2297,15 @@ int main() {
           mem.mat[MET][1] = 0.1f; //Navigation focus
           mem.mat[MET][2] = 1.0f; //Salience impactor
 
-          mem.mat[LER][0] = 0; //Boredom
-          mem.mat[LER][1] = 0; //Hunger
-          mem.mat[LER][2] = 0; //Tierdness
+          mem.mat[CUR][CUR_OBSERVE] = 0;
+          mem.mat[CUR][CUR_INTERACT] = 0;
+          mem.mat[CUR][CUR_USE] = 0; 
+          mem.mat[CUR][CUR_DROP] = 0; 
+          mem.mat[CUR][CUR_HIT] = 0; 
+
+          mem.mat[LER][BOREDOM] = 0;
+          mem.mat[LER][HUNGER] = 0; 
+          mem.mat[LER][FATIGUE] = 0;
           mem.id = agent->ID;
           crumbs.put(agent->ID,mem);
 
@@ -2046,6 +2319,7 @@ int main() {
           root_form->setPosition(base_pos);
           mem_root.id = root_form->ID;
           memory->meta_root->archetype = mem_root;
+          memory->obs_root->archetype = mem_root;
           memory->id_to_node.put(root_form->ID,memory->meta_root.getPtr());
                          
           crumb_managers << memory;
@@ -2175,37 +2449,21 @@ int main() {
                     //     90.0f,  // vertical_fov (90° up-down, human is ~135° but asymmetric)
                     //     30.0f   // ray_distance
                     // );
-                    memory->see2d(agent,num_rays,ray_distance,cone_width);
+                    //memory->see2d(agent,num_rays,ray_distance,cone_width);
                     #if GTIMERS
                         timers << l.end(); timer_labels << "raycast_sample"; l.start();
                     #endif
-                    memory->process_visual_for_gaps(agent);
+                    //memory->process_visual_for_gaps(agent);
                     #if GTIMERS
                         timers << l.end(); timer_labels << "feature_detection"; l.start();
                     #endif
-                    vec3 environmental_force = memory->steering_force(agent,goal,goal_focus).nY(); //nY so that it's 2d
-                    
+                    //memory->observe_instances(agent,on_frame);
                     #if GTIMERS
-                    timers << l.end(); timer_labels << "derive_force"; l.start();
+                        timers << l.end(); timer_labels << "observe_instances"; l.start();
                     #endif
-                                                        
-                    if(environmental_force.length() > 0.01f) {
-                         environmental_force = environmental_force.normalized();
-                         
-                         // Blend with momentum (if we're already moving)
-                         vec3 final_direction;
-                         if(current_velocity.length() > 0.1f) {
-                              final_direction = (current_velocity.normalized() * 0.2f + environmental_force * 0.8f).normalized();
-                         } else {
-                              final_direction = environmental_force;
-                         }
-                         
-                         vec3 velocity = final_direction * desired_speed;
-                         agent->faceTo(agent->getPosition() + velocity);
-                         agent->setLinearVelocity(velocity);
-                    }
+                    //vec3 environmental_force = memory->steering_force(agent,goal,goal_focus).nY(); //nY so that it's 2d
                     #if GTIMERS
-                    timers << l.end(); timer_labels << "velocity_application";
+                    timers << l.end(); timer_labels << "derive_force";
                     #endif
                 }
 
@@ -2537,8 +2795,13 @@ int main() {
           s_tool.log_fps = true;
      #endif
 
-    auto berry = scene->create<Single>("berry");
-    berry->setPosition({-3,0,6});
+    auto berry = scene->create<Single>("berry_bush");
+    berry->setPosition({-3,berry->getWorldBounds().max.y()/2,6});
+
+    for(int i=0;i<8;i++) {
+        auto b = scene->create<Single>("berry");
+        b->setPosition(vec3(randf(-5,5),0,randf(-5,5)));
+    }
 
     //For tree visualization
     g_ptr<nodenet> mem = crumb_managers[0];
@@ -2552,8 +2815,21 @@ int main() {
     fir->getLayer().setLayer(0);
     fir->getLayer().setCollision(1);
     Crumb fircrumb;
+    fircrumb.id = fir->ID;
     g_ptr<nodenet> net = make<nodenet>(fircrumb);
     net->agent_id = fir->ID;
+    fir->UUID = crumb_managers.length();
+    crumbs.put(fir->ID,fircrumb);
+
+    Crumb mem_root;
+    g_ptr<Single> root_form = scene->create<Single>("crumb");
+    root_form->setPosition(fir->getPosition());
+    mem_root.id = root_form->ID;
+    net->meta_root->archetype = mem_root;
+    net->obs_root->archetype = mem_root;
+    net->id_to_node.put(root_form->ID,net->meta_root.getPtr());
+    crumb_managers << net;
+    agents << fir;
     
     bool control_fir = true;
     int cam_mode = 2;
@@ -2570,6 +2846,11 @@ int main() {
             if(events[i].tick(s_tool.tpf)) {
                 events.removeAt(i);
             }
+          }
+
+          if(pressed(B)) {
+            auto nberry = scene->create<Single>("berry");
+            nberry->setPosition(mousepos);
           }
 
           auto q = scene->nearestElement();
@@ -2633,10 +2914,48 @@ int main() {
                 net->execute_action_on_agent({2},fir);
             }
             if(pressed(R)) { //USE
+                //print("BEFORE: ",net->state.mat[LER][0]," | ",fircrumb.mat[LER][0]," | ",crumbs[fir->ID].mat[LER][0]);
                 net->execute_action_on_agent({3},fir);
+                //print("AFTER: ",net->state.mat[LER][0]," | ",fircrumb.mat[LER][0]," | ",crumbs[fir->ID].mat[LER][0]);
             }
             if(pressed(Q)) { //DROP
                 net->execute_action_on_agent({4},fir);
+            }
+            if(pressed(MOUSE_LEFT)) {
+                net->execute_action_on_agent({5},fir);
+            }
+
+            if(pressed(H)) {
+                net->see2d(fir,24,10.0f,225.0f);
+                net->process_visual_for_gaps(fir);
+                net->observe_instances(fir,s_tool.frame);
+
+                print("------------\nCHECKING FOR CATEGORIES: ",net->obs_root->children.length());
+                for(auto c : net->obs_root->children) {
+                    print("CATEGORY: ",c->getID()," CLEN: ",c->children.length());
+                    for(auto i : c->instances) {
+                        print(" INST: ",i->form->dtype,"-",i->form->ID," VANTAGE AT: ",i->vantage->getPosition().to_string());
+                        net->debug << draw_line(i->form->getPosition(),i->vantage->getPosition(),"red",1.0f);
+                    }
+                }
+            }
+
+            if(pressed(U)) {
+                for(auto c : net->obs_root->children) {
+                    if(c->label=="berry") {
+                        for(auto i : c->instances) {
+                            net->debug << draw_line(i->form->getPosition(),i->vantage->getPosition(),i->last_seen==s_tool.frame?"blue":"red",1.0f);
+                        }
+                    }
+                }
+            }
+
+            if(pressed(C)) {
+                net->clear_debug();
+            }
+
+            if(pressed(G)) {
+                net->visualize_registry();
             }
          }
 

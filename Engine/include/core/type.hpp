@@ -1060,7 +1060,9 @@ public:
         {
             auto obj = objects.get(next_id);
             obj->recycled.store(false);
-            //Might want to clean object data here
+            for(int i=0;i<init_funcs.size();i++) {
+                init_funcs[i](obj);
+            }
             return obj;
         }
         else
