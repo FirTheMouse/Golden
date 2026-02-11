@@ -768,6 +768,13 @@ int main()  {
                 cube->position = parent->position + offset;
                 return true;
             };
+
+        g_ptr<Model> cube_model = make<Model>(makeTestBox(1.0f));
+        for(int i=0;i<10000;i++) {
+            auto cube = make<Single>(cube_model);
+            scene->add(cube);
+            cube->setPosition(vec3(randf(-100,100),0,randf(-100,100)));
+        }
     }
     else if (TESTING==11) {
         g_ptr<Model> box_model = make<Model>(makeTestBox(1.0f));

@@ -40,7 +40,10 @@ public:
        for(entry<K,V>& e : *this){
             if(e.key == key) return e.value;
        }
-       //return nullptr;
+       //This is so that ASAN can trace the error origin 
+    //    std::vector<int> ints;
+    //    ints.push_back(1);
+    //    volatile int b = ints[3];
        throw std::runtime_error("map::43 key not found ");
     }
 

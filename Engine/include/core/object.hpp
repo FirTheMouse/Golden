@@ -67,9 +67,9 @@ class Object : virtual public q_object {
         Data data;
         std::string dtype = "";
         std::string debug_trace_path = "";
-        int UUID;
-        int ID;
-        int TID;
+        int UUID = -1;
+        int ID = -1;
+        int TID = -1;
         std::atomic<bool> recycled{false};
 
         template<typename T = std::string>

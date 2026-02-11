@@ -42,7 +42,7 @@ class q_object {
         bool isActive() {return tombstone.load();}
     
         void retain() { ++refCount; }
-        void release() {
+        virtual void release() {
             if (refCount.fetch_sub(1) == 1) {
                 delete this;
             }

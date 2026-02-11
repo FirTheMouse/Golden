@@ -159,10 +159,7 @@ namespace Golden
         int max_steps = (int)(max_dist / step_size) + 1;
         
         // Convert exclude list to set for O(1) lookup
-        static thread_local list<int> seen_flags;
-        if(seen_flags.length() < 100000) { // Adjust based on max object count
-            seen_flags = list<int>(100000, 0);
-        }
+        static thread_local list<int> seen_flags(100000, 0);
         
         // Mark exclusions with current raycast ID (generation counter)
         static int raycast_generation = 0;

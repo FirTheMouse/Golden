@@ -179,10 +179,14 @@ public:
     }
 
     void clear() {
-        // for (size_t i = 0; i < size; ++i) {
-        //     delete ptr[i];
-        // }
-        size_ = 0;
+        if constexpr (std::is_trivially_destructible_v<T>) {
+            size_ = 0;
+        } else {
+            for (size_t i = 0; i < size_; ++i) {
+                ptr[i].~T();
+            }
+            size_ = 0;
+        }
     }
 
     void merge(list<T>& input) {
@@ -364,11 +368,11 @@ public:
     }
 
     void removeAt(size_t index) {
-    if (index >= size_) throw std::out_of_range("ERROR: Remove index out of bounds!");
-    for (size_t i = index; i + 1 < size_; ++i) {
-        ptr[i] = ptr[i + 1];
-    }
-    --size_;
+        if (index >= size_) throw std::out_of_range("ERROR: Remove index out of bounds!");
+        for (size_t i = index; i + 1 < size_; ++i) {
+            ptr[i] = ptr[i + 1];
+        }
+        --size_;
     }
 
     // T& rand() {return }

@@ -240,8 +240,8 @@ g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
                    vec3(wall_thickness, wall_height, cell_size));
      }
  }
-#define GTIMERS 0
-#define VISPATHS 1
+#define GTIMERS 1
+#define VISPATHS 0
 #define VISGRID 0
 #define TRIALS 0
 // #define CRUMB_ROWS 40 
@@ -270,7 +270,7 @@ const int LER = 12; //Learned
 const int CUR_OBSERVE = 0; const int CUR_INTERACT = 1; const int CUR_USE = 2; const int CUR_DROP = 3; const int CUR_HIT = 4;
 const int BOREDOM = 0; const int HUNGER = 1; const int FATIGUE = 2;
 
-struct Crumb {
+struct Crumb : public Object {
     Crumb() {
         setmat(0);
     }
@@ -278,10 +278,35 @@ struct Crumb {
         setmat(fill);
     }
 
+    void release() override {
+        if(refCount.fetch_sub(1) == 1) {
+            delete this;
+        }
+        else if(getRefCount() == 1) {
+            if(type_!=nullptr&&!recycled.load()) {
+                type_->recycle(this);
+            }
+        }
+    }
+
+    Crumb& operator=(const Crumb& other) {
+        if(this != &other) {
+            std::memcpy(mat, other.mat, sizeof(mat));  // Copy raw array
+            id = other.id;
+            is_grid = other.is_grid;
+        }
+        return *this;
+    }
+
+    Crumb(const Crumb& other) {
+        std::memcpy(mat, other.mat, sizeof(mat));
+        id = other.id;
+        is_grid = other.is_grid;
+    }
+
     int id = -1;
     bool is_grid = false;
     float mat[CRUMB_ROWS][10];
-    list<Crumb> sub;
 
     inline void setmat(float v) {
         for(int r = 0; r < CRUMB_ROWS; r++) {
@@ -329,6 +354,12 @@ struct Crumb {
     }
 };
 
+g_ptr<Crumb> clone(g_ptr<Crumb> crumb) {
+    g_ptr<Crumb> new_crumb = scene->create<Crumb>("Crumb");
+    *new_crumb = *crumb;
+    return new_crumb;
+}
+
 static float compute_trace(const float* matrix) {
     float trace = 0.0f;
     for(int i = 0; i < CRUMB_ROWS; i++) {
@@ -347,26 +378,26 @@ static void matmul(const float* eval, const float* against, float* result) {
                 result, 10);
 }
 
-static float evaluate_matmul(const Crumb& eval, const Crumb& against, Crumb& result) {
-     matmul(eval.data(), against.data(), result.data());
-     return compute_trace(result.data());
+static float evaluate_matmul(g_ptr<Crumb> eval, g_ptr<Crumb> against, g_ptr<Crumb> result) {
+     matmul(eval->data(), against->data(), result->data());
+     return compute_trace(result->data());
  }
  
- static float evaluate_matmul(const Crumb& eval, const Crumb& against) {
-     Crumb result{};
+ static float evaluate_matmul(g_ptr<Crumb> eval, g_ptr<Crumb> against) {
+     g_ptr<Crumb> result = make<Crumb>();
      return evaluate_matmul(eval, against, result);
  }
  
 
-static float evaluate_elementwise(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
+static float evaluate_elementwise(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against, int against_verb) {
     int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
     int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
 
      assert(eval_count == against_count); 
 
      float score = 0.0f;
-     const float* eval_ptr = &eval.mat[eval_start][0];
-     const float* against_ptr = &against.mat[against_start][0];
+     const float* eval_ptr = &eval->mat[eval_start][0];
+     const float* against_ptr = &against->mat[against_start][0];
      int total = eval_count * 10;
      for(int i = 0; i < total; i++) {
           score += eval_ptr[i] * against_ptr[i];
@@ -375,19 +406,19 @@ static float evaluate_elementwise(const Crumb& eval, int eval_verb, const Crumb&
      return score;
 }
 
-static float evaluate(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
+static float evaluate(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against, int against_verb) {
     return evaluate_elementwise(eval, eval_verb, against, against_verb);
 }
 
-static float sub_evaluate(const Crumb& eval, int eval_verb, const Crumb& against, int against_verb) {
+static float sub_evaluate(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against, int against_verb) {
     int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
     int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
 
     assert(eval_count == against_count); 
 
     float score = 0.0f;
-    const float* eval_ptr = &eval.mat[eval_start][0];
-    const float* against_ptr = &against.mat[against_start][0];
+    const float* eval_ptr = &eval->mat[eval_start][0];
+    const float* against_ptr = &against->mat[against_start][0];
     int total = eval_count * 10;
     for(int i = 0; i < total; i++) {
          score += eval_ptr[i] - against_ptr[i];
@@ -396,7 +427,7 @@ static float sub_evaluate(const Crumb& eval, int eval_verb, const Crumb& against
     return score;
 }
 
-static float evaluate_binary(const Crumb& a, int a_verb, const Crumb& b, int b_verb) {
+static float evaluate_binary(g_ptr<Crumb> a, int a_verb, g_ptr<Crumb> b, int b_verb) {
      int a_start = (a_verb >> 16) & 0xFFFF;
      int a_count = a_verb & 0xFFFF;
      int b_start = (b_verb >> 16) & 0xFFFF;
@@ -404,8 +435,8 @@ static float evaluate_binary(const Crumb& a, int a_verb, const Crumb& b, int b_v
      
      assert(a_count == b_count);
      
-     float* a_ptr = (float*)&a.mat[a_start][0];
-     float* b_ptr = (float*)&b.mat[b_start][0];
+     float* a_ptr = (float*)&a->mat[a_start][0];
+     float* b_ptr = (float*)&b->mat[b_start][0];
      
      int total_elements = a_count * 10;
      int matching_bits = 0;
@@ -422,7 +453,7 @@ static float evaluate_binary(const Crumb& a, int a_verb, const Crumb& b, int b_v
  }
 
 template<typename Op>
-static void apply_mask(Crumb& target, int target_verb, const Crumb& mask, int mask_verb, Op op) {
+static void apply_mask(g_ptr<Crumb> target, int target_verb, g_ptr<Crumb> mask, int mask_verb, Op op) {
     int target_start = (target_verb >> 16) & 0xFFFF;
     int target_count = target_verb & 0xFFFF;
     int mask_start = (mask_verb >> 16) & 0xFFFF;
@@ -430,8 +461,8 @@ static void apply_mask(Crumb& target, int target_verb, const Crumb& mask, int ma
     
     assert(target_count == mask_count);
     
-    float* target_ptr = &target.mat[target_start][0];
-    const float* mask_ptr = &mask.mat[mask_start][0];
+    float* target_ptr = &target->mat[target_start][0];
+    const float* mask_ptr = &mask->mat[mask_start][0];
     int total = target_count * 10;
     
     for(int i = 0; i < total; i++) {
@@ -439,26 +470,26 @@ static void apply_mask(Crumb& target, int target_verb, const Crumb& mask, int ma
     }
 }
 
-static void mult_mask(Crumb& t, int tv, const Crumb& m, int mv) {
+static void mult_mask(g_ptr<Crumb> t, int tv, g_ptr<Crumb> m, int mv) {
     apply_mask(t, tv, m, mv, [](float a, float b) { return a * b; });
 }
 
-static void div_mask(Crumb& t, int tv, const Crumb& m, int mv) {
+static void div_mask(g_ptr<Crumb> t, int tv, g_ptr<Crumb> m, int mv) {
     apply_mask(t, tv, m, mv, [](float a, float b) { return a / b; });
 }
 
-static void add_mask(Crumb& t, int tv, const Crumb& m, int mv) {
+static void add_mask(g_ptr<Crumb> t, int tv, g_ptr<Crumb> m, int mv) {
     apply_mask(t, tv, m, mv, [](float a, float b) { return a + b; });
 }
 
-static void sub_mask(Crumb& t, int tv, const Crumb& m, int mv) {
+static void sub_mask(g_ptr<Crumb> t, int tv, g_ptr<Crumb> m, int mv) {
     apply_mask(t, tv, m, mv, [](float a, float b) { return a - b; });
 }
 
-static void scale_mask(Crumb& target, int verb, float scalar) {
+static void scale_mask(g_ptr<Crumb> target, int verb, float scalar) {
      int start = (verb >> 16) & 0xFFFF;
      int count = verb & 0xFFFF;
-     float* ptr = &target.mat[start][0];
+     float* ptr = &target->mat[start][0];
      int total = count * 10;
      
      for(int i = 0; i < total; i++) {
@@ -466,11 +497,11 @@ static void scale_mask(Crumb& target, int verb, float scalar) {
      }
  }
 
-static Crumb randcrumb() {
-     Crumb seed;
+static g_ptr<Crumb> randcrumb() {
+     g_ptr<Crumb> seed = make<Crumb>();
      for(int r=0; r<CRUMB_ROWS; r++)
           for(int c=0; c<10; c++)
-               seed.mat[r][c] = randf(-1, 1);
+               seed->mat[r][c] = randf(-1, 1);
      return seed;
  }
 
@@ -478,7 +509,7 @@ static Crumb randcrumb() {
 
 static list<g_ptr<Single>> agents;
 static list<vec3> goals;
-static map<int,Crumb> crumbs;
+static map<int,g_ptr<Crumb>> crumbs;
 
  struct Instance : public q_object {
     g_ptr<Single> form = nullptr;
@@ -500,19 +531,26 @@ static map<int,Crumb> crumbs;
 
 struct c_node : public q_object {
     c_node() {
-        cmask.setmat(1.0f);
+        cmask = scene->create<Crumb>("Crumb");
+        cmask->setmat(1.0f);
     }
     c_node(std::string _label) {
         label = _label;
-        cmask.setmat(1.0f);
+        cmask = scene->create<Crumb>("Crumb");
+        cmask->setmat(1.0f);
+    }
+
+    ~c_node() {
+        scene->recycle(archetype);
+        scene->recycle(cmask);
     }
 
     std::string label;
-    Crumb archetype;
-    Crumb cmask;
+    g_ptr<Crumb> archetype = nullptr;
+    g_ptr<Crumb> cmask = nullptr;
     
     list<c_node*> parents;
-    list<Crumb> deltas;
+    list<g_ptr<Crumb>> deltas;
     list<g_ptr<c_node>> children;
     list<g_ptr<Instance>> instances; 
     list<g_ptr<c_node>> episodes;
@@ -520,12 +558,12 @@ struct c_node : public q_object {
 
     //DEBUG ONLY METHOD
     vec3 getPosition() {
-        return archetype.getPosition();
+        return archetype->getPosition();
     }
 
     //DEBUG ONLY METHOD
     int getID() {
-        return archetype.id;
+        return archetype->id;
     }
 
     bool operator==(g_ptr<c_node> other) {
@@ -573,7 +611,7 @@ struct c_node : public q_object {
         return n;
     }
 
-    float matches_category(const Crumb& item) {
+    float matches_category(g_ptr<Crumb> item) {
         return std::abs(sub_evaluate(archetype,IS,item,IS));
     }   
     float matches_category(g_ptr<Single> item) {
@@ -585,13 +623,13 @@ struct c_node : public q_object {
         }
     }   
 
-    // void add_to_category(Crumb& n_crumb) {
+    // void add_to_category(g_ptr<Crumb> n_crumb) {
     //     get_crumbs() << n_crumb;
     // }
     
-    g_ptr<c_node> subnode(const Crumb& seed) {
+    g_ptr<c_node> subnode(g_ptr<Crumb> seed) {
         g_ptr<c_node> new_cat = make<c_node>();
-        new_cat->archetype = std::move(seed);
+        new_cat->archetype = clone(seed);
         new_cat->parents << this;
         children << new_cat;
         
@@ -599,13 +637,13 @@ struct c_node : public q_object {
     }
     // void split(const list<list<int>>& to_split, int verb = ALL) {
     //     for(int s = 0; s<to_split.length();s++) {
-    //         list<Crumb> crumbs;
+    //         list<g_ptr<Crumb>> crumbs;
     //         for(int i=0;i<to_split[s].length();i++) {
     //                 crumbs.push(get_crumbs()[to_split[s][i]]);
     //         }
             
-    //         Crumb new_arc;
-    //         for(Crumb& c : crumbs) {
+    //         g_ptr<Crumb> new_arc;
+    //         for(g_ptr<Crumb> c : crumbs) {
     //                 add_mask(new_arc,verb,c,verb);
     //         }
     //         scale_mask(new_arc,verb,1.0f / crumbs.length());
@@ -671,28 +709,68 @@ list<g_ptr<Single>> objInSweep(g_ptr<Single> agent) {
     return to_return;
 }
 
+class tree_walker : public Object {
+public:
+    tree_walker() {}
+    tree_walker(g_ptr<c_node> _node) : node(_node) {}
+
+    g_ptr<c_node> node = nullptr;
+    g_ptr<Crumb> crumb = nullptr;
+
+    list<g_ptr<tree_walker>> neighbors() {
+        list<g_ptr<tree_walker>> to_return;
+        for(auto n : node->neighbors()) {
+            g_ptr<tree_walker> child = scene->create<tree_walker>("tree_walker");
+            child->node = n;
+            child->crumb = n->archetype;
+            to_return << child;
+        }
+        return to_return;
+    }
+
+    list<g_ptr<tree_walker>> episodes() {
+        list<g_ptr<tree_walker>> to_return;
+        for(int i = 0; i < node->episodes.length(); i++) {
+            g_ptr<tree_walker> child = scene->create<tree_walker>("tree_walker");
+            child->node = node->episodes[i];
+            if(crumb) {
+                child->crumb = clone(crumb);
+            } else {
+                child->crumb = scene->create<Crumb>("Crumb");
+            }
+            mult_mask(child->crumb, ALL, node->cmask, ALL);
+            if(i < node->deltas.length()) {
+                mult_mask(child->crumb, ALL, node->deltas[i], ALL);
+            }
+            to_return << child;
+        }
+        return to_return;
+    }
+};
 
 class nodenet : public Object {
 public:
-    nodenet(Crumb& agent_state) : state(agent_state) {
+    nodenet(g_ptr<Crumb> agent_state) : state(agent_state) {
         meta_root = make<c_node>("meta");
         obs_root = make<c_node>("observed");
 
         physics_attention << meta_root;
         cognitive_attention << obs_root;
 
+        cmask = scene->create<Crumb>("Crumb");
+
         for(int i = 0; i < CRUMB_ROWS; i++)
         for(int j = 0; j < 10; j++)
-            cmask.mat[i][j] = 1.0f;
+            cmask->mat[i][j] = 1.0f;
     };
     ~nodenet() {};
 
-    Crumb cmask;
+    g_ptr<Crumb> cmask = nullptr;
 
     g_ptr<c_node> meta_root = nullptr;
     g_ptr<c_node> obs_root = nullptr;
 
-    Crumb& state;
+    g_ptr<Crumb> state = nullptr;
     int agent_id = -1;
 
     int physics_focus = 4;
@@ -712,23 +790,19 @@ public:
         debug.clear();
     }
 
-    struct tree_walker : public q_object {
-        tree_walker() {}
-        tree_walker(g_ptr<c_node> _node) : node(_node) {}
-
-        g_ptr<c_node> node = nullptr;
-        Crumb* crumb = nullptr;
-    };
+   
 
     //Visit should return false to stop, true to expand.
     void walk_graph(g_ptr<c_node> start, 
-                std::function<bool(g_ptr<c_node>)> visit,
+                std::function<bool(g_ptr<tree_walker>)> visit,
                 std::function<list<g_ptr<tree_walker>>(g_ptr<tree_walker>)> expand,
                 bool breadth_first = false) {
 
         std::set<void*> visited;
         list<g_ptr<tree_walker>> queue;
-        queue << make<tree_walker>(start);
+        g_ptr<tree_walker> start_walker = scene->create<tree_walker>("tree_walker");
+        start_walker->node = start;
+        queue << start_walker;
 
         while(!queue.empty()) {
             g_ptr<tree_walker> current = breadth_first ? queue.first() : queue.last();
@@ -746,13 +820,13 @@ public:
         }
     }
 
-    void profile(g_ptr<c_node> start, std::function<bool(g_ptr<c_node>)> visit) {
-        walk_graph(start, visit, [](auto n) { return n->neighbors(); }, false);
+    void profile(g_ptr<c_node> start, std::function<bool(g_ptr<tree_walker>)> visit) {
+        walk_graph(start, visit, [](g_ptr<tree_walker> walker) { return walker->neighbors(); }, false);
     }
 
-    void propagate(g_ptr<c_node> start, int& energy, std::function<bool(g_ptr<c_node>)> visit) {
+    void propagate(g_ptr<c_node> start, int& energy, std::function<bool(g_ptr<tree_walker>)> visit) {
         walk_graph(start, 
-            [&](g_ptr<c_node> node) {
+            [&](g_ptr<tree_walker> node) {
                 if(energy <= 0) return false;
                 energy--;
                 return visit(node);
@@ -762,14 +836,14 @@ public:
         );
     }
 
-    void remember(g_ptr<c_node> start, int& energy, std::function<bool(g_ptr<c_node>)> visit) {
+    void remember(g_ptr<c_node> start, int& energy, std::function<bool(g_ptr<tree_walker>)> visit) {
         walk_graph(start, 
-            [&](g_ptr<c_node> node) {
+            [&](g_ptr<tree_walker> node) {
                 if(energy <= 0) return false;
                 energy--;
                 return visit(node);
             }, 
-            [](auto n) { return n->episodes; },
+            [](auto n) { return n->episodes(); },
             true  // BFS
         );
     }
@@ -777,22 +851,24 @@ public:
     g_ptr<c_node> match(g_ptr<c_node> start,g_ptr<Single> item) {
         g_ptr<c_node> to_return = nullptr;
         walk_graph(start, 
-            [&](g_ptr<c_node> node) {
-                to_return = node;
+            [&](g_ptr<tree_walker> node) {
+                to_return = node->node;
                 return true;
             }, 
-            [&](g_ptr<c_node> node) { 
-                list<g_ptr<c_node>> expand_to;
+            [&](g_ptr<tree_walker> walker) { 
+                list<g_ptr<tree_walker>> expand_to;
                 float best_match = 10000.0f;
                 g_ptr<c_node> best_node = nullptr;
-                for(auto c : node->children) {
+                for(auto node : walker->node->children) {
                     float match = node->matches_category(item);
                     if(match<best_match) {
                         best_match = match;
-                        best_node = c;
+                        best_node = node;
                     }
                 }
-                expand_to << best_node;
+                g_ptr<tree_walker> node_walker = scene->create<tree_walker>("tree_walker");
+                node_walker->node = best_node;
+                expand_to << node_walker;
                 return expand_to;
             },
             true  // BFS
@@ -800,9 +876,9 @@ public:
         return to_return;
     }
 
-    g_ptr<c_node> has_seen_before_cheat(const Crumb& thing) {
+    g_ptr<c_node> has_seen_before_cheat(g_ptr<Crumb> thing) {
         c_node* fallback = nullptr;
-        c_node* ptr = id_to_node.getOrDefault(thing.id,fallback);
+        c_node* ptr = id_to_node.getOrDefault(thing->id,fallback);
         if(ptr)
             return g_ptr<c_node>(ptr);
         else
@@ -810,18 +886,18 @@ public:
     }
  
     inline float navigation_focus() const {
-        return state.mat[0][1];
+        return state->mat[0][1];
     }
 
-    float spatial_salience(const Crumb& observation) {
+    float spatial_salience(g_ptr<Crumb> observation) {
         return evaluate(state, META, observation, META);
     }
 
-    float desire_salience(const Crumb& observation) {
+    float desire_salience(g_ptr<Crumb> observation) {
         return evaluate(state, DOES, observation, DOES);
     }
 
-    float salience(const Crumb& observation) {
+    float salience(g_ptr<Crumb> observation) {
         // float sp_sal = spatial_salience(observation);
         float ds_sal = desire_salience(observation);
         return ds_sal;
@@ -832,13 +908,13 @@ public:
         // return std::lerp(ds_sal,sp_sal,navigation_focus());
     }
 
-    bool in_attention(Crumb& thing) {
+    bool in_attention(g_ptr<Crumb> thing) {
         for(auto recent : physics_attention)
-        { if(thing.id==recent->getID()) return true; }
+        { if(thing->id==recent->getID()) return true; }
         return false;
     }
 
-    float relevance(Crumb& thing, float sal) {
+    float relevance(g_ptr<Crumb> thing, float sal) {
         if(sal < min_sal) return 0.0f;
         float min_current_salience = min_sal;
         for(auto attended : physics_attention) {
@@ -869,9 +945,9 @@ public:
     }
 
 
-    g_ptr<c_node> observe(Crumb& thing,g_ptr<Single> single) {
+    g_ptr<c_node> observe(g_ptr<Crumb> thing,g_ptr<Single> single) {
         g_ptr<c_node> node = make<c_node>();
-        node->archetype = thing;
+        node->archetype = clone(thing);
 
         g_ptr<c_node> best_node = closest_attended_node(single);
         node->parents << best_node.getPtr();
@@ -1001,25 +1077,13 @@ public:
     }
 
     void observe_instances(g_ptr<Single> agent,int on_frame) {
-        vec3 forward =  vis->forward;
-        vec3 right = vec3(forward.z(), 0, -forward.x()); 
-        float start_angle = -vis->cone_width / 2.0f;
-        float angle_step = vis->cone_width / (vis->num_rays - 1);
         list<g_ptr<Single>> observed_objects;
-        for(int i = 0; i < vis->num_rays; i++) {
-            float angle_deg = start_angle + i * angle_step;
-            float angle_rad = angle_deg * 3.14159f / 180.0f;
-            
-            vec3 ray_dir = vis->dirs[i];
-            float hit_dist = vis->dists[i];
-            float hit_cell = vis->cells[i];
-            bool curr_hit = (hit_cell >= 0 && !grid->cells[hit_cell].empty());
-            if(curr_hit) {
-                for(int obj_id : grid->cells[hit_cell]) {
-                    g_ptr<Single> single = scene->singles[obj_id];
-                    if(obj_id != agent->ID && !observed_objects.has(single)) {
-                        observed_objects << single;
-                    }
+        for(auto hit_cell : vis->cells) {
+            if(hit_cell==-1) continue;
+            for(int obj_id : grid->cells[hit_cell]) {
+                g_ptr<Single> single = scene->singles[obj_id];
+                if(obj_id != agent->ID && !observed_objects.has(single)) {
+                    observed_objects << single;
                 }
             }
         }
@@ -1027,7 +1091,8 @@ public:
         list<std::pair<g_ptr<Single>,c_node*>> add_inst;
 
         int energy = 1000;
-        propagate(obs_root,energy,[&observed_objects,&add_inst](g_ptr<c_node> node){
+        propagate(obs_root,energy,[&observed_objects,&add_inst](g_ptr<tree_walker> walker) {
+            g_ptr<c_node> node = walker->node;
             for(int i=observed_objects.length()-1;i>=0;i--) {
                 g_ptr<Single> s = observed_objects[i];
                 if(node->matches_category(s)==0.0f) { //setting it at 0.1 for now because we don't have big object diversity in the crumb
@@ -1051,12 +1116,12 @@ public:
                 }
             }
             if(!catagorized) {
-                Crumb arct = crumbs.get(o->ID);
-                arct.mat[CUR][CUR_OBSERVE] = 10.0f;
-                arct.mat[CUR][CUR_INTERACT] = 10.0f;
-                arct.mat[CUR][CUR_USE] = 10.0f;
-                arct.mat[CUR][CUR_DROP] = 10.0f;
-                arct.mat[CUR][CUR_HIT] = 10.0f;
+                g_ptr<Crumb> arct = clone(crumbs.get(o->ID));
+                arct->mat[CUR][CUR_OBSERVE] = 10.0f;
+                arct->mat[CUR][CUR_INTERACT] = 10.0f;
+                arct->mat[CUR][CUR_USE] = 10.0f;
+                arct->mat[CUR][CUR_DROP] = 10.0f;
+                arct->mat[CUR][CUR_HIT] = 10.0f;
                 g_ptr<c_node> new_node = obs_root->subnode(arct);
                 new_node->label = o->dtype; //debug label
                 new_cats << new_node;
@@ -1102,7 +1167,8 @@ public:
                 vis->features << gap_pos;
 
                 propagate(physics_attention.last(), search_energy, 
-                [&](g_ptr<c_node> node) {
+                [&](g_ptr<tree_walker> walker) {
+                    g_ptr<c_node> node = walker->node;
                     if(node->getID()==-1) return true;
                     if(scene->singles[node->getID()]->dtype != "gap") return true;
                     float spatial_dist = gap_pos.distance(node->getPosition());
@@ -1117,8 +1183,8 @@ public:
                     for(auto match : matching_nodes) {
                         for(int f = 0; f < 6; f++) {
                             //Update existing nodes
-                                // float delta = (query.mat[0][f] - match->archetype.mat[0][f]) * 0.1f;
-                                // match->archetype.mat[0][f] += delta;
+                                // float delta = (query->mat[0][f] - match->archetype->mat[0][f]) * 0.1f;
+                                // match->archetype->mat[0][f] += delta;
                         }
                     }
                     push_attention_head(matching_nodes[0]);  // Attend to first match
@@ -1137,8 +1203,8 @@ public:
                     marker->hide();
                     marker->dtype = "gap";
                     
-                    Crumb gap_crumb;
-                    gap_crumb.id = marker->ID;
+                    g_ptr<Crumb> gap_crumb = scene->create<Crumb>("Crumb");
+                    gap_crumb->id = marker->ID;
                     
                     crumbs.put(marker->ID, gap_crumb);
                     push_attention_head(observe(gap_crumb, marker));
@@ -1351,14 +1417,15 @@ public:
         }
     }
 
-    g_ptr<c_node> has_seen_before(const Crumb& thing, float focus) {
+    g_ptr<c_node> has_seen_before(g_ptr<Crumb> thing, float focus) {
         if(physics_attention.empty()) return nullptr;
         
         g_ptr<c_node> result = nullptr;
         int energy = (int)(focus * 500);
         //In the future, make it so we can use mulltiple memorable/salient nodes as propagation points for checks like this
-        propagate(physics_attention.last(), energy, [&](g_ptr<c_node> node) {
-            if(thing.id == node->getID()) {
+        propagate(physics_attention.last(), energy, [&](g_ptr<tree_walker> walker) {
+            g_ptr<c_node> node = walker->node;
+            if(thing->id == node->getID()) {
                 result = node;
                 return false; // Stop
             }
@@ -1369,10 +1436,11 @@ public:
     }
 
     //Returns a list of c_nodes in order of how strongly they activated in response to the crumb query, propagates with energy.
-    list<std::pair<g_ptr<c_node>, float>> imagine(g_ptr<c_node> source,  const Crumb& query, int query_verb, int target_verb, int energy) {
+    list<std::pair<g_ptr<c_node>, float>> imagine(g_ptr<c_node> source,  g_ptr<Crumb> query, int query_verb, int target_verb, int energy) {
         map<c_node*, float> activations;
         
-        propagate(source, energy, [&](g_ptr<c_node> node) {
+        propagate(source, energy, [&](g_ptr<tree_walker> walker) {
+            g_ptr<c_node> node = walker->node;
             float activation = evaluate(query, query_verb, node->archetype, target_verb);
             activations.put(node.getPtr(), activation);
             return true;
@@ -1387,31 +1455,39 @@ public:
         return results;
     }
 
-    list<Crumb> gather_states(g_ptr<Single> agent) {
-        list<Crumb> states; states << state;
+    list<g_ptr<Crumb>> gather_states(g_ptr<Single> agent) {
+        list<g_ptr<Crumb>> states; states << clone(state);
         list<int> ids_to_push;
         if(!agent->children.empty()) ids_to_push << agent->children[0]->ID;
-        //This will probably be murder on memory usage and performance, optimize it later if it pops up in profiling
-        for(auto cell : grid->cellsAround(agent->getPosition(),grid->cellSize*5.0f)) {
+        for(auto cell : vis->cells) {
+            if(cell==-1) continue;
             for(auto idx : grid->cells[cell]) {
                 ids_to_push.push_if_absent(idx);
             }
         }
         for(auto id : ids_to_push) {
             if(id==agent->ID) continue;
-            states << crumbs.get(id);
+            if(!crumbs.hasKey(id)) print("Crumbs does not have id: ",id);
+            else
+                states << clone(crumbs.get(id));
         }
+        return states;
     }
 
     //Example interpreter unit (like the cerbellum creates) turns the standard action struct into specific actions
     void execute_action_on_agent(const Action& action,g_ptr<Single> agent) {
 
         list<g_ptr<Single>> interactions;
-        list<Crumb> before = gather_states(agent);
+
+        list<g_ptr<Crumb>> before = gather_states(agent);
 
         switch(action.part_id) {
-            case 0: agent->setLinearVelocity(action.asvec3()); break;
-            case 1: agent->faceTo(action.asvec3()); break;
+            case 0: 
+            agent->setLinearVelocity(action.asvec3()); 
+            break;
+            case 1: 
+            agent->faceTo(action.asvec3()); 
+            break;
             case 2: { //INTERACT
                 g_ptr<Single> obj = objInFront(agent);
                 if(obj) {
@@ -1445,25 +1521,25 @@ public:
             } break;
         }
 
-        list<Crumb> after = gather_states(agent);
+        list<g_ptr<Crumb>> after = gather_states(agent);
         for(auto item : interactions) {
             g_ptr<c_node> cat = match(obs_root,item);
 
-            map<int, Crumb> before_map, after_map;
-            for(auto& crumb : before) before_map[crumb.id] = crumb;
-            for(auto& crumb : after) after_map[crumb.id] = crumb;
+            map<int, g_ptr<Crumb>> before_map, after_map;
+            for(auto& crumb : before) before_map[crumb->id] = crumb;
+            for(auto& crumb : after) after_map[crumb->id] = crumb;
             
             list<int> destroyed_ids;
-            list<Crumb> changed_crumbs;
-            list<Crumb> created_crumbs;
+            list<g_ptr<Crumb>> changed_crumbs;
+            list<g_ptr<Crumb>> created_crumbs;
             
             for(auto& [id, before_crumb] : before_map.entrySet()) {
                 if(!after_map.hasKey(id)) {
                     destroyed_ids << id;
                 } else {
-                    Crumb delta = after_map[id];
+                    g_ptr<Crumb> delta = after_map[id];
                     sub_mask(delta, ALL, before_crumb, ALL);
-                    if(delta.absSum()>0.001f) {
+                    if(delta->absSum()>0.001f) {
                         changed_crumbs << delta;
                     }
                 }
@@ -1477,7 +1553,6 @@ public:
             
             //form_episode(cat, action.part_id, changed_crumbs, destroyed_ids, created_crumbs);
         }
-
     }
 
      // Core visualization primitive
@@ -1489,7 +1564,7 @@ public:
             
             // Node color logic
             std::string color = "green";
-            // if(current->archetype.mat[0][1] < 3.0f) color = "white";
+            // if(current->archetype->mat[0][1] < 3.0f) color = "white";
             if(current == highlight) color = "black";
             
             // Node marker
@@ -1535,7 +1610,6 @@ public:
         }
     }
 
-    // Simplified public methods
     void visualize_structure(g_ptr<c_node> root = nullptr) {
         clear_debug();
         if(!root) root = physics_attention.empty() ? meta_root : physics_attention.last();
@@ -1543,7 +1617,8 @@ public:
         list<g_ptr<c_node>> visited_nodes;
         std::set<int> visited_ids;
         
-        profile(root, [&](g_ptr<c_node> node) {
+        profile(root, [&](g_ptr<tree_walker> walker) {
+            g_ptr<c_node> node = walker->node;
             if(visited_ids.count(node->getID()) > 0) return false;
             visited_ids.insert(node->getID());
             visited_nodes << node;
@@ -1986,7 +2061,7 @@ int main() {
 
      make_button("test");
 
-     int amt = 1;
+     int amt = 100;
      float agents_per_unit = 0.3f;
      float total_area = amt / agents_per_unit;
      float side_length = std::sqrt(total_area);
@@ -2103,7 +2178,7 @@ int main() {
      scene->define("crumb",Script<>("make_crumb",[c_model,phys](ScriptContext& ctx){
           g_ptr<Single> q = make<Single>(c_model);
           scene->add(q);
-          q->scale(0.5f);
+          q->setScale(0.5f);
           q->setPhysicsState(P_State::NONE);
           q->setColor(vec4(0,0,1,1));
           q->opt_ints = list<int>(4,0);
@@ -2111,6 +2186,27 @@ int main() {
           q->opt_vec_3 = vec3(0,0,0);
           ctx.set<g_ptr<Object>>("toReturn",q);
      }));
+
+     scene->define("Crumb",[](){
+        g_ptr<Crumb> crumb = make<Crumb>();
+        return crumb;
+     });
+     scene->add_initilizer("Crumb",[](g_ptr<Object> obj){
+        if(auto crumb = g_dynamic_pointer_cast<Crumb>(obj)) {
+            crumb->setmat(0.0f);
+        }
+     });
+
+     scene->define("tree_walker",[](){
+        g_ptr<tree_walker> walker = make<tree_walker>();
+        return walker;
+     });
+     scene->add_initilizer("tree_walker",[](g_ptr<Object> obj){
+        if(auto walker = g_dynamic_pointer_cast<tree_walker>(obj)) {
+            walker->node = nullptr;
+            walker->crumb = nullptr;
+        }
+     });
 
     scene->define("berry",[berry_model](){
         g_ptr<Single> berry= make<Single>(berry_model);
@@ -2126,12 +2222,12 @@ int main() {
             //Intilize
             berry->setPhysicsState(P_State::PASSIVE);
             addToGrid(berry);
-            Crumb berry_crumb; //Intilize it with evrything
-            berry_crumb.id = berry->ID;
-            berry_crumb.mat[OBS][0] = 0.01f; //Is small
+            g_ptr<Crumb> berry_crumb = scene->create<Crumb>("Crumb"); //Intilize it with evrything
+            berry_crumb->id = berry->ID;
+            berry_crumb->mat[OBS][0] = 0.01f; //Is small
             
-            berry_crumb.mat[LER][BOREDOM] = 1.1f; 
-            berry_crumb.mat[LER][HUNGER] = 2.3f; 
+            berry_crumb->mat[LER][BOREDOM] = 1.1f; 
+            berry_crumb->mat[LER][HUNGER] = 2.3f; 
             crumbs.put(berry->ID,berry_crumb);
 
             berry->addScript("onInteract",[berry](ScriptContext& ctx){
@@ -2194,11 +2290,11 @@ int main() {
             bush->setColor(vec4(0.6f,0.3f,0.1f,1));
             bush->setPhysicsState(P_State::PASSIVE);
             addToGrid(bush);
-            Crumb bush_crumb; //Intilize it with evrything
-            bush_crumb.id = bush->ID;
-            bush_crumb.mat[OBS][0] = 0.06f; //Is slightly bigger than a mouse
-            bush_crumb.mat[CUR][CUR_OBSERVE] = 10.0f;
-            bush_crumb.mat[CUR][CUR_INTERACT] = 10.0f;
+            g_ptr<Crumb> bush_crumb = scene->create<Crumb>("Crumb"); //Intilize it with evrything
+            bush_crumb->id = bush->ID;
+            bush_crumb->mat[OBS][0] = 0.06f; //Is slightly bigger than a mouse
+            bush_crumb->mat[CUR][CUR_OBSERVE] = 10.0f;
+            bush_crumb->mat[CUR][CUR_INTERACT] = 10.0f;
     
             crumbs.put(bush->ID,bush_crumb);
     
@@ -2282,7 +2378,7 @@ int main() {
     //     return q;
     //  });
     //  make_maze();
-     int grass_count = (int)(grid_size * grid_size * 0.04f);
+     int grass_count = (int)(grid_size * grid_size * 0.02f);
      for(int i = 0; i < grass_count; i++) {
          g_ptr<Single> box = make<Single>(grass_model);
          scene->add(box);
@@ -2297,14 +2393,14 @@ int main() {
          box->opt_ints << randi(1, 10);
          box->opt_floats << -1.0f;
          addToGrid(box);
-         Crumb mem;
+         g_ptr<Crumb> mem = scene->create<Crumb>("Crumb");
          for(int r = 0; r < CRUMB_ROWS; r++) {
              for(int col = 0; col < 10; col++) {
-                 mem.mat[r][col] = 0.0f;
+                 mem->mat[r][col] = 0.0f;
              }
          }
-         mem.mat[OBS][0] = 0.2f; //Grass sized
-         mem.id = box->ID;
+         mem->mat[OBS][0] = 0.2f; //Grass sized
+         mem->id = box->ID;
          crumbs.put(box->ID,mem);
      }
 
@@ -2315,9 +2411,9 @@ int main() {
      // clover->setPosition({0,0,0});
      // clover->setPhysicsState(P_State::PASSIVE);
      // addToGrid(clover);
-     // Crumb clover_crumb;
-     // clover_crumb.mat[3][0] = 0.5f; //Satiety
-     // clover_crumb.mat[3][1] = 1.3f; //Shelter
+     // g_ptr<Crumb> clover_crumb;
+     // clover_crumb->mat[3][0] = 0.5f; //Satiety
+     // clover_crumb->mat[3][1] = 1.3f; //Shelter
      // clover_crumb.form = clover;
      // crumbs.put(clover->ID,clover_crumb);
 
@@ -2388,21 +2484,21 @@ int main() {
           marker->setPhysicsState(P_State::NONE);
           goals << marker->getPosition();
 
-          Crumb mem;
-          mem.mat[MET][0] = 1.0f; //Distance saliance factor
-          mem.mat[MET][1] = 0.1f; //Navigation focus
-          mem.mat[MET][2] = 1.0f; //Salience impactor
+          g_ptr<Crumb> mem = scene->create<Crumb>("Crumb");
+          mem->mat[MET][0] = 1.0f; //Distance saliance factor
+          mem->mat[MET][1] = 0.1f; //Navigation focus
+          mem->mat[MET][2] = 1.0f; //Salience impactor
 
-          mem.mat[CUR][CUR_OBSERVE] = 0;
-          mem.mat[CUR][CUR_INTERACT] = 0;
-          mem.mat[CUR][CUR_USE] = 0; 
-          mem.mat[CUR][CUR_DROP] = 0; 
-          mem.mat[CUR][CUR_HIT] = 0; 
+          mem->mat[CUR][CUR_OBSERVE] = 0;
+          mem->mat[CUR][CUR_INTERACT] = 0;
+          mem->mat[CUR][CUR_USE] = 0; 
+          mem->mat[CUR][CUR_DROP] = 0; 
+          mem->mat[CUR][CUR_HIT] = 0; 
 
-          mem.mat[LER][BOREDOM] = 0;
-          mem.mat[LER][HUNGER] = 0; 
-          mem.mat[LER][FATIGUE] = 0;
-          mem.id = agent->ID;
+          mem->mat[LER][BOREDOM] = 0;
+          mem->mat[LER][HUNGER] = 0; 
+          mem->mat[LER][FATIGUE] = 0;
+          mem->id = agent->ID;
           crumbs.put(agent->ID,mem);
 
           g_ptr<nodenet> memory = make<nodenet>(mem);
@@ -2410,10 +2506,10 @@ int main() {
 
 
 
-          Crumb mem_root;
+          g_ptr<Crumb> mem_root = scene->create<Crumb>("Crumb");
           g_ptr<Single> root_form = scene->create<Single>("crumb");
           root_form->setPosition(base_pos);
-          mem_root.id = root_form->ID;
+          mem_root->id = root_form->ID;
           memory->meta_root->archetype = mem_root;
           memory->obs_root->archetype = mem_root;
           memory->id_to_node.put(root_form->ID,memory->meta_root.getPtr());
@@ -2545,19 +2641,19 @@ int main() {
                     //     90.0f,  // vertical_fov (90° up-down, human is ~135° but asymmetric)
                     //     30.0f   // ray_distance
                     // );
-                    //memory->see2d(agent,num_rays,ray_distance,cone_width);
+                    memory->see2d(agent,num_rays,ray_distance,cone_width);
                     #if GTIMERS
                         timers << l.end(); timer_labels << "raycast_sample"; l.start();
                     #endif
-                    //memory->process_visual_for_gaps(agent);
+                    memory->process_visual_for_gaps(agent);
                     #if GTIMERS
-                        timers << l.end(); timer_labels << "feature_detection"; l.start();
+                        timers << l.end(); timer_labels << "process_visual_for_gaps"; l.start();
                     #endif
-                    //memory->observe_instances(agent,on_frame);
+                    memory->observe_instances(agent,on_frame);
                     #if GTIMERS
                         timers << l.end(); timer_labels << "observe_instances"; l.start();
                     #endif
-                    //vec3 environmental_force = memory->steering_force(agent,goal,goal_focus).nY(); //nY so that it's 2d
+                    vec3 environmental_force = memory->steering_force(agent,goal,goal_focus).nY(); //nY so that it's 2d
                     #if GTIMERS
                     timers << l.end(); timer_labels << "derive_force";
                     #endif
@@ -2630,9 +2726,9 @@ int main() {
     //  berry->setPhysicsState(P_State::PASSIVE);
     //  addToGrid(berry);
     //  // grid->make_seethru(berry->ID);
-    //  Crumb berry_crumb;
-    //  berry_crumb.mat[3][0] = 1.3f; //Satiety
-    //  berry_crumb.mat[3][1] = 0.5f; //Shelter
+    //  g_ptr<Crumb> berry_crumb;
+    //  berry_crumb->mat[3][0] = 1.3f; //Satiety
+    //  berry_crumb->mat[3][1] = 0.5f; //Shelter
     //  berry_crumb.id = berry->ID;
     //  crumbs.put(berry->ID,berry_crumb);
     //  //crumb_managers[0]->observe(berry_crumb,berry);
@@ -2669,47 +2765,40 @@ int main() {
      S_Tool phys_logger;
      #if GTIMERS
      phys_logger.log = [phys,&total_times,amt](){
-          map<std::string,double> times;
-          int accum4 = 0;
-          int accum5 = 0;
-          for(auto a : agents) {
-               for(int i=0;i<a->timers.length();i++) {
-                    times.getOrPut(a->timer_labels[i],0) += a->timers[i];
-               }
-               accum4 += a->opt_ints[4];
-               accum5 += a->opt_ints[5];
-               a->opt_ints[5] = 0;
-          }
-          print("------------\n AGENT JOINT TIMES");
-          for(auto e : times.entrySet()) {
-               print(e.key,": ",ftime(e.value)," (total: ",ftime(total_times.getOrDefault(e.key,0.0)),")");
-          }
-          for(auto e : total_times.entrySet()) {
-               if(!times.hasKey(e.key)) {
-                    print("(",e.key,": ",ftime(e.value),")");
-               }
+        map<std::string,double> times;
+        int accum4 = 0;
+        int accum5 = 0;
+        for(auto a : agents) {
+            for(int i=0;i<a->timers.length();i++) {
+                times.getOrPut(a->timer_labels[i],0) += a->timers[i];
+            }
+            accum4 += a->opt_ints[4];
+            accum5 += a->opt_ints[5];
+        //    print("C");
+        //    a->opt_ints[5] = 0;
+        //    print("D");
+        }
+        print("------------\n AGENT JOINT TIMES");
+        for(auto e : times.entrySet()) {
+            print(e.key,": ",ftime(e.value)," (total: ",ftime(total_times.getOrDefault(e.key,0.0)),")");
+        }
+        for(auto e : total_times.entrySet()) {
+            if(!times.hasKey(e.key)) {
+                print("(",e.key,": ",ftime(e.value),")");
+            }
 
-          }
-          total_times.clear();
-        //   print("Total crumbs observed: ",accum4);
-        //   print("Evaluated spatial queries since last log: ",accum5);
+        }
+        total_times.clear();
 
-        //   std::function<int(g_ptr<c_node>)> instances_in_cateogry = [&](g_ptr<c_node> c){
-        //        int total = c->store->crumbs.length();
-        //        for(auto child : c->children) {
-        //             total += instances_in_cateogry(child);
-        //        }
-        //        return total;
-        //   };
-
-        //   int total = 0;
-        //   int start_idx = randi(0,amt-1);
-        //   for(int i=start_idx;i<start_idx+10;i++) {
-        //        if(i>=amt) break;
-        //        g_ptr<nodenet> c = crumb_managers[i];
-        //        total += instances_in_cateogry(c->meta_root);
-        //   }
-        //   print("Avg crumbs in memory: ",total/10);
+        int total = 0;
+        int largest = 0;
+        for(auto c : grid->cells) {
+            total += c.length();
+            if(c.length()>largest) {
+                largest = c.length();
+            }
+        }
+        print("Cell averege: ",(float)total/grid->cells.length()," Max: ",largest);
      };
      #endif
 
@@ -2889,6 +2978,34 @@ int main() {
      S_Tool s_tool;
      #if GTIMERS
           s_tool.log_fps = true;
+        //   update_logger.log = [](){
+        //     print("Singles length: ",scene->singles.length());
+        //     print("Quads length: ",scene->quads.length());
+
+        //     print("Instanced models length: ",scene->instancedModels.length());
+        //     print("Instanced geoms length: ",scene->instancedGeoms.length());
+
+        //     print("Instanced transforms length: ",scene->instancedTransforms.length());
+        //     print("Instanced colors length: ",scene->instancedColors.length());
+
+        //     print("Crumbs Map length: ",crumbs.entrySet().length());
+
+        //     print("ALLOCATED OBJECTS: ");
+        //     for(auto e : scene->types.entrySet()) {
+        //         printnl("     ",e.key,": ",e.value->objects.length());
+        //         if(!e.value->objects.empty()) {
+        //             float active_per = 0.0f;
+        //             for(auto o : e.value->objects) {
+        //                 if(o->isActive()) active_per++;
+        //             }
+        //             active_per/=e.value->objects.length();
+        //             active_per*=100.0f;
+        //             print(" [REF: ",e.value->objects.rand()->getRefCount(),"|ACTIVE:",active_per,"%]");
+        //         } else {
+        //             print();
+        //         }
+        //     }
+        //   };
      #endif
 
     auto berry = scene->create<Single>("berry_bush");
@@ -2910,17 +3027,17 @@ int main() {
     fir->setPhysicsState(P_State::FREE);
     fir->getLayer().setLayer(0);
     fir->getLayer().setCollision(1);
-    Crumb fircrumb;
-    fircrumb.id = fir->ID;
+    g_ptr<Crumb> fircrumb = scene->create<Crumb>("Crumb");
+    fircrumb->id = fir->ID;
     g_ptr<nodenet> net = make<nodenet>(fircrumb);
     net->agent_id = fir->ID;
     fir->UUID = crumb_managers.length();
     crumbs.put(fir->ID,fircrumb);
 
-    Crumb mem_root;
+    g_ptr<Crumb> mem_root = scene->create<Crumb>("Crumb");
     g_ptr<Single> root_form = scene->create<Single>("crumb");
     root_form->setPosition(fir->getPosition());
-    mem_root.id = root_form->ID;
+    mem_root->id = root_form->ID;
     net->meta_root->archetype = mem_root;
     net->obs_root->archetype = mem_root;
     net->id_to_node.put(root_form->ID,net->meta_root.getPtr());
@@ -2929,6 +3046,8 @@ int main() {
     
     bool control_fir = true;
     int cam_mode = 2;
+
+    // print(fircrumb->getRefCount()," : ",fircrumb->isActive()?"ACTIVE":"INACTIVE"," : ",fircrumb->recycled.load()?"FREE":"USED");
 
      start::run(window,d,[&]{
           s_tool.tick();
@@ -3010,9 +3129,9 @@ int main() {
                 net->execute_action_on_agent({2},fir);
             }
             if(pressed(R)) { //USE
-                //print("BEFORE: ",net->state.mat[LER][0]," | ",fircrumb.mat[LER][0]," | ",crumbs[fir->ID].mat[LER][0]);
+                //print("BEFORE: ",net->state->mat[LER][0]," | ",fircrumb->mat[LER][0]," | ",crumbs[fir->ID]->mat[LER][0]);
                 net->execute_action_on_agent({3},fir);
-                //print("AFTER: ",net->state.mat[LER][0]," | ",fircrumb.mat[LER][0]," | ",crumbs[fir->ID].mat[LER][0]);
+                //print("AFTER: ",net->state->mat[LER][0]," | ",fircrumb->mat[LER][0]," | ",crumbs[fir->ID]->mat[LER][0]);
             }
             if(pressed(Q)) { //DROP
                 net->execute_action_on_agent({4},fir);

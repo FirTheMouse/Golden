@@ -585,10 +585,10 @@ public:
         g_ptr<Type> type = getType(label);
         if(type) {
             g_ptr<Object> obj = type->create();
+            obj->dtype = label;
+            if(auto sobj = g_dynamic_pointer_cast<S_Object>(obj)){reactivate(sobj);}
             if(auto cobj = g_dynamic_pointer_cast<T>(obj))
             {
-                cobj->dtype = label;
-                reactivate(cobj);
                 return cobj;
             }
             return nullptr;
@@ -607,7 +607,7 @@ public:
 
         g_ptr<Type> type = getType(useType);
         if(type) {
-            deactivate(item);
+            if(auto sobj = g_dynamic_pointer_cast<S_Object>(item)){deactivate(sobj);}
             type->recycle(item);
         }
         else

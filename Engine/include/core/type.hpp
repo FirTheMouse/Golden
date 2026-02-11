@@ -1056,25 +1056,26 @@ public:
 
     g_ptr<Object> create() {
         int next_id = get_next();
+        g_ptr<Object> object = nullptr;
         if(next_id!=-1)
         {
-            auto obj = objects.get(next_id);
-            obj->recycled.store(false);
+            object = objects.get(next_id);
             for(int i=0;i<init_funcs.size();i++) {
-                init_funcs[i](obj);
+                init_funcs[i](object);
             }
-            return obj;
         }
         else
         {
-            g_ptr<Object> object = make_func();
+            object = make_func();
             object->type_ = this; //May want to move this into the makeFunc to give more user control
             for(int i=0;i<init_funcs.size();i++) {
                 init_funcs[i](object);
             }
             store(object);
-            return object;
         }
+        reactivate(object);
+        object->recycled.store(false);
+        return object;
     }
 
     private:
