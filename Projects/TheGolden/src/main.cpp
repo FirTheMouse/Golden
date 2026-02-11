@@ -299,6 +299,27 @@ struct Crumb {
         return CRUMB_ROWS;
     }
 
+    inline float sum() {
+        float s = 0.0f;
+        for(int r = 0; r < CRUMB_ROWS; r++) {
+            for(int c = 0; c < 10; c++) {
+                s+=mat[r][c];
+            }
+        }
+        return s;
+    }
+
+    inline float absSum() {
+        float s = 0.0f;
+        for(int r = 0; r < CRUMB_ROWS; r++) {
+            for(int c = 0; c < 10; c++) {
+                s+=std::abs(mat[r][c]);
+            }
+        }
+        return s;
+    }
+     
+
     //DEBUG ONLY METHOD
     vec3 getPosition() {
         if(is_grid)
@@ -491,8 +512,11 @@ struct c_node : public q_object {
     Crumb cmask;
     
     list<c_node*> parents;
+    list<Crumb> deltas;
     list<g_ptr<c_node>> children;
     list<g_ptr<Instance>> instances; 
+    list<g_ptr<c_node>> episodes;
+
 
     //DEBUG ONLY METHOD
     vec3 getPosition() {
@@ -688,18 +712,26 @@ public:
         debug.clear();
     }
 
-    
+    struct tree_walker : public q_object {
+        tree_walker() {}
+        tree_walker(g_ptr<c_node> _node) : node(_node) {}
+
+        g_ptr<c_node> node = nullptr;
+        Crumb* crumb = nullptr;
+    };
+
     //Visit should return false to stop, true to expand.
     void walk_graph(g_ptr<c_node> start, 
                 std::function<bool(g_ptr<c_node>)> visit,
-                std::function<list<g_ptr<c_node>>(g_ptr<c_node>)> expand,
+                std::function<list<g_ptr<tree_walker>>(g_ptr<tree_walker>)> expand,
                 bool breadth_first = false) {
+
         std::set<void*> visited;
-        list<g_ptr<c_node>> queue;
-        queue << start;
+        list<g_ptr<tree_walker>> queue;
+        queue << make<tree_walker>(start);
 
         while(!queue.empty()) {
-            g_ptr<c_node> current = breadth_first ? queue.first() : queue.last();
+            g_ptr<tree_walker> current = breadth_first ? queue.first() : queue.last();
             if(breadth_first) 
                 queue.removeAt(0);
             else
@@ -728,6 +760,44 @@ public:
             [](auto n) { return n->neighbors(); },
             true  // BFS
         );
+    }
+
+    void remember(g_ptr<c_node> start, int& energy, std::function<bool(g_ptr<c_node>)> visit) {
+        walk_graph(start, 
+            [&](g_ptr<c_node> node) {
+                if(energy <= 0) return false;
+                energy--;
+                return visit(node);
+            }, 
+            [](auto n) { return n->episodes; },
+            true  // BFS
+        );
+    }
+
+    g_ptr<c_node> match(g_ptr<c_node> start,g_ptr<Single> item) {
+        g_ptr<c_node> to_return = nullptr;
+        walk_graph(start, 
+            [&](g_ptr<c_node> node) {
+                to_return = node;
+                return true;
+            }, 
+            [&](g_ptr<c_node> node) { 
+                list<g_ptr<c_node>> expand_to;
+                float best_match = 10000.0f;
+                g_ptr<c_node> best_node = nullptr;
+                for(auto c : node->children) {
+                    float match = node->matches_category(item);
+                    if(match<best_match) {
+                        best_match = match;
+                        best_node = c;
+                    }
+                }
+                expand_to << best_node;
+                return expand_to;
+            },
+            true  // BFS
+        );
+        return to_return;
     }
 
     g_ptr<c_node> has_seen_before_cheat(const Crumb& thing) {
@@ -798,37 +868,6 @@ public:
         }
     }
 
-    // g_ptr<c_node> closest_visible_node(const vec3& pos, list<int> exclude_ids = list<int>{}, list<std::string> match_dtype = list<std::string>{}) {
-    //     float best_dist = 1000.0f;
-    //     g_ptr<c_node> best_node = nullptr;
-    //     exclude_ids << agent_id;
-    //     for(auto e : id_to_node.entrySet()) {
-    //         if(!match_dtype.empty()) {
-    //                 bool cont = false;
-    //                 for(auto s : match_dtype) {
-    //                     if(scene->singles[e.key]->dtype!=s) {
-    //                         cont = true; break;
-    //                     }
-    //                 }
-    //                 if(cont) continue;
-    //         }
-
-    //         vec3 npos = vec3(scene->transforms[e.key][3]);
-    //         float dist = npos.distance(pos);
-    //         if(dist<best_dist) {
-    //                 exclude_ids << e.key;
-    //                 if(grid->can_see(npos,pos,exclude_ids)) {
-    //                     best_node = g_ptr<c_node>(e.value);
-    //                     best_dist = dist;
-    //                 }
-    //                 exclude_ids.pop();
-    //         }
-    //     }
-    //     return best_node;
-    // }
-    // g_ptr<c_node> closest_visible_node(g_ptr<Single> single) {
-    //     return closest_visible_node(single->getPosition(),{single->ID},{single->dtype});
-    // }
 
     g_ptr<c_node> observe(Crumb& thing,g_ptr<Single> single) {
         g_ptr<c_node> node = make<c_node>();
@@ -1348,9 +1387,28 @@ public:
         return results;
     }
 
+    list<Crumb> gather_states(g_ptr<Single> agent) {
+        list<Crumb> states; states << state;
+        list<int> ids_to_push;
+        if(!agent->children.empty()) ids_to_push << agent->children[0]->ID;
+        //This will probably be murder on memory usage and performance, optimize it later if it pops up in profiling
+        for(auto cell : grid->cellsAround(agent->getPosition(),grid->cellSize*5.0f)) {
+            for(auto idx : grid->cells[cell]) {
+                ids_to_push.push_if_absent(idx);
+            }
+        }
+        for(auto id : ids_to_push) {
+            if(id==agent->ID) continue;
+            states << crumbs.get(id);
+        }
+    }
 
     //Example interpreter unit (like the cerbellum creates) turns the standard action struct into specific actions
     void execute_action_on_agent(const Action& action,g_ptr<Single> agent) {
+
+        list<g_ptr<Single>> interactions;
+        list<Crumb> before = gather_states(agent);
+
         switch(action.part_id) {
             case 0: agent->setLinearVelocity(action.asvec3()); break;
             case 1: agent->faceTo(action.asvec3()); break;
@@ -1359,16 +1417,19 @@ public:
                 if(obj) {
                     ScriptContext ctx; ctx.set<g_ptr<Single>>("from",agent);
                     obj->run("onInteract",ctx);
+                    interactions << obj;
                 }
             } break;
             case 3: { //USE
                 if(!agent->children.empty()) {
                     agent->children[0]->run("onUse");
+                    interactions << agent->children[0];
                 }
             } break;
             case 4: { //DROP
                 if(!agent->children.empty()) {
                     agent->children[0]->run("onDrop");
+                    interactions << agent->children[0];
                 }
             } break;
             case 5: {
@@ -1378,10 +1439,45 @@ public:
                     if(obj) {
                         ScriptContext ctx; ctx.set<g_ptr<Single>>("from",agent);
                         obj->run("onHit",ctx);
+                        interactions << obj;
                     }
                 }
             } break;
         }
+
+        list<Crumb> after = gather_states(agent);
+        for(auto item : interactions) {
+            g_ptr<c_node> cat = match(obs_root,item);
+
+            map<int, Crumb> before_map, after_map;
+            for(auto& crumb : before) before_map[crumb.id] = crumb;
+            for(auto& crumb : after) after_map[crumb.id] = crumb;
+            
+            list<int> destroyed_ids;
+            list<Crumb> changed_crumbs;
+            list<Crumb> created_crumbs;
+            
+            for(auto& [id, before_crumb] : before_map.entrySet()) {
+                if(!after_map.hasKey(id)) {
+                    destroyed_ids << id;
+                } else {
+                    Crumb delta = after_map[id];
+                    sub_mask(delta, ALL, before_crumb, ALL);
+                    if(delta.absSum()>0.001f) {
+                        changed_crumbs << delta;
+                    }
+                }
+            }
+            
+            for(auto& [id, after_crumb] : after_map.entrySet()) {
+                if(!before_map.hasKey(id)) {
+                    created_crumbs << after_crumb;
+                }
+            }
+            
+            //form_episode(cat, action.part_id, changed_crumbs, destroyed_ids, created_crumbs);
+        }
+
     }
 
      // Core visualization primitive
