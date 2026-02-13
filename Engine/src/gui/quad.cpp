@@ -171,20 +171,10 @@ vec2 Quad::getCenter() {
 
     // Position is translation component
     glm::vec3 pos = glm::vec3(mat[3]);
-    position = vec2(pos);
 
     // Center is position + half-extents
     vec2 center(pos + halfExtents);
-    if(!has("char"))
-    {
-        return center;
-    }
-    else
-    {
-        auto textQuad = text::parent_of(this);
-        vec2 visualCenter = text::center_of(textQuad);
-        return visualCenter;
-    }
+    return center;
 }
 float Quad::getDepth() {
     return (float)getTransform()[3][3];
@@ -379,7 +369,7 @@ void Quad::updateTransform(bool joined) {
 
     if(joined) {
         bool doUpdate = true;
-        if(!unlockJoint && (!parents.empty()||parent) && joint) {
+        if(!unlockJoint && joint) {
             doUpdate = joint();
         }
 

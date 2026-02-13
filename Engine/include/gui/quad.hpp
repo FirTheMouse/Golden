@@ -47,6 +47,7 @@ public:
     bool unlockJoint = false;
     //This is meant to be used for Snap to add break-points in parent chains, but it doesn't have to be
     bool isAnchor = false;
+    bool isSelectable = true;
 
     //These are just here as shared calculation sketchpads for Twig-Snap
     float opt_y_offset = 0;
@@ -60,6 +61,7 @@ public:
     char opt_char = ' ';
     g_ptr<Quad> opt_ptr = nullptr;
     vec2 t_vec = {0,0};
+    list<int> opt_idx_cache;
 
     list<float> opt_list_float;
     list<int> opt_list_lint;
@@ -72,6 +74,21 @@ public:
     bool culled();
 
     void addChild(g_ptr<Quad> q);
+    list<g_ptr<Quad>> allChildren(){
+        list<g_ptr<Quad>> to_return;
+        list<g_ptr<Quad>> to_check;
+        to_check.pushAll(children);
+        while(!to_check.empty()) {
+            auto current = to_check[0];
+            to_check.removeAt(0);
+            to_return.push(current);
+            
+            for(auto child : current->children) {
+                to_check.push(child);
+            }
+        }
+        return to_return;
+    }
 
     g_ptr<Geom> getGeom();
     glm::mat4& getTransform();

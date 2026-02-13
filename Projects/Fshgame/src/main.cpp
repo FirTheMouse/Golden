@@ -125,11 +125,11 @@ int main()  {
     // },0.008f);
     // thread->pause();
 
-    int TESTING = 10;
+    int TESTING = 2;
     if(TESTING == 0) {
         g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",8);
         twig = make<Text>(font,scene);
-        boxes << twig->makeText(
+        boxes << twig->initText(
         "There is no single elected official or leader of the Republic, instead power is distributed to three bodies:"
         "\nthe Administrative Council, composed of the 7 heads of each of the major ministries, the Popular Assembly," 
         "\ncomposed of 137 elected representatives by population, and the Legislature, composed of 61 representatives"
@@ -295,7 +295,7 @@ int main()  {
         box->setPosition({randf(0,win.x()),randf(0,win.y())});
         boxes << box;
 
-        for(int i=0;i<10000;i++) {
+        for(int i=0;i<10;i++) {
             g_ptr<Quad> box2 = make<Quad>();
             scene->add(box2);
             box2->setColor(Color::RED);
@@ -312,6 +312,7 @@ int main()  {
                     box2->position = vec2(parent->position) + offset;
                     return true;
                 };
+            box = box2;
         }
 
                 // g_ptr<Quad> box2 = make<Quad>();
@@ -650,7 +651,7 @@ int main()  {
 
         // g_ptr<Font> font = make<Font>(root()+"/Engine/assets/fonts/source_code.ttf",50);
         // twig = make<Text>(font,scene);
-        // g_ptr<Quad> txt = twig->makeText(
+        // g_ptr<Quad> txt = twig->initText(
         // "0/0",{100,100})[0];
         // boxes << txt;
 

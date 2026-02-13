@@ -25,6 +25,30 @@ public:
     g_ptr<Geom> geom;
     std::string name = "bullets";
 
+    void register_in_scene(g_ptr<Scene> scene) {
+        std::string pool_name = name+"_char";
+        if(!scene->types.hasKey(pool_name)) {
+            scene->define(pool_name,[this,scene](){
+                auto q = make<Quad>(geom);
+                scene->add(q);
+                q->setPhysicsState(P_State::NONE);
+                return q;
+            });
+            scene->add_initilizer(pool_name,[this,scene](g_ptr<Object> obj){ 
+                if(g_ptr<Quad> q = g_dynamic_pointer_cast<Quad>(obj)) {
+                    scene->guiTransforms[q->ID] = glm::mat4(1.0f);
+                    q->scripts.clear(); 
+                    q->setPhysicsState(P_State::NONE);
+                    q->parent = nullptr;
+                    q->parents.clear();
+                    q->children.clear();
+                    q->joint = nullptr;
+                    q->physicsJoint = nullptr;
+                }
+            });
+        }
+    }
+
     void loadFromTTF(const std::string& ttfPath, int pxHeight) {
         set<std::string>("path",ttfPath);
         set<float>("scale",pxHeight);
@@ -235,19 +259,17 @@ public:
         lineHeight = font->lineHeight;
     }
 
+    Text(g_ptr<Font> _font, g_ptr<Scene> _scene,std::string content) : scene(_scene), font(_font) {
+        lineHeight = font->lineHeight;
+        initText(content);
+    }
+
     g_ptr<Quad> makeChar(char c)
     {
         //Pooling is begging for an overhaul too... those strings are stinking up the codebase and ScriptContext is so ready to be axed
         std::string pool_name = font->name+"_char";
-         if(!scene->types.hasKey(pool_name)) {
-            scene->define(pool_name,[&](){
-                auto q = make<Quad>(font->geom);
-                scene->add(q);
-                q->setPhysicsState(P_State::NONE);
-                return q;
-            });
-        }
         auto q = scene->create<Quad>(pool_name);
+        q->setDepth(0.4f);
         q->opt_char = c;
         //Cleaning up just in case, because we do recycle through pools
         q->opt_x_offset = 0;
@@ -260,8 +282,11 @@ public:
         q->opt_float_2 = 0;
         q->children.clear();
         q->parents.clear();
+        q->isSelectable = false;
 
         q->joint = [q](){
+            if(!q->parent&&q->parents.empty()) return true;
+
             g_ptr<Quad> anchorParent = q->opt_ptr;
 
             // totalJointCalls.fetch_add(1, std::memory_order_relaxed);
@@ -383,7 +408,7 @@ public:
         return q;
     }
 
-    list<g_ptr<Quad>> makeText(const std::string& content,vec2 pos = {0,0}) {
+    list<g_ptr<Quad>> initText(const std::string& content,vec2 pos = {0,0}) {
         for(char c : content) {
             auto q = makeChar(c);
             chars << q;
@@ -399,6 +424,11 @@ public:
         chars[0]->setPosition(pos);
 
         return chars;
+    }
+
+    g_ptr<Quad> makeText(const std::string& content) {
+        g_ptr<Text> twig = make<Text>(font,scene,content);
+        return twig->chars[0];
     }
 
     g_ptr<Quad> insertChar(char c,g_ptr<Quad> at) {
@@ -485,7 +515,7 @@ public:
 
     void insertText(const std::string& content, int at,vec2 pos = {0,0}) {
         if(at==-1||chars.empty()) {
-            makeText(content,pos);
+            initText(content,pos);
         }
         else 
             for(size_t i=0;i<content.length();i++)

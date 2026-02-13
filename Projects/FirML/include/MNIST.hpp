@@ -226,7 +226,7 @@ void run_mnist(g_ptr<Scene> scene, int epochs, int amt = -1) {
         vec2 pos2(100.0f + pos_y, 300);
         g_ptr<Text> twig = make<Text>(source_code,scene);
         twigs << twig;
-        twig->makeText(std::to_string(predicted),pos2);
+        twig->initText(std::to_string(predicted),pos2);
     }
 }
 

@@ -13,20 +13,36 @@ const std::string MROOT = AROOT+"models/";
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> grid = nullptr;
+g_ptr<NumGrid> ugrid = nullptr;
 g_ptr<Geom> guiGeom = nullptr;
 g_ptr<Font> font = nullptr;
+g_ptr<Text> twig = nullptr;
 ivec2 win(2560,1536);
 
-list<int> addToGrid(g_ptr<Single> q) {
-    list<int> idxs = grid->addToGrid(q->ID,q->getWorldBounds());
-    q->opt_idx_cache = idxs;
+list<int> addToGrid(g_ptr<Object> obj) {
+    list<int> idxs;
+    if(g_ptr<Single> q = g_dynamic_pointer_cast<Single>(obj)) {
+        idxs = grid->addToGrid(q->ID,q->getWorldBounds());
+        q->opt_idx_cache = idxs;
+    } else if (g_ptr<Quad> q = g_dynamic_pointer_cast<Quad>(obj)) {
+        idxs = ugrid->addToGrid(q->ID,q->getWorldBounds());
+        q->opt_idx_cache = idxs;
+    }
     return idxs;
 }
-list<int> removeFromGrid(g_ptr<Single> q) {
-    for(auto i : q->opt_idx_cache) {
-        grid->cells[i].erase(q->ID);
-    }
-    return grid->removeFromGrid(q->ID,q->getWorldBounds());
+list<int> removeFromGrid(g_ptr<Object> obj) {
+    if(g_ptr<Single> q = g_dynamic_pointer_cast<Single>(obj)) {
+        for(auto i : q->opt_idx_cache) {
+            grid->cells[i].erase(q->ID);
+        }
+        return grid->removeFromGrid(q->ID,q->getWorldBounds());
+    } else if (g_ptr<Quad> q = g_dynamic_pointer_cast<Quad>(obj)) {
+        for(auto i : q->opt_idx_cache) {
+            ugrid->cells[i].erase(q->ID);
+        }
+        return ugrid->removeFromGrid(q->ID,q->getWorldBounds());
+    } 
+    return list<int>{};
 }
  
 g_ptr<Single> draw_line(vec3 start, vec3 end, std::string color, float height) {
@@ -609,10 +625,10 @@ struct c_node : public q_object {
 
 
     list<g_ptr<c_node>> neighbors() {
-        list<g_ptr<c_node>> n;
-        n << children;
-        for(auto p : parents) n << p;
-        return n;
+        list<g_ptr<c_node>> neighs;
+        neighs.pushAll(children);
+        for(auto p : parents) neighs << p;
+        return neighs;
     }
 
     float matches_category(g_ptr<Crumb> item) {
@@ -1588,7 +1604,6 @@ public:
             }
         }
 
-        print("ACTIONID: ",action_id);
         int cur_id = action_id-1;
         int row = CUR+(std::floor(cur_id/10));
         action_node->archetype->mat[row][cur_id%10]*=0.8f;
@@ -1798,35 +1813,6 @@ public:
 };
 
 static list<g_ptr<nodenet>> crumb_managers;
-
-g_ptr<Quad> make_button(std::string slot) {
-    g_ptr<Quad> q = scene->create<Quad>("gui_element");
-    q->scale(vec2(slot.length()*100.0f,40));
-    q->setColor(vec4(1,0,0,1));
-    q->addSlot("test");
-    q->addSlot("otherTest");
-    q->setDepth(1.0f);
-    q->setPosition({0,0});
-    q->addScript("onHover",[q](ScriptContext& ctx){
-        q->setColor(vec4(0,1,0,1));
-    });
-    q->addScript("onUnHover",[q](ScriptContext& ctx){
-        q->setColor(vec4(1,0,0,1));
-    });
-    q->addScript("onPress",[q,slot](ScriptContext& ctx){
-        print("You just pressed the ",slot," button");
-        q->setColor(q->getColor()*vec4(0.5,0.5,0.5,1));
-        q->setPosition(vec2(100,0));
-    });
-    q->addScript("onRelease",[q](ScriptContext& ctx){
-        q->setColor(vec4(0,1,0,1));
-        q->setPosition(vec2(0,0));
-    });
-    g_ptr<Text> twig = make<Text>(font,scene);
-    auto t = twig->makeText(slot);
-    q->addChild(t[0]);
-    return q;
-}
 
 
 struct Genome : public q_object {
@@ -2188,28 +2174,229 @@ bool drop(g_ptr<Single> item) {
     }
 }
 
+
+void make_vstack(g_ptr<Quad> container, float spacing = 5.0f) {
+    for(int i = 0; i < container->children.length(); i++) {
+        auto child = container->children[i];
+        int index = i;
+        child->joint = [child, container, index, spacing]() {
+            if(index == 0) {
+                child->position = container->position;
+            } else {
+                auto prev = container->children[index - 1];
+                child->position = vec2(prev->position.x(), prev->position.y() + prev->scaleVec.y() + spacing);
+            }
+            return true;
+        };
+    }
+}
+
+void make_hstack(g_ptr<Quad> container, float spacing = 5.0f) {
+    for(int i = 0; i < container->children.length(); i++) {
+        auto child = container->children[i];
+        int index = i;
+        child->joint = [child, container, index, spacing]() {
+            if(index == 0) {
+                child->position = container->position;
+            } else {
+                auto prev = container->children[index - 1];
+                child->position = vec2(prev->position.x() + prev->scaleVec.x() + spacing, prev->position.y());
+            }
+            return true;
+        };
+    }
+}
+
+void make_autosize(g_ptr<Quad> container, float padding = 10.0f) {
+    container->joint = [container, padding]() {
+        if(container->parent)
+            container->position = container->parent->position;
+
+        float max_x = 0, max_y = 0;
+        for(auto child : container->allChildren()) {
+            if(!child->isAnchor&&child->isSelectable) continue;
+            vec2 child_end = child->position + child->getScale() - container->position;
+            max_x = std::max(max_x, child_end.x());
+            max_y = std::max(max_y, child_end.y());
+        }
+        if(!container->children.empty()) {
+            container->scaleVec = vec2(max_x + padding * 2, max_y + padding * 2);
+        }
+        
+        return true;
+    };
+}
+
+g_ptr<Quad> make_button(std::string slot,std::function<void()> on_press = nullptr) {
+    g_ptr<Quad> q = scene->create<Quad>("gui_element");
+    q->isAnchor = true;
+    q->setColor(vec4(1,0,0,1));
+    q->addSlot("test");
+    q->addSlot("otherTest");
+    q->setDepth(0.6f);
+    q->setPosition({0,0});
+    q->addScript("onHover",[q](ScriptContext& ctx){
+        q->setColor(vec4(0,1,0,1));
+    });
+    q->addScript("onUnHover",[q](ScriptContext& ctx){
+        q->setColor(vec4(1,0,0,1));
+    });
+    q->addScript("onPress",[q,slot,on_press](ScriptContext& ctx){
+        q->setColor(q->getColor()*vec4(0.5,0.5,0.5,1));
+        if(on_press)
+            on_press();
+    });
+    q->addScript("onRelease",[q](ScriptContext& ctx){
+        q->setColor(vec4(0,1,0,1));
+    });
+    auto text = twig->makeText(slot);
+    q->scale(vec2(text->distance(text->allChildren().last())+text->getScale().x()*1.2f,text->getScale().y()*1.3f));
+    q->addChild(text);
+    return q;
+}
+
+g_ptr<Quad> make_toggle_button(std::string slot,std::function<void(bool)> on_press = nullptr) {
+    g_ptr<Quad> q = make_button(slot);
+    q->addScript("onPress",[q,slot,on_press](ScriptContext& ctx){
+        q->setColor(q->getColor()*vec4(0.5,0.5,0.5,1));
+        q->opt_flag = !q->opt_flag;
+        if(q->opt_flag) {
+
+        }
+        if(on_press)
+            on_press(q->opt_flag);
+    });
+    return q;
+}
+
+g_ptr<Quad> make_pointer_line(g_ptr<Object> target) {
+    g_ptr<Quad> q = scene->create<Quad>("gui_element");
+    q->scale(vec2(50.0f,4.0f));
+    q->setColor(vec4(1,1,1,1));
+    q->setDepth(1.0f);
+    q->setPosition({100,100});
+    if(g_ptr<Single> single = g_dynamic_pointer_cast<Single>(target)) {
+        // q->addScript("onPress",[q,single](ScriptContext& ctx){
+        //     scene->camera.setPosition(single->getPosition()+vec3(0,5,10));
+        //     scene->camera.setTarget(single->getPosition());
+        // });
+        q->physicsJoint = [single,q](){
+            if(!single->isActive()) return false;
+            vec2 target_screen = scene->worldToScreen(single->getPosition());
+            if(q->parent) {
+                q->position = q->parent->getCenter();
+            }
+            vec2 line_start = q->position;
+            vec2 to_target = target_screen - line_start;
+            float distance = to_target.length();
+            float angle = atan2(to_target.y(), to_target.x());
+            q->rotation = angle;
+            q->scaleVec = vec2(distance, 4.0f);
+            q->updateTransform();
+            return true;
+        };
+    } else if(g_ptr<Quad> quad = g_dynamic_pointer_cast<Quad>(target)) {
+        q->joint = [q,quad](){
+            if(!quad->isActive()) return false;
+            vec2 target_pos = quad->getCenter();
+            if(q->parent) {
+            q->position = q->parent->getCenter();
+            }
+            vec2 line_start = q->position;
+            vec2 to_target = target_pos - line_start;
+            float distance = to_target.length();
+            float angle = atan2(to_target.y(), to_target.x());
+            q->rotation = angle;
+            q->scaleVec = vec2(distance, 4.0f);
+            return true;
+        };
+    }
+    return q;
+}
+
+
+g_ptr<Quad> make_info_panel(g_ptr<c_node> node) {
+    g_ptr<Quad> panel = scene->create<Quad>("gui_element");
+    panel->setColor(vec4(0.2, 0.2, 0.2, 1));
+    panel->scale({10,10});
+
+    // Add text elements to content
+    if(!font) print("Font invalid");
+    g_ptr<Text> twig = make<Text>(font, scene);
+    
+    auto title = twig->makeText(node->label);
+    panel->addChild(title);
+    
+    auto id_text = twig->makeText("ID: " + std::to_string(node->getID()));
+    panel->addChild(id_text);
+    
+    auto children_text = twig->makeText("Children: " + std::to_string(node->children.length()));
+    panel->addChild(children_text);
+
+    g_ptr<Quad> tbutton = nullptr;
+    tbutton = make_toggle_button("toggle",[panel,node](bool toggle){
+        if(toggle) {
+            for(auto c : node->instances) {
+                panel->addChild(make_pointer_line(c->form));
+            }
+        } else {
+            for(int i=panel->children.length()-1;i>=0;i--) {
+                if(!panel->children[i]->isAnchor) {
+                    scene->recycle(panel->children[i]);
+                    panel->children.removeAt(i);
+                }
+            }
+        }
+    });
+    panel->addChild(tbutton);
+    
+    make_vstack(panel, 5.0f);
+    make_autosize(panel, 5.0f); 
+    
+    return panel;
+}
+
+
 int main() {
+    Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.7");
 
-     Window window = Window(win.x()/2, win.y()/2, "Golden 0.0.7");
+    scene = make<Scene>(window,2);
+    Data d = make_config(scene,K);
+    scene->camera.toOrbit();
+    scene->tickEnvironment(1100);
 
-     scene = make<Scene>(window,2);
-     Data d = make_config(scene,K);
-     scene->camera.toOrbit();
-     scene->tickEnvironment(1100);
+    scene->enableInstancing();
 
-     scene->enableInstancing();
+    guiGeom = make<Geom>();
+    font = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",50);
+    font->register_in_scene(scene);
 
-     guiGeom = make<Geom>();
-     font = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",50);
+    twig = make<Text>(font,scene);
 
-     scene->define("gui_element",[](){
-          g_ptr<Quad> q = make<Quad>(guiGeom);
-          scene->add(q);
-          q->setPhysicsState(P_State::NONE);
-          return q;
-     });
+    ugrid = make<NumGrid>(20.0f,win.x());
 
-     make_button("test");
+    scene->define("gui_element",[](){
+        g_ptr<Quad> q = make<Quad>(guiGeom);
+        scene->add(q);
+        return q;
+    });
+    scene->add_initilizer("gui_element",[](g_ptr<Object> obj){ 
+        if(g_ptr<Quad> q = g_dynamic_pointer_cast<Quad>(obj)) {
+            scene->guiTransforms[q->ID] = glm::mat4(1.0f);
+            q->rotation = 0.0f;
+            q->position = vec2(0,0);
+            q->scaleVec = vec2(0,0);
+            q->scripts.clear(); 
+            q->setPhysicsState(P_State::GHOST);
+            q->parent = nullptr;
+            q->parents.clear();
+            q->children.clear();
+            q->joint = nullptr;
+            q->physicsJoint = nullptr;
+        }
+    });
+
+    //make_button("test");
 
      int amt = 1;
      float agents_per_unit = 0.3f;
@@ -3201,11 +3388,16 @@ int main() {
     // crumb_managers << net;
     // agents << fir;
     
-    bool control_fir = true;
+    bool control_fir = false;
     int cam_mode = 2;
+    
+    list<g_ptr<Quad>> no_delete;
 
-    // print(fircrumb->getRefCount()," : ",fircrumb->isActive()?"ACTIVE":"INACTIVE"," : ",fircrumb->recycled.load()?"FREE":"USED");
-
+    auto l1 = scene->create<Quad>("gui_element");
+    l1->setPosition({600,100});
+    l1->scale({40,40});
+    no_delete << l1;
+        
      start::run(window,d,[&]{
           s_tool.tick();
           if(pressed(N)) {
@@ -3219,6 +3411,45 @@ int main() {
                 events.removeAt(i);
             }
           }
+
+        if(shift) {
+            l1->setCenter(scene->mousePos2d());
+        }
+
+        if(pressed(MOUSE_LEFT)) {
+            float closest_dist = 5.0f; // Click radius
+            g_ptr<Single> clicked = nullptr;
+            g_ptr<c_node> best_node = nullptr;
+            for(auto e : net->id_to_node.entrySet()) {
+                int id = e.key;
+                c_node* node = e.value;
+                float dist = mousepos.distance(vec3(scene->transforms[id][3]));
+                if(dist < closest_dist) {
+                    closest_dist = dist;
+                    clicked = scene->singles[node->archetype->id];
+                    best_node = node;
+                }
+            }
+            
+            if(clicked) {
+                g_ptr<Quad> panel = make_info_panel(best_node);
+                panel->physicsJoint = [panel,clicked](){
+                    panel->setPosition(scene->worldToScreen(clicked->getPosition()));
+                    return true;
+                };
+                l1->addChild(make_pointer_line(clicked));
+            }
+        }
+
+        if(pressed(MOUSE_RIGHT)) {
+            g_ptr<Quad> p = scene->nearestElement(scene->mousePos2d());
+            while(p->parent) p = p->parent;
+            for(auto n : p->allChildren()) {
+                scene->recycle(n);
+            }
+            if(!no_delete.has(p))
+                scene->recycle(p);
+        }
 
           if(pressed(B)) {
             auto nberry = scene->create<Single>("berry");
@@ -3294,9 +3525,9 @@ int main() {
             if(pressed(Q)) { //DROP
                 net->execute_action_on_agent({4},fir);
             }
-            if(pressed(MOUSE_LEFT)) {
-                net->execute_action_on_agent({5},fir);
-            }
+            // if(pressed(MOUSE_LEFT)) {
+            //     net->execute_action_on_agent({5},fir);
+            // }
 
             if(pressed(H)) {
                 net->see2d(fir,24,10.0f,225.0f);
@@ -3406,13 +3637,13 @@ int main() {
             //         print("Viewing full tree from root");
             //    }
                
-               if(pressed(C)) {
-                    mem->clear_debug();
-               }
+            //    if(pressed(C)) {
+            //         mem->clear_debug();
+            //    }
 
-               if(pressed(G)) {
-                    mem->visualize_registry();
-               }
+            //    if(pressed(G)) {
+            //         mem->visualize_registry();
+            //    }
           }
 
 
@@ -3481,3 +3712,86 @@ int main() {
      window.unlock_mouse();
      return 0;
 }
+
+
+
+
+// g_ptr<Quad> make_routed_line_segment(vec2 start, g_ptr<Single> target, int depth = 0) {
+    
+//     g_ptr<Quad> segment = scene->create<Quad>("gui_element");
+//     removeFromGrid(segment);
+//     segment->joint = nullptr;
+//     segment->setColor(vec4(1, 1, 0, 1));
+//     segment->setDepth(0.95f);
+//     segment->setCenter(start);
+//     segment->isAnchor = (depth == 0); 
+
+//     segment->opt_int = depth;
+    
+//     segment->physicsJoint = [segment, target, depth]() {
+//         if(!target->isActive() || depth >= 10) return false;
+//         vec2 goal = scene->worldToScreen(target->getPosition());
+//         vec2 start = segment->getCenter();
+//         vec3 start_3d(start.x(), 0, start.y());
+//         vec3 goal_3d(goal.x(), 0, goal.y());
+        
+//         vec3 direct = (goal_3d - start_3d).normalized();
+//         float total_dist = start_3d.distance(goal_3d);
+
+//         auto hit = ugrid->raycast(start_3d, direct, total_dist, segment->ID);
+        
+//         if(hit.second == -1) {
+//             vec2 to_goal = goal - start;
+//             segment->rotation = atan2(to_goal.y(), to_goal.x());
+//             segment->scaleVec = vec2(to_goal.length()*2.0f, 2);
+//             if(!segment->children.empty()) {
+//                 scene->recycle(segment->children[0]);
+//                 segment->children.clear();
+//             }
+//             segment->updateTransform();
+//         } else {
+//             float hit_x = start.x() + direct.x() * hit.first;
+            
+//             vec2 waypoint;
+//             bool found_clear = false;
+            
+//             for(float y_offset = 0; y_offset < 200.0f; y_offset += 5.0f) {
+//                 vec2 test_pos(hit_x, start.y() + y_offset);
+//                 vec3 test_3d(test_pos.x(), 0, test_pos.y());
+//                 if(ugrid->empty(test_3d)) {
+//                     waypoint = test_pos;
+//                     found_clear = true;
+//                     break;
+//                 }
+//             }
+            
+//             if(!found_clear) {
+//                 waypoint = start + vec2(direct.x(), direct.z()) * 20.0f;
+//             }
+            
+//             vec2 to_waypoint = waypoint - start;
+//             segment->rotation = atan2(to_waypoint.y(), to_waypoint.x());
+//             segment->scaleVec = vec2(to_waypoint.length(), 2);
+//             // segment->updateTransform();
+//             if(segment->children.empty()) {
+//                 // g_ptr<Quad> child = scene->create<Quad>("gui_element");
+//                 // removeFromGrid(child);
+//                 // child->joint = nullptr;
+//                 // child->setColor(vec4(1, 0, 0, 1));
+//                 // child->setDepth(0.95f);
+//                 // child->setCenter(waypoint);
+//                 // child->scale({10,10});
+//                 // child->opt_int = depth + 1;
+//                 // child->physicsJoint = segment->physicsJoint;
+//                 g_ptr<Quad> child = make_routed_line_segment(waypoint,target,depth+1);
+//                 segment->addChild(child);
+//             } else {
+//                 // segment->children[0]->setCenter(waypoint);
+//             }
+//         }
+        
+//         return true;
+//     };
+    
+//     return segment;
+// }

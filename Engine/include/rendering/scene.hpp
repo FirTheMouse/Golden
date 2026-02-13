@@ -455,101 +455,6 @@ public:
         return vec3(rayOrigin + rayDir * t);
     }
 
-    vec2 mousePos2d()
-    {
-    int windowWidth = window.width;
-    int windowHeight = window.height;
-    double xpos, ypos;
-    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
-    return vec2(xpos*2,ypos*2);
-    }
-
-    g_ptr<Quad> nearestElement(vec2 from)
-    {
-    //Could use Physics for this? Maybe the AAABB tree if enabled or something?
-    vec2 pos = from;
-    float closestDist = 10000;
-    g_ptr<Quad> closest = nullptr;
-    for(int i=0;i<quadActive.length();i++)
-    {
-        if(i>=quads.length()) break;
-        auto qobj = GET(quads,i);
-        if(!quadActive[i]) continue;
-
-        if (qobj->pointInQuad(pos)) {
-            return qobj;
-        }
-        else if(from.x()!=-10000){
-            float dist = qobj->getPosition().distance(pos);
-            if(dist<=closestDist) {
-                closestDist = dist;
-                closest = qobj;
-            }
-        }
-    }
-    return closest;
-    }
-
-    g_ptr<Quad> nearestElement() {
-       return nearestElement(mousePos2d());
-    }
-
-    g_ptr<Quad> nearestWithin(float min = 5.0f)
-    {
-    vec2 pos = mousePos2d();
-    float closestDist = min;
-    g_ptr<Quad> closest = nullptr;
-    for(int i=0;i<quadActive.length();i++)
-    {
-        if(i>=quads.length()) break;
-        auto qobj = quads[i];
-        if(!quadActive[i]) continue;
-
-        if (qobj->pointInQuad(pos)) {
-            return qobj;
-        }
-        else {
-            float dist = qobj->getCenter().distance(pos);
-            if(dist<=closestDist) {
-                closestDist = dist;
-                closest = qobj;
-            }
-        }
-    }
-    return closest;
-    }
-
-    void cullSinglesSimplePoint()
-    {
-        // Build VP once
-        glm::mat4 VP = camera.getProjectionMatrix() * camera.getViewMatrix();
-
-        for (size_t i = 0; i < singles.length(); ++i)
-        {
-            if (!active[i]) { culled[i] = true; continue; }
-
-            // World position of the object origin (transform translation)
-            // GLM matrices are column-major; translation is column 3.
-            glm::vec3 worldPos = glm::vec3(transforms[i][3]);
-
-            glm::vec4 clip = VP * glm::vec4(worldPos, 1.0f);
-
-            // Behind camera or invalid
-            if (clip.w <= 0.0f) { culled[i] = true; continue; }
-
-            // OpenGL clip space frustum: -w..w for x,y,z
-            // (equivalently NDC after divide: -1..1)
-            bool inside =
-                (clip.x >= -clip.w && clip.x <= clip.w) &&
-                (clip.y >= -clip.w && clip.y <= clip.w) &&
-                (clip.z >= -clip.w && clip.z <= clip.w);
-
-            culled[i] = !inside;
-        }
-    }
-
-    //Move an object between scenes, currently only works for singles
-    void repo(const g_ptr<S_Object>& obj);
 
     map<std::string,g_ptr<Type>> types;
 
@@ -615,6 +520,121 @@ public:
             print("scene::recycle::601 attempted to recycle an undefined type: ",useType,"!");
         }
     }
+
+
+    vec2 mousePos2d()
+    {
+    int windowWidth = window.width;
+    int windowHeight = window.height;
+    double xpos, ypos;
+    glfwGetCursorPos((GLFWwindow*)window.getWindow(), &xpos, &ypos);
+    return vec2(xpos*2,ypos*2);
+    }
+
+    g_ptr<Quad> nearestElement(vec2 from)
+    {
+        //Could use Physics for this? Maybe the AABB tree if enabled or something?
+        vec2 pos = from;
+        list<g_ptr<Quad>> closest;
+        for(int i=0;i<quadActive.length();i++)
+        {
+            if(!quadActive[i]) continue;
+            if(i>=quads.length()) break;
+            auto qobj = GET(quads,i);
+            if(!qobj->isSelectable) continue;
+
+            if (qobj->pointInQuad(pos)) {
+                closest << qobj;
+            }
+        }
+
+        g_ptr<Quad> the_closest = nullptr;
+        float lowest_depth = 1.1f;
+        for(auto c : closest) {
+            if(c->getDepth()<lowest_depth) {
+                lowest_depth = c->getDepth();
+                the_closest = c;
+            }
+        }
+        return the_closest;
+    }
+
+    g_ptr<Quad> nearestElement() {
+       return nearestElement(mousePos2d());
+    }
+
+    g_ptr<Quad> nearestWithin(float min = 5.0f)
+    {
+    vec2 pos = mousePos2d();
+    float closestDist = min;
+    g_ptr<Quad> closest = nullptr;
+    for(int i=0;i<quadActive.length();i++)
+    {
+        if(i>=quads.length()) break;
+        auto qobj = quads[i];
+        if(!quadActive[i]) continue;
+
+        if (qobj->pointInQuad(pos)) {
+            return qobj;
+        }
+        else {
+            float dist = qobj->getCenter().distance(pos);
+            if(dist<=closestDist) {
+                closestDist = dist;
+                closest = qobj;
+            }
+        }
+    }
+    return closest;
+    }
+
+    vec2 worldToScreen(vec3 worldPos) {
+        glm::mat4 VP = camera.getProjectionMatrix() * camera.getViewMatrix();
+        glm::vec4 clip = VP * glm::vec4(worldPos.toGlm(), 1.0f);
+        
+        if(clip.w <= 0.0f) return vec2(-1000, -1000); // Behind camera
+        
+        // NDC
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        
+        // Screen space (0,0 = top-left)
+        float screenX = (ndc.x + 1.0f) * 0.5f * window.width;
+        float screenY = (1.0f - ndc.y) * 0.5f * window.height; // Flip Y
+        
+        return vec2(screenX*2, screenY*2);
+    }
+    
+    void cullSinglesSimplePoint()
+    {
+        // Build VP once
+        glm::mat4 VP = camera.getProjectionMatrix() * camera.getViewMatrix();
+
+        for (size_t i = 0; i < singles.length(); ++i)
+        {
+            if (!active[i]) { culled[i] = true; continue; }
+
+            // World position of the object origin (transform translation)
+            // GLM matrices are column-major; translation is column 3.
+            glm::vec3 worldPos = glm::vec3(transforms[i][3]);
+
+            glm::vec4 clip = VP * glm::vec4(worldPos, 1.0f);
+
+            // Behind camera or invalid
+            if (clip.w <= 0.0f) { culled[i] = true; continue; }
+
+            // OpenGL clip space frustum: -w..w for x,y,z
+            // (equivalently NDC after divide: -1..1)
+            bool inside =
+                (clip.x >= -clip.w && clip.x <= clip.w) &&
+                (clip.y >= -clip.w && clip.y <= clip.w) &&
+                (clip.z >= -clip.w && clip.z <= clip.w);
+
+            culled[i] = !inside;
+        }
+    }
+
+    //Move an object between scenes, currently only works for singles
+    void repo(const g_ptr<S_Object>& obj);
     
 
 

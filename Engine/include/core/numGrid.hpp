@@ -99,12 +99,22 @@ namespace Golden
 
         list<int> cellsAround(const BoundingBox& bounds) {
             static thread_local list<int> cachedCells;
-            
-            // Convert bounds to grid coordinates
-            int minX = std::floor(bounds.min.x() / cellSize);
-            int maxX = std::ceil(bounds.max.x() / cellSize);
-            int minZ = std::floor(bounds.min.z() / cellSize);
-            int maxZ = std::ceil(bounds.max.z() / cellSize);
+
+            int minX, maxX, minZ, maxZ;
+    
+            if(bounds.dim == BoundingBox::DIM_2D) {
+                // 2D bounds use x,y but grid uses x,z
+                minX = std::floor(bounds.min.x() / cellSize);
+                maxX = std::ceil(bounds.max.x() / cellSize);
+                minZ = std::floor(bounds.min.y() / cellSize);  // y → z
+                maxZ = std::ceil(bounds.max.y() / cellSize);   // y → z
+            } else {
+                // 3D bounds use x,z directly
+                minX = std::floor(bounds.min.x() / cellSize);
+                maxX = std::ceil(bounds.max.x() / cellSize);
+                minZ = std::floor(bounds.min.z() / cellSize);
+                maxZ = std::ceil(bounds.max.z() / cellSize);
+            }
             
             int width = maxX - minX + 1;
             int height = maxZ - minZ + 1;
@@ -287,6 +297,39 @@ namespace Golden
         }
         
         return list<int>{};
+    }
+
+    list<int> addLineToGrid(int obj_id, vec3 start, vec3 end) {
+        list<int> cells;
+        
+        // Convert to grid coordinates
+        int x0 = std::round(start.x() / cellSize);
+        int z0 = std::round(start.z() / cellSize);
+        int x1 = std::round(end.x() / cellSize);
+        int z1 = std::round(end.z() / cellSize);
+        
+        // Bresenham's line algorithm
+        int dx = abs(x1 - x0);
+        int dz = abs(z1 - z0);
+        int sx = x0 < x1 ? 1 : -1;
+        int sz = z0 < z1 ? 1 : -1;
+        int err = dx - dz;
+        
+        while(true) {
+            int idx = cellIndex(x0, z0);
+            if(idx >= 0 && idx < this->cells.length()) {
+                this->cells[idx].push_if_absent(obj_id);
+                cells.push_if_absent(idx);
+            }
+            
+            if(x0 == x1 && z0 == z1) break;
+            
+            int e2 = 2 * err;
+            if(e2 > -dz) { err -= dz; x0 += sx; }
+            if(e2 < dx) { err += dx; z0 += sz; }
+        }
+        
+        return cells;
     }
     };
 }

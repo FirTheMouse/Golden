@@ -378,9 +378,11 @@ public:
     // T& rand() {return }
     
     inline T& get(size_t index) {
+        #if !DISABLE_BOUNDS_CHECK
         if(index >= size_) {
             throw std::out_of_range("Util 265: List out of Bounds");
         }
+        #endif
         return ptr[index];
     }
 
