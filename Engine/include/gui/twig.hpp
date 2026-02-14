@@ -266,7 +266,6 @@ public:
 
     g_ptr<Quad> makeChar(char c)
     {
-        //Pooling is begging for an overhaul too... those strings are stinking up the codebase and ScriptContext is so ready to be axed
         std::string pool_name = font->name+"_char";
         auto q = scene->create<Quad>(pool_name);
         q->setDepth(0.4f);
@@ -277,12 +276,19 @@ public:
         q->opt_offset = vec2(0,0);
         q->opt_delta = vec2(0,0);
         q->parent = nullptr;
+        q->opt_ptr = nullptr;
         q->isAnchor = false;
         q->opt_float = 0;
         q->opt_float_2 = 0;
         q->children.clear();
         q->parents.clear();
         q->isSelectable = false;
+
+        q->position = vec2(0,0);
+        q->rotation = 0.0f;
+        q->scaleVec = vec2(0,0);
+        scene->guiTransforms[q->ID] = glm::mat4(1.0f);
+        q->show();
 
         q->joint = [q](){
             if(!q->parent&&q->parents.empty()) return true;
