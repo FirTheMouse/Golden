@@ -429,11 +429,11 @@ g_ptr<Quad> make_panel(g_ptr<Object> obj) {
 // const int HAS   = (31 << 16) | 9;
 // const int ALL = (0 << 16) | CRUMB_ROWS;
 
-#define CRUMB_ROWS 21
+#define CRUMB_ROWS 20
 //Verbs
 const int META  = (0 << 16) | 1; 
 const int IS    = (1 << 16) | 10;
-const int DOES  = (11 << 16) | 10;
+const int DOES  = (11 << 16) | 9;
 const int ALL = (0 << 16) | CRUMB_ROWS;
 
 //Columns
@@ -478,7 +478,6 @@ struct Crumb : public Object {
         std::memcpy(mat, other.mat, sizeof(mat));
         id = other.id;
         is_grid = other.is_grid;
-        decay = other.decay;
         sub.clear(); //just in case
         for(auto c :other.sub) {
             g_ptr<Crumb> new_crumb = scene->create<Crumb>("Crumb");
@@ -488,7 +487,6 @@ struct Crumb : public Object {
     }
 
     int id = -1;
-    float decay = 1.0f;
     bool is_grid = false;
     list<g_ptr<Crumb>> sub;
     float mat[CRUMB_ROWS][10];
@@ -594,6 +592,7 @@ static float evaluate_matmul(g_ptr<Crumb> eval, g_ptr<Crumb> against, g_ptr<Crum
      return evaluate_matmul(eval, against, result);
  }
  
+
 static float evaluate_elementwise(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against, int against_verb) {
     int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
     int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
@@ -630,7 +629,7 @@ static float evaluate_elementwise(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb>
              against_sub->setmat(0.0f);
          }
  
-         score += evaluate_elementwise(eval_sub, eval_verb, against_sub, against_verb);
+         score += evaluate(eval_sub, eval_verb, against_sub, against_verb);
      }
 
      return score;
@@ -1258,10 +1257,7 @@ public:
 
     g_ptr<c_node> meta_root = nullptr;
     g_ptr<c_node> obs_root = nullptr;
-
-    list<g_ptr<Episode>> consolidated_episodes;
-    float max_recent_episode_window = 1000;
-    list<g_ptr<Episode>> recent_episodes;
+    
 
     g_ptr<Crumb> state = nullptr;
     int agent_id = -1;
@@ -1371,11 +1367,6 @@ public:
         return match(start,crumbs.get(item->ID));
     }
 
-
-    //The core reasoning primitive, currently wrong but kept for general shape.
-    //This will occur on it's own thread when needed, and involves comparing the current cognitive_attention to the raw episodes
-    //in recent_episodes and consolidated_episodes and descending hypotheticals via greedy depth first to determine the most desirable
-    //course of action based upon the most salient action at depth 
     void reason(g_ptr<c_node> start, g_ptr<Crumb> initial_state, int max_depth, 
         float prune_threshold, std::function<bool(g_ptr<tree_walker>)> visit) {
 
@@ -1446,7 +1437,7 @@ public:
     }
 
     float desire_salience(g_ptr<Crumb> observation) {
-        return evaluate(state, DOES, observation, IS);
+        return evaluate(state, DOES, observation, DOES);
     }
 
     float salience(g_ptr<Crumb> observation) {
@@ -2052,59 +2043,21 @@ public:
         }
     }
 
-    list<g_ptr<Crumb>> gather_states() {
+    list<g_ptr<Crumb>> gather_states(g_ptr<Single> agent) {
         list<g_ptr<Crumb>> states; states << clone(state);
         list<int> ids_to_push;
+        if(!agent->children.empty()) ids_to_push << agent->children[0]->ID;
         for(auto cell : vis->cells) {
             if(cell==-1) continue;
             for(auto idx : grid->cells[cell]) {
                 ids_to_push.push_if_absent(idx);
             }
         }
-        ids_to_push.erase(agent_id);
-
-        for(int i=1;i<cognitive_attention.length();i++) {
-            states << clone(cognitive_attention[i]);
-            if(ids_to_push.has(states[i]->id)) {
-                states[i]->decay = 1.0f;
-                ids_to_push.erase(states[i]->id);
-            } else {
-                states[i]->decay += 0.1f;
-            }
-        }
-        while(states.length() < cognitive_focus) {
-            states << clone(ZERO);
-        }
-
-        list<float> cog_sals = {0.0f}; //For the first agent state, as padding.
-        for(int i=1;i<states.length();i++) {
-            cog_sals << (salience(states[i])/states[i]->decay);
-        }
-
-        list<std::pair<g_ptr<Crumb>, float>> id_sal;
         for(auto id : ids_to_push) {
-            if(!crumbs.hasKey(id)) continue;
-            g_ptr<Crumb> obs = crumbs.get(id);
-            float sal_boost = 0.0f;
-            for(int ray = 0; ray < vis->dists.length(); ray++) {
-                if(vis->cells[ray] == -1) continue;
-                if(grid->cells[vis->cells[ray]].has(id)) {
-                    float centrality = 1.0f - std::abs(ray - vis->num_rays/2.0f) / (vis->num_rays/2.0f);
-                    float closeness = 1.0f / (vis->dists[ray] + 1.0f);
-                    sal_boost = centrality * closeness * 2.0f;  // Tune multiplier
-                    break;
-                }
-            }
-            id_sal << std::make_pair(obs, salience(obs) + sal_boost);
-        }
-        id_sal.sort([](const auto& a,const auto& b) { return a.second > b.second; });
-        for(auto [crumb,sal] : id_sal) {
-            for(int i=1;i<cog_sals.length();i++) {
-                if(cog_sals[i]<sal) {
-                    cog_sals[i] = sal;
-                    states[i] = clone(crumb);
-                    break;
-                }
+            if(id==agent->ID) continue;
+            if(!crumbs.hasKey(id)) print("Crumbs does not have id: ",id);
+            else {
+                states << clone(crumbs.get(id));
             }
         }
         return states;
@@ -2112,6 +2065,11 @@ public:
 
     //Example interpreter unit (like the cerbellum creates) turns the standard action struct into specific actions
     void execute_action_on_agent(const Action& action,g_ptr<Single> agent) {
+
+        list<g_ptr<Single>> interactions;
+
+        list<g_ptr<Crumb>> before = gather_states(agent);
+
         switch(action.part_id) {
             case 0: 
             agent->setLinearVelocity(action.asvec3()); 
@@ -2124,16 +2082,19 @@ public:
                 if(obj) {
                     ScriptContext ctx; ctx.set<g_ptr<Single>>("from",agent);
                     obj->run("onInteract",ctx);
+                    interactions << obj;
                 }
             } break; 
             case 3: { //USE
                 if(!agent->children.empty()) {
                     agent->children[0]->run("onUse");
+                    interactions << agent->children[0];
                 }
             } break; 
             case 4: { //DROP
                 if(!agent->children.empty()) {
                     agent->children[0]->run("onDrop");
+                    interactions << agent->children[0];
                 }
             } break;
             case 5: {
@@ -2143,28 +2104,27 @@ public:
                     if(obj) {
                         ScriptContext ctx; ctx.set<g_ptr<Single>>("from",agent);
                         obj->run("onHit",ctx);
+                        interactions << obj;
                     }
                 }
             } break;
         }
 
-        list<g_ptr<Crumb>> after = gather_states();
-        if(action.part_id>1) {
-            list<g_ptr<Crumb>> before;
-            for(auto c : cognitive_attention) 
-                before << clone(c);
-
-            list<g_ptr<Crumb>> deltas;
+        list<g_ptr<Crumb>> after = gather_states(agent);
+        if(!interactions.empty()) {
+            g_ptr<Episode> episode = make<Episode>();
+            episode->action_id = action.part_id;
+            episode->timestamp = 0; //Pass frame later, if at all
+            episode->states = before;
             int max_len = std::max(before.length(), after.length());
             for(int i = 0; i < max_len; i++) {
                 g_ptr<Crumb> delta;
+                
                 if(i >= before.length()) { //Created
                     delta = clone(after[i]);
                 }
                 else if(i >= after.length()) { //Destoryed
-                    delta = ZERO;  //For destroyed objects we want an object permenance system we can turn on and off later
-                    //This will let us do more percise transferals, like having a berry be picked up and the specific berry 
-                    //crumb be moved into the agent's holding slot
+                    delta = ZERO; 
                 }
                 else { //Observe change
                     delta = clone(after[i]);
@@ -2173,16 +2133,22 @@ public:
                         delta = IDENTITY;
                     }
                 }
-                deltas << delta;
+                episode->deltas << delta;
             }
-            g_ptr<Episode> episode = make<Episode>();
-            episode->action_id = action.part_id;
-            episode->timestamp = 0; //Pass frame later, if at all
-            episode->states = before;
-            episode->deltas = deltas;
-            recent_episodes << episode;
+
+            for(auto item : interactions) {
+                g_ptr<c_node> cat = match(obs_root,item);
+                if(!cat) {
+                    cat = obs_root->subnode(crumbs.get(item->ID));
+                    cat->label = item->dtype;
+                }
+                cat->episodes << episode;
+
+                int cur_id = action.part_id-1;
+                int row = CUR+(std::floor(cur_id/10));
+                cat->archetype->mat[row][cur_id%10]*=0.8f;
+            }
         }
-        cognitive_attention = after;
     }
 
      // Core visualization primitive
@@ -2237,13 +2203,6 @@ public:
                     drawn_edges.insert(edge);
                 }
             }
-        }
-
-        for(auto cog : cognitive_attention) {
-            auto marker = scene->create<Single>("cyan");
-            marker->setPosition(cog->getPosition().addY(3.0f));
-            marker->setScale({0.2f,1.0f,0.2f});
-            debug << marker;
         }
     }
 
