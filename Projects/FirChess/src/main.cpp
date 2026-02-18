@@ -4,6 +4,7 @@
 #include<core/type.hpp>
 #include<core/thread.hpp>
 #include<util/logger.hpp>
+#include<util/nodenet.hpp>
 
 using namespace Golden;
 using namespace Log;
@@ -17,6 +18,8 @@ static int max_depth = 6;
 #define ENABLE_TACTEXT 1
 #define ENABLE_BOOK 1
 #define ENABLE_BOARDSPLIT 0
+
+#define USE_NODENET 1
 
 bool debug_move = false;
 bool free_camera = true;
@@ -73,6 +76,13 @@ struct Move {
 
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> num_grid = nullptr;
+
+#if USE_NODENET
+    g_ptr<nodenet> net[2];
+#endif
+
+#define CRUMB_ROWS 1
+#define CRUMB_COLS 5
 
 list<g_ptr<Single>> white_losses;
 list<g_ptr<Single>> black_losses;
@@ -2103,10 +2113,15 @@ int main() {
     scene->camera.toOrbit();
     //scene->camera.lock = true;
     Data d = make_config(scene,K);
-    load_gui(scene, "FirChess", "firchessgui.fab");
+    // load_gui(scene, "FirChess", "firchessgui.fab");
 
     num_grid = make<NumGrid>(2.0f,21.0f);
     global = make<Board>();
+
+    #if USE_NODENET
+        net[0] = make<nodenet>(scene);
+        net[1] = make<nodenet>(scene);
+    #endif
     
     //Define the objects, this pulls in the models and uses the CSV to code them
     // start::define_objects(scene,"FirChess",num_grid);
@@ -2202,9 +2217,9 @@ int main() {
         if(mousePos.z()>8.0f) mousePos.setZ(8.0f);
         if(mousePos.z()<-6.0f) mousePos.setZ(-6.0f);
 
-        if(last_col!=turn_color) {
-            text::setText(turn_color==0?"White":"Black",scene->getSlot("turn")[0]);
-        }
+        // if(last_col!=turn_color) {
+        //     text::setText(turn_color==0?"White":"Black",scene->getSlot("turn")[0]);
+        // }
         last_col = turn_color;
 
         if(!free_camera) {
