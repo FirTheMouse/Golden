@@ -9,11 +9,11 @@ using namespace Golden;
 using namespace helper;
 
 #ifndef CRUMB_ROWS
-#define CRUMB_ROWS 21
+    #define CRUMB_ROWS 21
 #endif
 
 #ifndef CRUMB_COLS
-#define CRUMB_COLS 10
+    #define CRUMB_COLS 10
 #endif
 
 const int ALL = (0 << 16) | CRUMB_ROWS;
@@ -60,11 +60,11 @@ struct Crumb : public Object {
     int id = -1;
     float decay = 1.0f;
     list<g_ptr<Crumb>> sub;
-    float mat[CRUMB_ROWS][10];
+    float mat[CRUMB_ROWS][CRUMB_COLS];
 
     inline void setmat(float v) {
         for(int r = 0; r < CRUMB_ROWS; r++) {
-            for(int c = 0; c < 10; c++) {
+            for(int c = 0; c < CRUMB_COLS; c++) {
                 mat[r][c] = v;
             }
         }
@@ -81,7 +81,7 @@ struct Crumb : public Object {
     inline float sum() {
         float s = 0.0f;
         for(int r = 0; r < CRUMB_ROWS; r++) {
-            for(int c = 0; c < 10; c++) {
+            for(int c = 0; c < CRUMB_COLS; c++) {
                 s+=mat[r][c];
             }
         }
@@ -94,7 +94,7 @@ struct Crumb : public Object {
     inline float absSum() {
         float s = 0.0f;
         for(int r = 0; r < CRUMB_ROWS; r++) {
-            for(int c = 0; c < 10; c++) {
+            for(int c = 0; c < CRUMB_COLS; c++) {
                 s+=std::abs(mat[r][c]);
             }
         }
@@ -109,7 +109,7 @@ struct Crumb : public Object {
         for(int r = 0; r < CRUMB_ROWS; r++) {
             if(r!=0)
                 to_return.append("\n");
-            for(int c = 0; c < 10; c++) {
+            for(int c = 0; c < CRUMB_COLS; c++) {
                 to_return.append(std::to_string(mat[r][c]).substr(0,4)+(c==9?"":", "));
             }
         }
@@ -149,7 +149,7 @@ static float evaluate_elementwise(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb>
      float score = 0.0f;
      const float* eval_ptr = &eval->mat[eval_start][0];
      const float* against_ptr = &against->mat[against_start][0];
-     int total = eval_count * 10;
+     int total = eval_count * CRUMB_COLS;
      for(int i = 0; i < total; i++) {
           score += eval_ptr[i] * against_ptr[i];
      }
@@ -193,7 +193,7 @@ static float sub_evaluate(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against
     float score = 0.0f;
     const float* eval_ptr = &eval->mat[eval_start][0];
     const float* against_ptr = &against->mat[against_start][0];
-    int total = eval_count * 10;
+    int total = eval_count * CRUMB_COLS;
     for(int i = 0; i < total; i++) {
          score += eval_ptr[i] - against_ptr[i];
     }
@@ -224,6 +224,27 @@ static float sub_evaluate(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against
     return score;
 }
 
+static float sim_evaluate(g_ptr<Crumb> eval, int eval_verb, g_ptr<Crumb> against, int against_verb) {
+    int eval_start = (eval_verb >> 16) & 0xFFFF; int eval_count = eval_verb & 0xFFFF;
+    int against_start = (against_verb >> 16) & 0xFFFF; int against_count = against_verb & 0xFFFF;
+
+    assert(eval_count == against_count);
+
+    float dot = 0.0f, eval_mag = 0.0f, against_mag = 0.0f;
+    const float* eval_ptr = &eval->mat[eval_start][0];
+    const float* against_ptr = &against->mat[against_start][0];
+    int total = eval_count * CRUMB_COLS;
+
+    for(int i = 0; i < total; i++) {
+        dot        += eval_ptr[i] * against_ptr[i];
+        eval_mag   += eval_ptr[i] * eval_ptr[i];
+        against_mag += against_ptr[i] * against_ptr[i];
+    }
+
+    float denom = std::sqrt(eval_mag) * std::sqrt(against_mag);
+    return denom > 0.0f ? dot / denom : 0.0f;
+}
+
 static float evaluate_binary(g_ptr<Crumb> a, int a_verb, g_ptr<Crumb> b, int b_verb) {
      int a_start = (a_verb >> 16) & 0xFFFF;
      int a_count = a_verb & 0xFFFF;
@@ -235,7 +256,7 @@ static float evaluate_binary(g_ptr<Crumb> a, int a_verb, g_ptr<Crumb> b, int b_v
      float* a_ptr = (float*)&a->mat[a_start][0];
      float* b_ptr = (float*)&b->mat[b_start][0];
      
-     int total_elements = a_count * 10;
+     int total_elements = a_count * CRUMB_COLS;
      int matching_bits = 0;
      int total_bits = total_elements * 32;
      
@@ -260,7 +281,7 @@ static void apply_mask(g_ptr<Crumb> target, int target_verb, g_ptr<Crumb> mask, 
     
     float* target_ptr = &target->mat[target_start][0];
     const float* mask_ptr = &mask->mat[mask_start][0];
-    int total = target_count * 10;
+    int total = target_count * CRUMB_COLS;
     
     for(int i = 0; i < total; i++) {
         target_ptr[i] = op(target_ptr[i], mask_ptr[i]);
@@ -314,7 +335,7 @@ static void scale_mask(g_ptr<Crumb> target, int verb, float scalar) {
      int start = (verb >> 16) & 0xFFFF;
      int count = verb & 0xFFFF;
      float* ptr = &target->mat[start][0];
-     int total = count * 10;
+     int total = count * CRUMB_COLS;
      
      for(int i = 0; i < total; i++) {
          ptr[i] *= scalar;
@@ -344,8 +365,28 @@ class Episode : public Object {
 public:
     list<g_ptr<Crumb>> states;
     list<g_ptr<Crumb>> deltas;
-    int action_id;
-    int timestamp;
+    int action_id = 0;
+    int timestamp = 0;
+    int hits = 0;
+
+    std::string to_string() {
+        std::string s;
+        s.append("ID: "+std::to_string(action_id)+" AT: "+std::to_string(timestamp));
+        for(int i=0;i<deltas.length();i++) {
+            s.append("\n STATE: ");
+            if(i<states.length()) {
+                s.append("\n"+states[i]->to_string());
+            } else {
+                s.append(" ZERO");
+            }
+
+            s.append("\n  DELTA: ");
+            if(deltas[i]==ZERO) s.append(" ZERO");
+            else if(deltas[i]==IDENTITY) s.append(" IDENTITY");
+            else  s.append("\n"+deltas[i]->to_string());
+        }
+        return s;
+    }
 };
 
 
@@ -365,14 +406,19 @@ public:
     list<g_ptr<Crumb>> cognitive_attention;
 
     float match_episode(g_ptr<Episode> ep, list<g_ptr<Crumb>> crumbs) {
+        if(ep->states.length() == 0 || crumbs.length() == 0) return 0.0f;
+        
         float score = 0.0f;
+        float total_weight = 0.0f;
         int slots = std::min(ep->states.length(), crumbs.length());
+        
         for(int i = 0; i < slots; i++) {
-            float slot_score = sub_evaluate(crumbs[i], ALL, ep->states[i], ALL);
-            float weight = (i < 2) ? 1.0f : (1.0f / (float)(i));
-            score += slot_score * weight;
+            float weight = 1.0f / (float)(i + 1);
+            score += sim_evaluate(crumbs[i], ALL, ep->states[i], ALL) * weight;
+            total_weight += weight;
         }
-        return score;
+        
+        return score / total_weight;
     }
 
     bool has_instinctive_object_permanence = true;
@@ -451,7 +497,7 @@ public:
         return states;
     }
 
-    virtual void form_episodes(list<g_ptr<Crumb>> before, list<g_ptr<Crumb>> after,int action_id) {
+    virtual void form_episodes(list<g_ptr<Crumb>> before, list<g_ptr<Crumb>> after,int action_id,int timestamp = 0) {
         list<g_ptr<Crumb>> deltas;
         int max_len = std::max(before.length(), after.length());
         for(int i = 0; i < max_len; i++) {
@@ -473,10 +519,49 @@ public:
         }
         g_ptr<Episode> episode = make<Episode>();
         episode->action_id = action_id;
-        episode->timestamp = 0; //Pass frame later, if at all
+        episode->timestamp = timestamp;
         episode->states = before;
         episode->deltas = deltas;
         recent_episodes << episode;
+    }
+
+    virtual void consolidate_episodes() {
+        for(auto& recent : recent_episodes) {
+            // Find best matching consolidated episode
+            int best_idx = -1;
+            float best_match = 0.0f;
+            for(int i = 0; i < consolidated_episodes.length(); i++) {
+                float match = match_episode(consolidated_episodes[i], recent->states);
+                if(match > best_match) {
+                    best_match = match;
+                    best_idx = i;
+                }
+            }
+            
+            if(best_match > 0.7f) {
+                auto& ep = consolidated_episodes[best_idx];
+                ep->hits++;
+                float rate = 1.0f / (float)ep->hits;
+                
+                int slots = std::min(ep->states.length(), recent->states.length());
+                for(int i = 0; i < slots; i++) {
+                    scale_mask(ep->states[i], ALL, 1.0f - rate);
+                    g_ptr<Crumb> recent_scaled = clone(recent->states[i]);
+                    scale_mask(recent_scaled, ALL, rate);
+                    add_mask(ep->states[i], ALL, recent_scaled, ALL);
+                    
+                    if(recent->deltas[i] != IDENTITY && recent->deltas[i] != ZERO &&
+                        ep->deltas[i] != IDENTITY && ep->deltas[i] != ZERO) {
+                        scale_mask(ep->deltas[i], ALL, 1.0f - rate);
+                        g_ptr<Crumb> delta_scaled = clone(recent->deltas[i]);
+                        scale_mask(delta_scaled, ALL, rate);
+                        add_mask(ep->deltas[i], ALL, delta_scaled, ALL);
+                    }
+                }
+            } else {
+                consolidated_episodes << recent;
+            }
+        }
     }
 };
 

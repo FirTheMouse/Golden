@@ -1,3 +1,6 @@
+#define CRUMB_ROWS 21
+#define CRUMB_COLS 10
+
 #include<core/helper.hpp>
 #include<core/physics.hpp>
 #include<util/meshBuilder.hpp>
@@ -357,8 +360,6 @@ g_ptr<Quad> make_pointer_line(g_ptr<Object> target) {
 // const int HAS   = (31 << 16) | 9;
 // const int ALL = (0 << 16) | CRUMB_ROWS;
 
-#define CRUMB_ROWS 21
-#define CRUMB_COLS 10
 //Verbs
 const int META  = (0 << 16) | 1; 
 const int IS    = (1 << 16) | 10;
@@ -2329,6 +2330,12 @@ int main() {
         }
      });
 
+    //WARNING:
+    //The crumbs map isn't being updated when new instanecs are created via pooling, so once crumb defs are hammered out
+    //ensure they're defined in the actual intilization code. Honestly define here is being a bit more than it actually should
+    //there should be a create berry opperation so that these things don't accidently get brought through by pooling!
+    //But that's a later problem
+
     scene->define("berry",[berry_model](){
         g_ptr<Single> berry= make<Single>(berry_model);
         scene->add(berry);    
@@ -2391,11 +2398,7 @@ int main() {
         }
     });
 
-    //WARNING:
-    //The crumbs map isn't being updated when new instanecs are created via pooling, so once crumb defs are hammered out
-    //ensure they're defined in the actual intilization code. Honestly define here is being a bit more than it actually should
-    //there should be a create berry opperation so that these things don't accidently get brought through by pooling!
-    //But that's a later problem
+
 
     scene->define("berry_bush",[c_model](){
         g_ptr<Single> bush= make<Single>(c_model);

@@ -1,3 +1,10 @@
+#define CRUMB_ROWS 2
+#define CRUMB_COLS 2
+
+const int POS = (0 << 16) | 1;
+const int VAL = (1 << 16) | 1;
+
+
 #include<core/helper.hpp>
 #include<core/numGrid.hpp>
 #include<util/meshBuilder.hpp>
@@ -9,9 +16,10 @@
 using namespace Golden;
 using namespace Log;
 
-#define EVALUATE 0
-#define LOG 1
-static int max_depth = 6;
+#define EVALUATE 1
+#define LOG 0
+#define TURN_TAGS 0
+static int max_depth = 4;
 #define ENABLE_AB 1
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
@@ -77,13 +85,6 @@ struct Move {
 g_ptr<Scene> scene = nullptr;
 g_ptr<NumGrid> num_grid = nullptr;
 
-#if USE_NODENET
-    g_ptr<nodenet> net[2];
-#endif
-
-#define CRUMB_ROWS 1
-#define CRUMB_COLS 5
-
 list<g_ptr<Single>> white_losses;
 list<g_ptr<Single>> black_losses;
 
@@ -107,6 +108,17 @@ int turn_color = 0; //0 = White, 1 = Black
 int turn_number = 0;
 list<g_ptr<Single>> drop;
 list<Move> madeMoves;
+
+class chess_nodenet : public nodenet {
+public:
+    float salience(g_ptr<Crumb> c) override {
+        return c->mat[1][0]; // just value for now
+    }
+};
+    
+#if USE_NODENET
+    g_ptr<chess_nodenet> net[2];
+#endif
 
 map<uint64_t, list<Move>> opening_book;
 
@@ -651,7 +663,176 @@ void castle(Move& move,bool real = true) {
     move.c_to = (new_king_pos-dir);
 }
 
-void makeMove(Move& move,bool real = true) {
+#if USE_NODENET
+
+    g_ptr<Crumb> mov_to_crumb(const Move& move) {
+        g_ptr<Crumb> piece = clone(ZERO);
+        piece->id = move.id;
+        return piece;
+    }
+
+    g_ptr<Crumb> piece_to_crumb(int id, int perspective_color, ivec2 anchor = ivec2(0,0)) {
+        g_ptr<Crumb> c = clone(ZERO);
+        c->id = id;
+        ivec2 pos = pos_of(id) - anchor;
+        c->mat[0][0] = pos.x();
+        c->mat[0][1] = pos.y();
+        c->mat[1][0] = (colors[id] == perspective_color ? 1 : -1) * (values[id] / 1000.0f);
+        return c;
+    }
+
+    list<g_ptr<Crumb>> gather_states_from_move(Move& move, int perspective_color, int cognitive_focus = 7) {
+        list<g_ptr<Crumb>> states;
+        ivec2 anchor = move.to;
+        states << piece_to_crumb(move.id, perspective_color,anchor);
+        
+        if(move.takes != -1) {
+            states << piece_to_crumb(move.takes, perspective_color,anchor);
+            
+            for(auto id : is_attacking(move.to, 1 - colors[move.id])) {
+                if(states.length() >= cognitive_focus) break;
+                states << piece_to_crumb(id, perspective_color,anchor);
+            }
+            for(auto id : is_attacking(move.to, colors[move.id])) {
+                if(states.length() >= cognitive_focus) break;
+                if(id == move.id) continue;
+                states << piece_to_crumb(id, perspective_color,anchor);
+            }
+        }
+
+        int king_id = perspective_color == 0 ? white_king_id : black_king_id;
+        if(states.find_if([king_id](g_ptr<Crumb> c){return c->id==king_id;})==-1) {
+            states.insert(piece_to_crumb(king_id, perspective_color,anchor),0);
+        }
+        
+        return states;
+    }
+
+    Move pick_move(g_ptr<chess_nodenet> nnet, int color) {
+        Move best;
+        best.id = -1;
+        
+        auto all_moves = generateMoves(color);
+        auto enemy_moves = generateMoves(1-color);
+        
+        list<Move> scan_order;
+        scan_order << all_moves << enemy_moves;
+        scan_order = sortMoveList(scan_order);
+        
+        list<int> attended_ids;
+        
+        for(auto& mov : scan_order) {
+            if(attended_ids.length() >= nnet->cognitive_focus) break;
+            
+            auto states = gather_states_from_move(mov, color);
+            
+            std::string match_seq = "";
+            match_seq.append("FINDING MATCH FOR: "+mts(mov)+"\n");
+            float best_match = 0.0f;
+            g_ptr<Episode> best_episode_match = nullptr;
+            for(auto ep : nnet->consolidated_episodes) {
+                float match_score = nnet->match_episode(ep, states);
+                if(match_score>best_match) {
+                    best_match = match_score;
+                    best_episode_match = ep;
+                    match_seq.append("     MATCHED: "+std::to_string(best_episode_match->timestamp)+" SCORE: "+std::to_string(best_match)+"\n");
+                }
+            }
+
+            if(best_episode_match) {
+                match_seq.append("BEST MATCH: "+std::to_string(best_episode_match->timestamp)+" SCORE: "+std::to_string(best_match));
+                print(match_seq);
+            }
+            
+            float novelty = 1.0f;
+            for(auto& ep : nnet->recent_episodes)
+                novelty = std::min(novelty, 1.0f - nnet->match_episode(ep, states));
+            
+            float combined = best_match + (novelty * 0.5f);
+            
+            if(combined > 0.2f || std::abs(mov.score) >= 200) {
+                for(auto& s : states) {
+                    if(s == ZERO || s == IDENTITY) continue;
+                    if(s->id == -1 || captured[s->id]) continue;
+                    if(colors[s->id] != color) continue;
+                    if(!attended_ids.has(s->id))
+                        attended_ids << s->id;
+                    if(attended_ids.length() >= nnet->cognitive_focus) break;
+                }
+            }
+        }
+        
+        int best_score = color == 0 ? -9999 : 9999;
+        for(auto id : attended_ids) {
+            if(captured[id]) continue;
+            for(auto& mov : sortMoveList(generateMovesForPiece(id))) {
+                makeMove(mov, false);
+                int score = minimax(2, 1-color, -9999, 9999);
+                unmakeMove(mov, false);
+                
+                bool better = color == 0 ? score > best_score : score < best_score;
+                if(better) {
+                    best_score = score;
+                    best = mov;
+                }
+            }
+        }
+        
+        if(best.id == -1 && !all_moves.empty())
+            best = all_moves[0];
+        
+        return best;
+    }
+
+    void inject_movement_episodes() {
+        for(int k=0;k<2;k++) {
+            for(int i = 0; i < 32; i++) {
+                for(auto& m : moves[i]) {
+                    g_ptr<Episode> ep = make<Episode>();
+                    ep->action_id = specialRules[i]; // sliding, normal, pawn
+                    
+                    // Slot 0: piece value, no position
+                    g_ptr<Crumb> state0 = clone(ZERO);
+                    state0->mat[1][0] = (values[i] / 1000.0f) * (i<16?1:-1)*(k==0?1:-1);
+                    ep->states << state0;
+                    
+                    // Slot 1: target square, just the movement vector in position
+                    g_ptr<Crumb> state1 = scene->create<Crumb>("Crumb");
+                    state1->mat[0][0] = m.x();
+                    state1->mat[0][1] = m.y();
+                    ep->states << state1;
+                    
+                    // Deltas derived by form_episodes from state pairs
+                    // but since these are injected directly we compute manually
+                    g_ptr<Crumb> delta0 = scene->create<Crumb>("Crumb");
+                    // position delta is just the move vector
+                    delta0->mat[0][0] = m.x();
+                    delta0->mat[0][1] = m.y();
+                    ep->deltas << delta0;
+                    ep->deltas << IDENTITY;
+                    
+                    net[k]->consolidated_episodes << ep;
+                }
+            }
+        }
+        // for(auto r: net[0]->consolidated_episodes) {
+        //     print(r->to_string());
+        // }
+    }
+#endif
+
+void makeMove(Move& move,bool real = true,bool is_linked = false) {
+    #if USE_NODENET
+        list<g_ptr<Crumb>> before;
+        list<g_ptr<Crumb>> other_before;
+        if(real) {
+            if(!is_linked) {
+                before = gather_states_from_move(move,turn_color);
+                other_before = gather_states_from_move(move,1-turn_color);
+            }
+        }
+    #endif
+
     if(!hasMoved[move.id]) {
         move.first_move = true;
         hasMoved[move.id] = true;
@@ -678,7 +859,7 @@ void makeMove(Move& move,bool real = true) {
         linked.from = move.c_from;
         linked.to = move.c_to;
         linked.id = move.c_id;
-        makeMove(linked,real);
+        makeMove(linked,real,true);
     } //Pawn double move
     if(move.rule == 3) {
         enpassant_square = move.to-(colors[move.id]==0?ivec2(0,1):ivec2(0,-1));
@@ -691,8 +872,25 @@ void makeMove(Move& move,bool real = true) {
         update_num_grid(ref[move.id],board_to_world(move.to));
         ref[move.id]->setPosition(board_to_world(move.to));
         history.getOrPut(current_hash,0)++;
+        #if USE_NODENET
+            if(!is_linked) {
+                int relevent_states = 0;
+                for(auto state : before) {
+                    if(state!=ZERO&&state!=IDENTITY) relevent_states++;
+                }
+                if(relevent_states>2) {
+                    list<g_ptr<Crumb>> after = gather_states_from_move(move,turn_color);
+                    list<g_ptr<Crumb>> other_after = gather_states_from_move(move,1-turn_color);
+                    net[turn_color]->form_episodes(before,after,move.rule,turn_number);
+                    net[1-turn_color]->form_episodes(other_before,other_after,move.rule,turn_number);
+                    // print("==EPISODE FROM VIEW WHITE==\n",net[0]->recent_episodes.last()->to_string());
+                    // print("==EPISODE FROM VIEW BLACK==\n",net[1]->recent_episodes.last()->to_string());
+                    // print("==ACTUAL MOVE==");
+                }
+            }
+        #endif
         #if !EVALUATE
-        print_move(move);
+            print_move(move);
         #endif
     }
 
@@ -732,7 +930,7 @@ void unmakeMove(Move move,bool real = true) {
         update_num_grid(ref[move.id],board_to_world(move.from));
         ref[move.id]->setPosition(board_to_world(move.from));
         #if !EVALUATE
-        print("Unmade move: "); print_move(move);
+            print("Unmade move: "); print_move(move);
         #endif
     } 
 
@@ -1025,64 +1223,56 @@ list<ivec2> can_castle(int color) {
     return result;
 }
 
-list<Move> generateMoves(int color) {
-    // Line total;
-    // total.start();
-    // Line s;
-    // s.start();
+list<Move> generateMovesForPiece(int i) {
     list<Move> result;
-    //if(captured[color==0?white_king_id:black_king_id]) return result;
-    for(int i=(color==0?0:16);i<(color==0?16:32);i++) {
-        // Line inner;
-        // inner.start();
-        bool castling = false;
-        if(captured[i]) continue;
-        select_piece(i);
-        list<ivec2> special_moves;
-        if(specialRules[i]==1) {
-            ivec2 d_r = ivec2(1,moves[i][0].y());
-            ivec2 d_l = ivec2(-1,moves[i][0].y());
-            if(square(start_pos+moves[i][0])==-1) { 
-                ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
-                special_moves << dd_m;
+    bool castling = false;
+    int color = (i<16?0:1);
+    select_piece(i);
+    list<ivec2> special_moves;
+    if(specialRules[i]==1) {
+        ivec2 d_r = ivec2(1,moves[i][0].y());
+        ivec2 d_l = ivec2(-1,moves[i][0].y());
+        if(square(start_pos+moves[i][0])==-1) { 
+            ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
+            special_moves << dd_m;
+        }
+        special_moves << d_r;
+        special_moves << d_l;
+        if(enpassant_square!=ivec2(-1,-1)) {
+            if(d_r==enpassant_square) {
+                special_moves << d_r;
+            } 
+            if(d_l==enpassant_square) {
+                special_moves << d_l;
             }
-            special_moves << d_r;
-            special_moves << d_l;
-            if(enpassant_square!=ivec2(-1,-1)) {
-                if(d_r==enpassant_square) {
-                    special_moves << d_r;
-                } 
-                if(d_l==enpassant_square) {
-                    special_moves << d_l;
-                }
-            }
-        } 
-        else if(specialRules[i]==2) {
-            for(int m=0;m<moves[i].length();m++) {
-                for(int d=1;d<=7;d++) {
-                    ivec2 dir = moves[i][m]*d;
-                    if(!in_bounds(start_pos+dir)) break;
-                    if(square(start_pos+dir)!=-1) {
-                        if(colors[square(start_pos+dir)]!=color) {
-                            special_moves << dir;
-                        }
-                        break;
+        }
+    } 
+    else if(specialRules[i]==2) {
+        for(int m=0;m<moves[i].length();m++) {
+            for(int d=1;d<=7;d++) {
+                ivec2 dir = moves[i][m]*d;
+                if(!in_bounds(start_pos+dir)) break;
+                if(square(start_pos+dir)!=-1) {
+                    if(colors[square(start_pos+dir)]!=color) {
+                        special_moves << dir;
                     }
-                    special_moves << dir;
+                    break;
                 }
+                special_moves << dir;
             }
         }
-        if(i==(colors[i]==0?white_king_id:black_king_id)) {
-            list<ivec2> side = can_castle(color);
-            if(!side.empty()) {
-                castling = true;
-                for(auto s : side) {
-                    special_moves << s;
-                }
+    }
+    if(i==(colors[i]==0?white_king_id:black_king_id)) {
+        list<ivec2> side = can_castle(color);
+        if(!side.empty()) {
+            castling = true;
+            for(auto s : side) {
+                special_moves << s;
             }
         }
+    }
 
-        if(specialRules[i]!=2) //Don't evaluate normal moves for sliding peices
+    if(specialRules[i]!=2) { //Don't evaluate normal moves for sliding peices
         for(int m=0;m<moves[i].length();m++) {
             Move move;
             move.id = s_id;
@@ -1092,42 +1282,42 @@ list<Move> generateMoves(int color) {
                 result << move;
             }
         }
-        for(int m=0;m<special_moves.length();m++) {
-            Move move;
-            move.id = s_id;
-            move.from = start_pos;
-            move.to = start_pos+special_moves[m];
-            if(specialRules[s_id]==1) {
-                ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
-                if(special_moves[m]==dd_m) {
-                    move.rule = 3;
-                }
-            }
-            if(castling) move.rule = 2;
-            if(validate_move(move)||castling) {
-                result << move;
+    }
+    for(int m=0;m<special_moves.length();m++) {
+        Move move;
+        move.id = s_id;
+        move.from = start_pos;
+        move.to = start_pos+special_moves[m];
+        if(specialRules[s_id]==1) {
+            ivec2 dd_m = ivec2(0,colors[i]==0?2:-2);
+            if(special_moves[m]==dd_m) {
+                move.rule = 3;
             }
         }
-        //print(dtypes[i]," time ",inner.end());
-        selected = nullptr;
+        if(castling) move.rule = 2;
+        if(validate_move(move)||castling) {
+            result << move;
+        }
     }
-    // print("Loop time ",s.end());
-    // s.start();
+    selected = nullptr;
+    return result;
+}
+
+list<Move> sortMoveList(list<Move> result) {
     list<Move> good_captures;
     list<Move> neutral_captures; 
     list<Move> bad_captures;
     list<Move> quiet_moves;
     for(auto& m : result) {
-        // print_move(m);
         makeMove(m, false);
-        bool kingInCheck = isKingInCheck(color);
+        bool kingInCheck = isKingInCheck((m.id<16?0:1));
         unmakeMove(m, false);
         if(!kingInCheck) {
             if(check_promotion(m)) m.rule = 1;
             if(m.takes==-1) 
                 quiet_moves << m;
             else {
-                int cap_val = capture_value(m, color);
+                int cap_val = capture_value(m,(m.id<16?0:1));
                 m.score = cap_val;
                 if(cap_val >= 200) good_captures << m;
                 else if(cap_val >= 0) neutral_captures << m;
@@ -1139,10 +1329,21 @@ list<Move> generateMoves(int color) {
         return a.score > b.score;
     });
     good_captures << neutral_captures << quiet_moves << bad_captures;
-   
-    // print("Final time ",s.end());
-    // print("Total time ",total.end());
     return good_captures;
+}
+
+list<Move> generateMoves(int color) {
+    // Line total;
+    // total.start();
+    // Line s;
+    // s.start();
+    list<Move> result;
+    //if(captured[color==0?white_king_id:black_king_id]) return result;
+    for(int i=(color==0?0:16);i<(color==0?16:32);i++) {
+        if(captured[i]) continue;
+        result << generateMovesForPiece(i);
+    }
+    return sortMoveList(result);
 }
 
 int getPositionalValue(int pieceId) {
@@ -1623,7 +1824,9 @@ Move findBestMove(int depth,int color) {
             auto currentTime = std::chrono::steady_clock::now();
             float delta = std::chrono::duration<float>(currentTime - lastTime).count();
             if(delta>=0.3) {
-                print(" calcs: ",global->calcs," (",global->progress," out of ",global->to_process.length(),") at max_depth ",max_depth);
+                #if !EVALUATE
+                    print(" calcs: ",global->calcs," (",global->progress," out of ",global->to_process.length(),") at max_depth ",max_depth);
+                #endif
                 lastTime=std::chrono::high_resolution_clock::now();
             }
         
@@ -2083,10 +2286,10 @@ void initialize_board() {
     std::string col = k==0?"white":"black";
     int rank = k==0?1:8;
         setup_piece("queen_"+col,ctf('d'),rank);
+        for(int i=1;i<9;i++) setup_piece("pawn_"+col,i,k==0?2:7);
         for(int i=0;i<2;i++) setup_piece("bishop_"+col,ctf(i==0?'c':'f'),rank);
         for(int i=0;i<2;i++) setup_piece("rook_"+col,ctf(i==0?'a':'h'),rank);
         for(int i=0;i<2;i++) setup_piece("knight_"+col,ctf(i==0?'b':'g'),rank);
-        for(int i=1;i<9;i++) setup_piece("pawn_"+col,i,k==0?2:7);
         setup_piece("king_"+col,ctf('e'),rank);
     }
 
@@ -2117,11 +2320,6 @@ int main() {
 
     num_grid = make<NumGrid>(2.0f,21.0f);
     global = make<Board>();
-
-    #if USE_NODENET
-        net[0] = make<nodenet>(scene);
-        net[1] = make<nodenet>(scene);
-    #endif
     
     //Define the objects, this pulls in the models and uses the CSV to code them
     // start::define_objects(scene,"FirChess",num_grid);
@@ -2130,6 +2328,16 @@ int main() {
     initialize_board();
 
     play_book();
+
+    #if USE_NODENET
+        init_nodenet(scene);
+        net[0] = make<chess_nodenet>();
+        net[0]->scene = scene;
+        net[1] = make<chess_nodenet>();
+        net[1]->scene = scene;
+
+       // global->inject_movement_episodes();
+    #endif
 
     try {
         load_opening_book();
@@ -2168,6 +2376,8 @@ int main() {
     auto l1 = make<Light>(Light(glm::vec3(0,10,0),glm::vec4(300,300,300,1)));
     scene->lights.push_back(l1);
 
+    bool game_over = false;
+
     bool bot_color = 0;
     //Make the little mouse to reperesnt the bot (Fir!)
     auto Fir = make<Single>(make<Model>(root()+"/Engine/assets/models/agents/Snow.glb"));
@@ -2184,15 +2394,55 @@ int main() {
                     boards[i]->sync_with(global);
                 }
             #endif
+            #if TURN_TAGS
+                Log::Line l; l.start();
+            #endif
             Move m = findBestMove(max_depth,turn_color);
             if(m.id!=-1) {
                 global->makeMove(m);
                 madeMoves << m;
+                #if TURN_TAGS
+                    print("--FINSHED BOT TURN--\nTIME: ",ftime(l.end()));
+                #endif
                 turn_color = 1-turn_color;
                 turn_number++;
             }
-            else
+            else { //If the game is over
+                game_over = true;
                 bot->pause();
+            }
+            bot_turn = false;
+        } 
+    },0.02f);
+
+    auto nnet_bot = make<Thread>();
+    nnet_bot->run([&](ScriptContext& ctx){
+        if(turn_color!=bot_color) {
+            bot_turn = true;
+            save_game("auto");
+            #if ENABLE_BOARDSPLIT
+                for(int i = 0;i<board_count;i++) {
+                    boards[i]->sync_with(global);
+                }
+            #endif
+            #if TURN_TAGS
+                Log::Line l; l.start();
+            #endif
+            Move m = global->pick_move(net[turn_color],turn_color); //findBestMove(max_depth,turn_color);
+            
+            if(m.id!=-1) {
+                global->makeMove(m);
+                madeMoves << m;
+                #if TURN_TAGS
+                    print("==FINISHED NNET TURN==\nTIME: ",ftime(l.end()));
+                #endif
+                turn_color = 1-turn_color;
+                turn_number++;
+            }
+            else { //If the game is over
+                game_over = true;
+                nnet_bot->pause();
+            }
             bot_turn = false;
         } 
     },0.02f);
@@ -2205,12 +2455,53 @@ int main() {
 
     
     bool auto_turn = true;
-    if(auto_turn) bot->start();
+    if(auto_turn) {
+        bot->start();
+        nnet_bot->start();
+    }
     int last_col = 1-turn_color;
 
     //load_game("auto");
-
+    Log::Line game_timer; game_timer.start();
     start::run(window,d,[&]{
+
+        if(game_over) {
+            print("\n\n====GAME FINISHED====");
+            print("TIME: ",ftime(game_timer.end()));
+            print("MADE MOVES: ",madeMoves.length()," EPISODES: ",net[1]->recent_episodes.length());
+            print("Moves from black's perspective: ");
+            for(int i=0;i<madeMoves.length();i++) { 
+                print(global->mts(madeMoves[i]));
+            }
+            print("Episodes from black's perspective: ");
+            for(int i=0;i<net[1]->recent_episodes.length();i++) { 
+                print(net[1]->recent_episodes[i]->to_string());
+            }
+            print("==========\n");
+
+
+
+            for(int i=madeMoves.length()-1;i>=0;i--) {
+                global->unmakeMove(madeMoves[i]);
+            }
+            madeMoves.clear();
+            for(int i=0;i<2;i++) {
+                net[i]->consolidate_episodes();
+                net[i]->recent_episodes.clear(); //Consolidate later
+            }
+
+            print("Black's consolidated episodes: ");
+            for(int i=0;i<net[1]->consolidated_episodes.length();i++) { 
+                print(net[1]->consolidated_episodes[i]->to_string());
+            }
+
+            game_over = false;
+            game_timer.start();
+            print("==========\n");
+            bot->start();
+            nnet_bot->start();
+        }
+
         vec3 mousePos = scene->getMousePos(0);
         if(mousePos.x()>8.0f) mousePos.setX(8.0f);
         if(mousePos.x()<-6.0f) mousePos.setX(-6.0f);
