@@ -368,19 +368,20 @@ public:
     int action_id = 0;
     int timestamp = 0;
     int hits = 0;
+    float score = 0.0f;
 
     std::string to_string() {
         std::string s;
         s.append("ID: "+std::to_string(action_id)+" AT: "+std::to_string(timestamp));
         for(int i=0;i<deltas.length();i++) {
-            s.append("\n STATE: ");
+            s.append("\n    STATE: ");
             if(i<states.length()) {
                 s.append("\n"+states[i]->to_string());
             } else {
                 s.append(" ZERO");
             }
 
-            s.append("\n  DELTA: ");
+            s.append("\n    DELTA: ");
             if(deltas[i]==ZERO) s.append(" ZERO");
             else if(deltas[i]==IDENTITY) s.append(" IDENTITY");
             else  s.append("\n"+deltas[i]->to_string());
@@ -405,7 +406,61 @@ public:
     int cognitive_focus = 8;
     list<g_ptr<Crumb>> cognitive_attention;
 
-    float match_episode(g_ptr<Episode> ep, list<g_ptr<Crumb>> crumbs) {
+    virtual list<g_ptr<Episode>> potential_reactions(list<g_ptr<Crumb>> crumbs) {
+        //Nothing for now, implment genericly later
+        return list<g_ptr<Episode>>{};
+    }
+    virtual list<g_ptr<Episode>> potential_reactions(g_ptr<Episode> ep) {
+        return potential_reactions(ep->states);
+    }
+
+
+     //Visit should return false to stop, true to expand.
+     void walk_graph(g_ptr<Episode> start,
+        std::function<bool(g_ptr<Episode>)> visit,
+        std::function<list<g_ptr<Episode>>(g_ptr<Episode>)> expand,
+        bool breadth_first = false) {
+
+        std::set<void*> visited;
+        list<g_ptr<Episode>> queue;
+        queue << start;
+
+        while(!queue.empty()) {
+            g_ptr<Episode> current = breadth_first ? queue.first() : queue.last();
+            if(breadth_first) 
+                queue.removeAt(0);
+            else
+                queue.pop();
+
+            void* ptr = (void*)current.getPtr();
+            if(visited.count(ptr) > 0) continue;
+            visited.insert(ptr);
+
+            if(!visit(current)) continue;
+            queue << expand(current);
+        }
+    }
+
+    void profile(g_ptr<Episode> start, std::function<bool(g_ptr<Episode>)> visit) {
+        walk_graph(start, visit, [this](g_ptr<Episode> ep) { 
+            return potential_reactions(ep);
+        }, false);
+    }
+
+    virtual void propagate(g_ptr<Episode> start, float energy, std::function<bool(g_ptr<Episode>, float, int)> visit, int depth = 0) {
+        if(energy <= 1.0f) return;
+        if(!visit(start, energy, depth)) return;
+        
+        auto reactions = potential_reactions(start);
+        if(reactions.empty()) return;
+                                    //That -1.0f can be tuned as node_cost
+        float child_energy = (energy - 1.0f) / (float)reactions.length();
+        for(auto& reaction : reactions) {
+            propagate(reaction, child_energy, visit, depth++);
+        }
+    }
+
+    float match_episode(g_ptr<Episode> ep, int eval_verb, list<g_ptr<Crumb>> crumbs, int against_verb) {
         if(ep->states.length() == 0 || crumbs.length() == 0) return 0.0f;
         
         float score = 0.0f;
@@ -414,11 +469,14 @@ public:
         
         for(int i = 0; i < slots; i++) {
             float weight = 1.0f / (float)(i + 1);
-            score += sim_evaluate(crumbs[i], ALL, ep->states[i], ALL) * weight;
+            score += sim_evaluate(ep->states[i], eval_verb, crumbs[i], against_verb) * weight;
             total_weight += weight;
         }
         
         return score / total_weight;
+    }
+    float match_episode(g_ptr<Episode> ep, int eval_verb, g_ptr<Episode> against, int against_verb) {
+        return match_episode(ep,eval_verb,against->states,against_verb);
     }
 
     bool has_instinctive_object_permanence = true;
@@ -497,7 +555,7 @@ public:
         return states;
     }
 
-    virtual void form_episodes(list<g_ptr<Crumb>> before, list<g_ptr<Crumb>> after,int action_id,int timestamp = 0) {
+    virtual g_ptr<Episode> form_episode(list<g_ptr<Crumb>> before, list<g_ptr<Crumb>> after,int action_id,int timestamp = 0) {
         list<g_ptr<Crumb>> deltas;
         int max_len = std::max(before.length(), after.length());
         for(int i = 0; i < max_len; i++) {
@@ -522,47 +580,103 @@ public:
         episode->timestamp = timestamp;
         episode->states = before;
         episode->deltas = deltas;
-        recent_episodes << episode;
+        return episode;
     }
 
-    virtual void consolidate_episodes() {
-        for(auto& recent : recent_episodes) {
-            // Find best matching consolidated episode
-            int best_idx = -1;
-            float best_match = 0.0f;
-            for(int i = 0; i < consolidated_episodes.length(); i++) {
-                float match = match_episode(consolidated_episodes[i], recent->states);
-                if(match > best_match) {
-                    best_match = match;
-                    best_idx = i;
-                }
-            }
-            
-            if(best_match > 0.7f) {
-                auto& ep = consolidated_episodes[best_idx];
-                ep->hits++;
-                float rate = 1.0f / (float)ep->hits;
-                
-                int slots = std::min(ep->states.length(), recent->states.length());
-                for(int i = 0; i < slots; i++) {
-                    scale_mask(ep->states[i], ALL, 1.0f - rate);
-                    g_ptr<Crumb> recent_scaled = clone(recent->states[i]);
-                    scale_mask(recent_scaled, ALL, rate);
-                    add_mask(ep->states[i], ALL, recent_scaled, ALL);
-                    
-                    if(recent->deltas[i] != IDENTITY && recent->deltas[i] != ZERO &&
-                        ep->deltas[i] != IDENTITY && ep->deltas[i] != ZERO) {
-                        scale_mask(ep->deltas[i], ALL, 1.0f - rate);
-                        g_ptr<Crumb> delta_scaled = clone(recent->deltas[i]);
-                        scale_mask(delta_scaled, ALL, rate);
-                        add_mask(ep->deltas[i], ALL, delta_scaled, ALL);
-                    }
-                }
-            } else {
-                consolidated_episodes << recent;
+    //Returns the number of hits of the episode which was consolidated into.
+    //match_threshold is the required similarity between epiosdes to consolidate, as evaluated across the provided verb
+    //learn_rate is how much the consolidating episode influences the episode, 
+    //i.e, the ratio of effect (0.1 would mean 10% of the consolidated epiosde is the effect of the epiosde fuzzed into it)
+    virtual int consolidate_episode(g_ptr<Episode>& episode, list<g_ptr<Episode>>& into, int verb = ALL, float match_threshold = 0.7f,float learn_rate = -1.0f) {
+        int best_idx = -1;
+        float best_match = 0.0f;
+        for(int i = 0; i < into.length(); i++) {
+            float match = match_episode(into[i], verb, episode, verb);
+            if(match > best_match) {
+                best_match = match;
+                best_idx = i;
             }
         }
+        int consolidated_hits = 0;
+        if(best_match > match_threshold) {
+            g_ptr<Episode> ep = into[best_idx];
+            ep->hits++;
+            float rate = learn_rate < 0 ? 1.0f / (float)ep->hits : learn_rate;
+            int slots = std::min(ep->states.length(), episode->states.length());
+            for(int i = 0; i < slots; i++) {
+                scale_mask(ep->states[i], verb, 1.0f - rate);
+                g_ptr<Crumb> recent_scaled = clone(episode->states[i]);
+                scale_mask(recent_scaled, verb, rate);
+                add_mask(ep->states[i], verb, recent_scaled, verb);
+            }
+            int deltas = std::min(episode->deltas.length(),ep->deltas.length());
+            for(int i = 0; i < deltas; i++) {
+                if(is_mutable(episode->deltas[i])&&is_mutable(ep->deltas[i])) {
+                    scale_mask(ep->deltas[i], verb, 1.0f - rate);
+                    g_ptr<Crumb> delta_scaled = clone(episode->deltas[i]);
+                    scale_mask(delta_scaled, verb, rate);
+                    add_mask(ep->deltas[i], verb, delta_scaled, verb);
+                }
+            }
+            episode = ep;
+            consolidated_hits = ep->hits;
+        } else {
+            into << episode;
+        }
+        return consolidated_hits;
     }
+
+    // virtual void consolidate_episodes() {
+    //     // Sleep = propagate each recent episode with high energy
+    //     // no action selection, just let consolidation accumulate
+    //     for(auto& recent : recent_episodes) {
+    //         float sleep_energy = cognitive_focus * 8; // more energy than live reasoning
+    //         propagate(recent, sleep_energy, [](g_ptr<Episode> ep, float energy) {
+    //             return true; // no selection pressure, just run
+    //         });
+    //     }
+    //     // Full consolidation pass after rehearsal
+    //     consolidate_episodes(0.7f, -1.0f, true);
+    // }
+
+    // virtual void consolidate_episodes() {
+    //     for(auto& recent : recent_episodes) {
+    //         // Find best matching consolidated episode
+    //         int best_idx = -1;
+    //         float best_match = 0.0f;
+    //         for(int i = 0; i < consolidated_episodes.length(); i++) {
+    //             float match = match_episode(consolidated_episodes[i], recent->states);
+    //             if(match > best_match) {
+    //                 best_match = match;
+    //                 best_idx = i;
+    //             }
+    //         }
+            
+    //         if(best_match > 0.7f) {
+    //             auto& ep = consolidated_episodes[best_idx];
+    //             ep->hits++;
+    //             float rate = 1.0f / (float)ep->hits;
+                
+    //             int slots = std::min(ep->states.length(), recent->states.length());
+    //             for(int i = 0; i < slots; i++) {
+    //                 scale_mask(ep->states[i], ALL, 1.0f - rate);
+    //                 g_ptr<Crumb> recent_scaled = clone(recent->states[i]);
+    //                 scale_mask(recent_scaled, ALL, rate);
+    //                 add_mask(ep->states[i], ALL, recent_scaled, ALL);
+                    
+    //                 if(recent->deltas[i] != IDENTITY && recent->deltas[i] != ZERO &&
+    //                     ep->deltas[i] != IDENTITY && ep->deltas[i] != ZERO) {
+    //                     scale_mask(ep->deltas[i], ALL, 1.0f - rate);
+    //                     g_ptr<Crumb> delta_scaled = clone(recent->deltas[i]);
+    //                     scale_mask(delta_scaled, ALL, rate);
+    //                     add_mask(ep->deltas[i], ALL, delta_scaled, ALL);
+    //                 }
+    //             }
+    //         } else {
+    //             consolidated_episodes << recent;
+    //         }
+    //     }
+    // }
 };
 
 void init_nodenet(g_ptr<Scene> scene) {

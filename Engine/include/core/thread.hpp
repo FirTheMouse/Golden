@@ -120,6 +120,12 @@ float getSpeed() {
     return sliceSpeed.load();
 }
 
+void waitForIdle() {
+    while(runningSlice) {
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+    }
+}
+
 void queueTask(std::function<void()> func) {
     std::lock_guard<std::mutex> lock(taskQueueMutex);
     taskQueue.push_back(func);

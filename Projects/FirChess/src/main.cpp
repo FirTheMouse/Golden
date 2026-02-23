@@ -19,7 +19,7 @@ using namespace Log;
 #define EVALUATE 1
 #define LOG 0
 #define TURN_TAGS 0
-static int max_depth = 4;
+static int max_depth = 2;
 #define ENABLE_AB 1
 #define ENABLE_TT 1
 #define ENABLE_PENALTY 1
@@ -28,6 +28,7 @@ static int max_depth = 4;
 #define ENABLE_BOARDSPLIT 0
 
 #define USE_NODENET 1
+#define LOG_MATCHING 0
 
 bool debug_move = false;
 bool free_camera = true;
@@ -91,7 +92,6 @@ list<g_ptr<Single>> black_losses;
 uint64_t turn_zobrist_key;
 map<uint64_t,int> history;
 
-Move last_move;
 int white_king_id = -1;
 int black_king_id = -1;
 int white_queen_id = -1;
@@ -108,17 +108,6 @@ int turn_color = 0; //0 = White, 1 = Black
 int turn_number = 0;
 list<g_ptr<Single>> drop;
 list<Move> madeMoves;
-
-class chess_nodenet : public nodenet {
-public:
-    float salience(g_ptr<Crumb> c) override {
-        return c->mat[1][0]; // just value for now
-    }
-};
-    
-#if USE_NODENET
-    g_ptr<chess_nodenet> net[2];
-#endif
 
 map<uint64_t, list<Move>> opening_book;
 
@@ -663,176 +652,7 @@ void castle(Move& move,bool real = true) {
     move.c_to = (new_king_pos-dir);
 }
 
-#if USE_NODENET
-
-    g_ptr<Crumb> mov_to_crumb(const Move& move) {
-        g_ptr<Crumb> piece = clone(ZERO);
-        piece->id = move.id;
-        return piece;
-    }
-
-    g_ptr<Crumb> piece_to_crumb(int id, int perspective_color, ivec2 anchor = ivec2(0,0)) {
-        g_ptr<Crumb> c = clone(ZERO);
-        c->id = id;
-        ivec2 pos = pos_of(id) - anchor;
-        c->mat[0][0] = pos.x();
-        c->mat[0][1] = pos.y();
-        c->mat[1][0] = (colors[id] == perspective_color ? 1 : -1) * (values[id] / 1000.0f);
-        return c;
-    }
-
-    list<g_ptr<Crumb>> gather_states_from_move(Move& move, int perspective_color, int cognitive_focus = 7) {
-        list<g_ptr<Crumb>> states;
-        ivec2 anchor = move.to;
-        states << piece_to_crumb(move.id, perspective_color,anchor);
-        
-        if(move.takes != -1) {
-            states << piece_to_crumb(move.takes, perspective_color,anchor);
-            
-            for(auto id : is_attacking(move.to, 1 - colors[move.id])) {
-                if(states.length() >= cognitive_focus) break;
-                states << piece_to_crumb(id, perspective_color,anchor);
-            }
-            for(auto id : is_attacking(move.to, colors[move.id])) {
-                if(states.length() >= cognitive_focus) break;
-                if(id == move.id) continue;
-                states << piece_to_crumb(id, perspective_color,anchor);
-            }
-        }
-
-        int king_id = perspective_color == 0 ? white_king_id : black_king_id;
-        if(states.find_if([king_id](g_ptr<Crumb> c){return c->id==king_id;})==-1) {
-            states.insert(piece_to_crumb(king_id, perspective_color,anchor),0);
-        }
-        
-        return states;
-    }
-
-    Move pick_move(g_ptr<chess_nodenet> nnet, int color) {
-        Move best;
-        best.id = -1;
-        
-        auto all_moves = generateMoves(color);
-        auto enemy_moves = generateMoves(1-color);
-        
-        list<Move> scan_order;
-        scan_order << all_moves << enemy_moves;
-        scan_order = sortMoveList(scan_order);
-        
-        list<int> attended_ids;
-        
-        for(auto& mov : scan_order) {
-            if(attended_ids.length() >= nnet->cognitive_focus) break;
-            
-            auto states = gather_states_from_move(mov, color);
-            
-            std::string match_seq = "";
-            match_seq.append("FINDING MATCH FOR: "+mts(mov)+"\n");
-            float best_match = 0.0f;
-            g_ptr<Episode> best_episode_match = nullptr;
-            for(auto ep : nnet->consolidated_episodes) {
-                float match_score = nnet->match_episode(ep, states);
-                if(match_score>best_match) {
-                    best_match = match_score;
-                    best_episode_match = ep;
-                    match_seq.append("     MATCHED: "+std::to_string(best_episode_match->timestamp)+" SCORE: "+std::to_string(best_match)+"\n");
-                }
-            }
-
-            if(best_episode_match) {
-                match_seq.append("BEST MATCH: "+std::to_string(best_episode_match->timestamp)+" SCORE: "+std::to_string(best_match));
-                print(match_seq);
-            }
-            
-            float novelty = 1.0f;
-            for(auto& ep : nnet->recent_episodes)
-                novelty = std::min(novelty, 1.0f - nnet->match_episode(ep, states));
-            
-            float combined = best_match + (novelty * 0.5f);
-            
-            if(combined > 0.2f || std::abs(mov.score) >= 200) {
-                for(auto& s : states) {
-                    if(s == ZERO || s == IDENTITY) continue;
-                    if(s->id == -1 || captured[s->id]) continue;
-                    if(colors[s->id] != color) continue;
-                    if(!attended_ids.has(s->id))
-                        attended_ids << s->id;
-                    if(attended_ids.length() >= nnet->cognitive_focus) break;
-                }
-            }
-        }
-        
-        int best_score = color == 0 ? -9999 : 9999;
-        for(auto id : attended_ids) {
-            if(captured[id]) continue;
-            for(auto& mov : sortMoveList(generateMovesForPiece(id))) {
-                makeMove(mov, false);
-                int score = minimax(2, 1-color, -9999, 9999);
-                unmakeMove(mov, false);
-                
-                bool better = color == 0 ? score > best_score : score < best_score;
-                if(better) {
-                    best_score = score;
-                    best = mov;
-                }
-            }
-        }
-        
-        if(best.id == -1 && !all_moves.empty())
-            best = all_moves[0];
-        
-        return best;
-    }
-
-    void inject_movement_episodes() {
-        for(int k=0;k<2;k++) {
-            for(int i = 0; i < 32; i++) {
-                for(auto& m : moves[i]) {
-                    g_ptr<Episode> ep = make<Episode>();
-                    ep->action_id = specialRules[i]; // sliding, normal, pawn
-                    
-                    // Slot 0: piece value, no position
-                    g_ptr<Crumb> state0 = clone(ZERO);
-                    state0->mat[1][0] = (values[i] / 1000.0f) * (i<16?1:-1)*(k==0?1:-1);
-                    ep->states << state0;
-                    
-                    // Slot 1: target square, just the movement vector in position
-                    g_ptr<Crumb> state1 = scene->create<Crumb>("Crumb");
-                    state1->mat[0][0] = m.x();
-                    state1->mat[0][1] = m.y();
-                    ep->states << state1;
-                    
-                    // Deltas derived by form_episodes from state pairs
-                    // but since these are injected directly we compute manually
-                    g_ptr<Crumb> delta0 = scene->create<Crumb>("Crumb");
-                    // position delta is just the move vector
-                    delta0->mat[0][0] = m.x();
-                    delta0->mat[0][1] = m.y();
-                    ep->deltas << delta0;
-                    ep->deltas << IDENTITY;
-                    
-                    net[k]->consolidated_episodes << ep;
-                }
-            }
-        }
-        // for(auto r: net[0]->consolidated_episodes) {
-        //     print(r->to_string());
-        // }
-    }
-#endif
-
 void makeMove(Move& move,bool real = true,bool is_linked = false) {
-    #if USE_NODENET
-        list<g_ptr<Crumb>> before;
-        list<g_ptr<Crumb>> other_before;
-        if(real) {
-            if(!is_linked) {
-                before = gather_states_from_move(move,turn_color);
-                other_before = gather_states_from_move(move,1-turn_color);
-            }
-        }
-    #endif
-
     if(!hasMoved[move.id]) {
         move.first_move = true;
         hasMoved[move.id] = true;
@@ -872,23 +692,6 @@ void makeMove(Move& move,bool real = true,bool is_linked = false) {
         update_num_grid(ref[move.id],board_to_world(move.to));
         ref[move.id]->setPosition(board_to_world(move.to));
         history.getOrPut(current_hash,0)++;
-        #if USE_NODENET
-            if(!is_linked) {
-                int relevent_states = 0;
-                for(auto state : before) {
-                    if(state!=ZERO&&state!=IDENTITY) relevent_states++;
-                }
-                if(relevent_states>2) {
-                    list<g_ptr<Crumb>> after = gather_states_from_move(move,turn_color);
-                    list<g_ptr<Crumb>> other_after = gather_states_from_move(move,1-turn_color);
-                    net[turn_color]->form_episodes(before,after,move.rule,turn_number);
-                    net[1-turn_color]->form_episodes(other_before,other_after,move.rule,turn_number);
-                    // print("==EPISODE FROM VIEW WHITE==\n",net[0]->recent_episodes.last()->to_string());
-                    // print("==EPISODE FROM VIEW BLACK==\n",net[1]->recent_episodes.last()->to_string());
-                    // print("==ACTUAL MOVE==");
-                }
-            }
-        #endif
         #if !EVALUATE
             print_move(move);
         #endif
@@ -1619,6 +1422,180 @@ void process_moves(int depth,int color) {
 g_ptr<Board> global;
 g_ptr<Thread> global_thread;
 
+class chess_nodenet : public nodenet {
+public:
+    float salience(g_ptr<Crumb> c) override {
+        return c->mat[1][0]; // just value for now
+    }
+
+    g_ptr<Crumb> piece_to_crumb(int id, int perspective_color, ivec2 anchor = ivec2(0,0)) {
+        g_ptr<Crumb> c = clone(ZERO);
+        c->id = id;
+        ivec2 pos = global->pos_of(id) - anchor;
+        c->mat[0][0] = pos.x();
+        c->mat[0][1] = pos.y();
+        c->mat[1][0] = (global->colors[id] == perspective_color ? 1 : -1) * (global->values[id] / 1000.0f);
+        return c;
+    }
+
+    list<g_ptr<Crumb>> gather_states_from_move(Move& move, int perspective_color) {
+        list<g_ptr<Crumb>> states;
+        ivec2 anchor = move.to;
+        states << piece_to_crumb(move.id, perspective_color,anchor);
+        
+        if(move.takes != -1) {
+            states << piece_to_crumb(move.takes, perspective_color,anchor);
+            
+            for(auto id : global->is_attacking(move.to, 1 - global->colors[move.id])) {
+                if(states.length() >= cognitive_focus) break;
+                //if(id==white_king_id||id==black_king_id) continue;
+                states << piece_to_crumb(id, perspective_color,anchor);
+            }
+            for(auto id : global->is_attacking(move.to, global->colors[move.id])) {
+                if(states.length() >= cognitive_focus) break;
+                //if(id==white_king_id||id==black_king_id) continue;
+                if(id == move.id) continue;
+                states << piece_to_crumb(id, perspective_color,anchor);
+            }
+        }
+
+        // states << piece_to_crumb(white_king_id,perspective_color,anchor);
+        // states << piece_to_crumb(black_king_id,perspective_color,anchor);
+        
+        return states;
+    }
+
+    Move derive_move(g_ptr<Episode> ep) {
+        Move mov;
+        mov.id = -1;
+        if(!ep->states.empty()) {
+            g_ptr<Crumb> anchor = ep->states[0];
+            if(!is_mutable(anchor) || anchor->id == -1) return mov;
+            mov.id = anchor->id;
+            mov.from = global->pos_of(mov.id);
+            mov.to = mov.from - ivec2((int)anchor->mat[0][0], (int)anchor->mat[0][1]);
+        }
+        return mov;
+    }
+
+    void propagate(g_ptr<Episode> start, float energy, std::function<bool(g_ptr<Episode>, float, int)> visit, int depth = 0) override {
+        //This implmentation is chess specific, but most will be encouraged to use the action struct instead.
+        //I do this because A. I want to get it working in chess without worrying about what's working
+        //and B. because a lot of people will want to implment onto existing infrastructure.
+        if(energy <= 1.0f) return;
+        Move mov = derive_move(start);
+        if(mov.id != -1) {
+            global->makeMove(mov, false);
+        }
+
+        nodenet::propagate(start, energy, visit, depth);
+    
+        if(mov.id != -1) {
+            list<g_ptr<Crumb>> after = gather_states_from_move(mov, global->colors[mov.id]);
+            g_ptr<Episode> new_ep = form_episode(start->states, after, mov.rule, -1); //<- no timestamp for now, but could slot depth here
+            if(consolidate_episode(new_ep,recent_episodes,ALL,0.9f,0.1f)>4) { //If it has enough hits to consolidate properly
+                recent_episodes.erase(new_ep);
+                consolidated_episodes << new_ep;
+            }
+
+            while(recent_episodes.length() > max_recent_episode_window) //May or may not go here
+                recent_episodes.removeAt(0);
+            global->unmakeMove(mov, false);
+        }
+    }
+
+    //There's a wrapper in nodnet that calls this with episode->states for crumbs
+    list<g_ptr<Episode>> potential_reactions(list<g_ptr<Crumb>> crumbs) override {
+        list<g_ptr<Episode>> reactions;
+        if(crumbs.empty()) return reactions;
+        int id = crumbs[0]->id;
+        if(id==-1) return reactions;
+        for(auto& state : crumbs) {
+            if(!is_mutable(state)) continue;
+            if(state->id == -1 || global->captured[state->id]) continue;
+            for(auto& mov : global->sortMoveList(global->generateMovesForPiece(id))) {
+                auto states = gather_states_from_move(mov, global->colors[id]);
+
+                float best_match = 0.0f;
+                for(auto& ep : consolidated_episodes)
+                    best_match = std::max(best_match, match_episode(ep, ALL, states, ALL));
+                
+                float novelty = 1.0f;
+                for(auto& ep : recent_episodes)
+                    novelty = std::min(novelty, 1.0f - match_episode(ep, ALL, states, ALL));
+                
+                float combined = best_match + (novelty * 0.5f);
+                
+                if(combined > 0.2f || std::abs(mov.score) >= 200) {
+                    // print("PIECE: ",global->pts(mov.id)," COMBINED: ",combined," SCORE: ",mov.score);
+                    g_ptr<Episode> reaction = make<Episode>();
+                    reaction->states = states;
+                    reaction->action_id = mov.id;
+                    reaction->score = (std::abs(mov.score) >= 200 ? std::abs(mov.score)/200.0f : best_match);
+                    reactions << reaction;
+                }
+            }
+        }
+        return reactions;
+    }
+
+
+    Move pick_move(int color) {
+        Move to_return;
+        to_return.id = -1;
+        if(madeMoves.empty()) {
+            list<Move> fallback_moves = global->generateMoves(color);
+            if(!fallback_moves.empty()) {
+                return fallback_moves[0];
+            } else {
+                print(red("NO FALLBACK MOVE!!!"));
+            }
+        }
+        Move& last_move = madeMoves.last();
+
+        list<std::pair<g_ptr<Episode>, float>> candidates;
+        float energy = 10.0f;
+
+        for(auto potential_move : potential_reactions(gather_states_from_move(last_move, color))) {
+            //print("ATTEMPTING TO PROPAGATE THROUGH A MOVE, SCORE: ",potential_move->score," ID: ",potential_move->states[0]->id);
+            candidates << std::make_pair(potential_move, 0.0f);
+            propagate(potential_move, energy, [&](g_ptr<Episode> ep, float remaining_energy, int depth) {
+                if(ep->score > 0.2f) {
+                    g_ptr<Crumb> anchor = ep->states[0];
+                    if(is_mutable(anchor)&&anchor->id != -1&&!global->captured[anchor->id]&&global->colors[anchor->id] == color) {
+                        candidates.last().second = std::max(candidates.last().second, ep->score * remaining_energy);
+                    }
+                    return true;
+                }
+                return false;
+            });
+        }
+        
+        // Winner take all sweep
+        float best_score = 0.0f;
+        g_ptr<Episode> winner = nullptr;
+        for(auto& candidate : candidates) {
+            if(candidate.second > best_score) {
+                best_score = candidate.second;
+                winner = candidate.first;
+            }
+        }
+        
+        if(winner != nullptr) {
+            to_return = derive_move(winner);
+        }
+        
+        if(to_return.id == -1 && !global->generateMoves(color).empty())
+            to_return = global->generateMoves(color)[0];
+        
+        return to_return;
+    }
+};
+
+#if USE_NODENET
+    g_ptr<chess_nodenet> net[2];
+#endif
+
 void setup_piece(const std::string& type,int file,int rank) {
     auto piece = scene->create<Single>(type);
     piece->setPosition(board_to_world(file,rank));
@@ -1707,10 +1684,12 @@ Move findBestMove(int depth,int color) {
     if(opening_book.hasKey(hash)) {
         using_book = true;
         moves = opening_book.get(hash);
-        print("Using ",moves.length()," book move(s)");
-        for(auto m : moves) {
-            print(" -> ",global->mts(m));
-        }
+        #if !EVALUATE
+            print("Using ",moves.length()," book move(s)");
+            for(auto m : moves) {
+                print(" -> ",global->mts(m));
+            }
+        #endif
     }
     #endif
     Move bestMove;
@@ -2377,6 +2356,8 @@ int main() {
     scene->lights.push_back(l1);
 
     bool game_over = false;
+    int wining_color = 0;
+    int wins[2] = {0,0};
 
     bool bot_color = 0;
     //Make the little mouse to reperesnt the bot (Fir!)
@@ -2385,6 +2366,7 @@ int main() {
     Fir->setPosition(bot_color==0?vec3(1,-1,-9):vec3(1,-1,11));
     if(bot_color==1) Fir->faceTo(vec3(0,-1,0));
     auto bot = make<Thread>();
+    auto nnet_bot = make<Thread>();
     bot->run([&](ScriptContext& ctx){
         if(turn_color==bot_color) {
             bot_turn = true;
@@ -2398,6 +2380,7 @@ int main() {
                 Log::Line l; l.start();
             #endif
             Move m = findBestMove(max_depth,turn_color);
+            //Move m = net[turn_color]->pick_move(turn_color); 
             if(m.id!=-1) {
                 global->makeMove(m);
                 madeMoves << m;
@@ -2408,14 +2391,15 @@ int main() {
                 turn_number++;
             }
             else { //If the game is over
-                game_over = true;
+                wining_color = 1-bot_color;
                 bot->pause();
+                nnet_bot->pause();
+                game_over = true;
             }
             bot_turn = false;
         } 
     },0.02f);
 
-    auto nnet_bot = make<Thread>();
     nnet_bot->run([&](ScriptContext& ctx){
         if(turn_color!=bot_color) {
             bot_turn = true;
@@ -2428,8 +2412,8 @@ int main() {
             #if TURN_TAGS
                 Log::Line l; l.start();
             #endif
-            Move m = global->pick_move(net[turn_color],turn_color); //findBestMove(max_depth,turn_color);
-            
+            //Move m = findBestMove(max_depth,turn_color);
+            Move m = net[turn_color]->pick_move(turn_color); 
             if(m.id!=-1) {
                 global->makeMove(m);
                 madeMoves << m;
@@ -2440,8 +2424,10 @@ int main() {
                 turn_number++;
             }
             else { //If the game is over
-                game_over = true;
+                wining_color = bot_color;
                 nnet_bot->pause();
+                bot->pause();
+                game_over = true;
             }
             bot_turn = false;
         } 
@@ -2465,10 +2451,21 @@ int main() {
     Log::Line game_timer; game_timer.start();
     start::run(window,d,[&]{
 
-        if(game_over) {
-            print("\n\n====GAME FINISHED====");
-            print("TIME: ",ftime(game_timer.end()));
-            print("MADE MOVES: ",madeMoves.length()," EPISODES: ",net[1]->recent_episodes.length());
+        if(game_over||turn_number>100) {
+            if(turn_number>100) {
+                nnet_bot->pause();
+                bot->pause();
+
+                nnet_bot->waitForIdle();
+                bot->waitForIdle();
+            } else {
+                wins[wining_color]++;
+            }
+            turn_number = 0;
+            print("\n====GAME FINISHED====");
+            print("TIME: ",ftime(game_timer.end())," WHITE WINS: ",wins[0]," BLACK WINS: ",wins[1]);
+            print("MADE MOVES: ",madeMoves.length()," RECENT EPISODES: ",net[1]->recent_episodes.length()," CONSOLIDATED EPISODES: ",net[1]->consolidated_episodes.length());
+
             print("Moves from black's perspective: ");
             for(int i=0;i<madeMoves.length();i++) { 
                 print(global->mts(madeMoves[i]));
@@ -2477,7 +2474,7 @@ int main() {
             for(int i=0;i<net[1]->recent_episodes.length();i++) { 
                 print(net[1]->recent_episodes[i]->to_string());
             }
-            print("==========\n");
+            print("==========");
 
 
 
@@ -2486,18 +2483,23 @@ int main() {
             }
             madeMoves.clear();
             for(int i=0;i<2;i++) {
-                net[i]->consolidate_episodes();
-                net[i]->recent_episodes.clear(); //Consolidate later
+                for(int e=net[i]->consolidated_episodes.length()-1;e>=0;e--) {
+                    g_ptr<Episode> to_consolidate = net[i]->consolidated_episodes[e];
+                    net[i]->consolidated_episodes.removeAt(e);
+                    net[i]->consolidate_episode(to_consolidate,net[i]->consolidated_episodes, ALL, 0.7f, -1.0f);
+                }
             }
 
             print("Black's consolidated episodes: ");
             for(int i=0;i<net[1]->consolidated_episodes.length();i++) { 
                 print(net[1]->consolidated_episodes[i]->to_string());
             }
+            print("Left over after sleep: ",net[1]->consolidated_episodes.length());
+            print("Made moves left: ",madeMoves.length()," Empty? ",madeMoves.empty()?"yes":"no");
 
             game_over = false;
             game_timer.start();
-            print("==========\n");
+            print("==========");
             bot->start();
             nnet_bot->start();
         }
@@ -2659,7 +2661,7 @@ int main() {
          }
 
          if(pressed(Q)) {
-            if(held(LSHIFT)) global->unmakeMove(last_move);
+            if(held(LSHIFT)) global->unmakeMove(madeMoves.last());
             else {
                 if(bot->runningTurn) {bot->pause(); bot_turn=false;}
                 else {bot->start();}
