@@ -24,6 +24,14 @@ inline std::string add_commas(int num) {
   return str;
 }
 
+inline void indent_multiline(std::string& str, const std::string& pad) {
+  size_t pos = 0;
+  while((pos = str.find('\n', pos)) != std::string::npos) {
+      str.replace(pos, 1, "\n" + pad);
+      pos += pad.length() + 1;
+  }
+}
+
 inline float randf(float min, float max)
 {
     // One engine per thread; seeded once from real entropy.
