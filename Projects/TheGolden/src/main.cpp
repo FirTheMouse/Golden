@@ -7,7 +7,7 @@
 #include<util/ml_core.hpp>
 #include<util/logger.hpp>
 #include<set>
-#include<util/nodenet.hpp>
+#include<util/cog.hpp>
 #include<gui/gui_core.hpp>
 using namespace Golden;
 using namespace helper;
@@ -819,7 +819,7 @@ public:
     // }
 };
 
-class golden_nodenet : public nodenet {
+class golden_nodenet : public Cog {
 public:
     golden_nodenet(g_ptr<Crumb> agent_state) : state(agent_state) {
         meta_root = make<c_node>("meta");

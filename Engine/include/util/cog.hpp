@@ -673,12 +673,12 @@ public:
     }
 };
 
-class nodenet : public Object
+class Cog : public Object
 {
 public:
-    nodenet(g_ptr<Scene> _scene) : scene(_scene) {};
-    nodenet() {};
-    ~nodenet() {};
+    Cog(g_ptr<Scene> _scene) : scene(_scene) {};
+    Cog() {};
+    ~Cog() {};
 
     g_ptr<Scene> scene = nullptr;
     g_ptr<Span> span;

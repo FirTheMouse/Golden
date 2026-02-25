@@ -11,7 +11,7 @@ const int VAL = (1 << 16) | 1;
 #include<core/type.hpp>
 #include<core/thread.hpp>
 #include<util/logger.hpp>
-#include<util/nodenet.hpp>
+#include<util/cog.hpp>
 
 using namespace Golden;
 using namespace Log;
@@ -1422,7 +1422,7 @@ void process_moves(int depth,int color) {
 g_ptr<Board> global;
 g_ptr<Thread> global_thread;
 
-class chess_nodenet : public nodenet {
+class chess_cog : public Cog {
 public:
     float salience(g_ptr<Crumb> c) override {
         return c->mat[1][0]; // just value for now
@@ -1612,11 +1612,11 @@ public:
                         reactions = {best};
                 } 
             } else { //Just continue if we don't have anything
-                // reactions = potential_reactions(start->states, false);
-                // if(!reactions.empty()) {
-                //     energy -= 1;
-                //     my_score = start->score;
-                // }
+                reactions = potential_reactions(start->states, false);
+                if(!reactions.empty()) {
+                    energy -= 1;
+                    my_score = start->score;
+                }
             }
 
             if(!reactions.empty()) {
@@ -1783,7 +1783,7 @@ public:
 };
 
 #if USE_NODENET
-    g_ptr<chess_nodenet> net[2];
+    g_ptr<chess_cog> net[2];
 #endif
 
 void setup_piece(const std::string& type,int file,int rank) {
@@ -2500,9 +2500,9 @@ int main() {
 
     #if USE_NODENET
         init_nodenet(scene);
-        net[0] = make<chess_nodenet>();
+        net[0] = make<chess_cog>();
         net[0]->scene = scene;
-        net[1] = make<chess_nodenet>();
+        net[1] = make<chess_cog>();
         net[1]->scene = scene;
 
         net[0]->span = make<Span>();
