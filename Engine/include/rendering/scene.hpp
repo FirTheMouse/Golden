@@ -717,6 +717,11 @@ public:
         }
     }
 
+
+//THIS IS A BUNCH OF OLD CODE.
+//I really should remove it but, I have no good excuse why not.
+//Maybe it just looks cool, I'll deal with it at some point.
+
     g_ptr<Quad> loadFab(Q_Fab& fab)
     {
         if(fab.type=="none"||fab.type=="image")

@@ -1449,19 +1449,14 @@ public:
             
             for(auto id : global->is_attacking(move.to, 1 - global->colors[move.id])) {
                 if(states.length() >= cognitive_focus) break;
-                //if(id==white_king_id||id==black_king_id) continue;
                 states << piece_to_crumb(id, perspective_color,anchor);
             }
             for(auto id : global->is_attacking(move.to, global->colors[move.id])) {
                 if(states.length() >= cognitive_focus) break;
-                //if(id==white_king_id||id==black_king_id) continue;
                 if(id == move.id) continue;
                 states << piece_to_crumb(id, perspective_color,anchor);
             }
 
-        // states << piece_to_crumb(white_king_id,perspective_color,anchor);
-        // states << piece_to_crumb(black_king_id,perspective_color,anchor);
-        
         return states;
     }
 
@@ -1577,9 +1572,6 @@ public:
     }
 
     float propagate(g_ptr<Episode> start, int& energy, std::function<bool(g_ptr<Episode>, int&, int)> visit, int depth = 0, float last_score = 0.0f) override {
-        //This implmentation is chess specific, but most will be encouraged to use the action struct instead.
-        //I do this because A. I want to get it working in chess without worrying about what's working
-        //and B. because a lot of people will want to implment onto existing infrastructure.
         float my_score = 0.0f;
         if(depth % 2 == 0)
             my_score = start->score;
@@ -1599,7 +1591,7 @@ public:
             reactions = potential_reactions(start->states,(depth%2==0));
             if(!reactions.empty()) {
                 energy -= 1;
-                if(depth % 2 == 1) { // enemy turn: only propagate best response
+                if(depth % 2 == 1) { //Enemy turn: only propagate best response
                     g_ptr<Episode> best = nullptr;
                     int best_score = 0;
                     for(auto& r : reactions) {
@@ -1623,9 +1615,9 @@ public:
                 for(auto reaction : reactions) {
                     float score_before = my_score;
                     float child_score = propagate(reaction, energy, visit, depth + 1);
-                    if(depth % 2 == 0) { // agent turn: best sibling
+                    if(depth % 2 == 0) { //Agent turn
                         my_score += child_score;
-                    } else { // enemy turn: bad event, subtract
+                    } else { //Enemy turn
                         my_score -= child_score;
                     }
                     log("Score before: ",score_before," score after: ",my_score);

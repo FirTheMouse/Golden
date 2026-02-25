@@ -610,6 +610,7 @@ int main()  {
             box->scale({100,100});
             box->setColor(vec4(1,0,0,1));
             if(ctx.node->children.length()<2) print("WARNING: at least two args required for make_quad_pos!");
+            //Haven't implmented the get_arg yet, this is just a dummy demonstration I found in a random test file
             // float x = get_arg<int>(ctx, 0);
             // float y = get_arg<int>(ctx, 1);
             // box->setPosition({x, y});
