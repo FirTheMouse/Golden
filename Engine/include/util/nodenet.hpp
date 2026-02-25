@@ -17,6 +17,7 @@ using namespace helper;
 #endif
 
 #define LOG_NODENET 1
+#define LOG_REACTIONS 0
 
 const int ALL = (0 << 16) | CRUMB_ROWS;
 
@@ -766,12 +767,12 @@ public:
                    { return potential_reactions(ep); }, false);
     }
 
-    virtual void propagate(g_ptr<Episode> start, int& energy, std::function<bool(g_ptr<Episode>, int&, int)> visit, int depth = 0)
+    virtual float propagate(g_ptr<Episode> start, int& energy, std::function<bool(g_ptr<Episode>, int&, int)> visit, int depth = 0, float last_score = 0.0f)
     {
         if (energy <= 0)
-            return;
+            return 0.0f;
         if (!visit(start, energy, depth))
-            return;
+            return 0.0f;
 
         auto reactions = potential_reactions(start);
         if(!reactions.empty()) {
@@ -780,6 +781,7 @@ public:
                 propagate(reaction, energy, visit, depth + 1);
             }
         }
+        return 0.0f;
     }
 
     float match_episode(g_ptr<Episode> ep, int eval_verb, list<g_ptr<Crumb>> crumbs, int against_verb)
