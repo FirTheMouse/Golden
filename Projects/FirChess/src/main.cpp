@@ -1424,10 +1424,6 @@ g_ptr<Thread> global_thread;
 
 class chess_cog : public Cog {
 public:
-    float salience(g_ptr<Crumb> c) override {
-        return c->mat[1][0]; // just value for now
-    }
-
     g_ptr<Crumb> piece_to_crumb(int id, int perspective_color, ivec2 anchor = ivec2(0,0)) {
         g_ptr<Crumb> c = clone(ZERO);
         c->id = id;

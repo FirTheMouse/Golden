@@ -11,48 +11,48 @@
 #define CHECK_REG 0
 
 
-//The GDSL compiler has undergone plenty of changes over time, its current version is 0.1.9, with 0.2.0 planned to be the
-//addition of proper arrays and for loops that can take advantage of the memory model to test bulk object opperations.
-//Orginally, this started as a one pass string-based parser, similar to my other early domain specific languages. 
-//I was making GDSL (lit. Golden Domain Specific Language) for GUIDE (Golden User Interface Development Envrionment) as
-//a way to store the behaviour of dynamic gui elements with just a string. 
-//While writting the code, I had an idea to eliminate the synactic overhead of the engine API
-//i.e: GDSL was going to be a transpiler to C++, just a way to get rid of 'g_ptr<T>'.
-    // g_ptr<Type> Person = make<Type>();
-    // Person->add_initializer([](g_ptr<Object> object){
-    //     object->set<int>("age",42);
-    // }); //Explicit intilizar addition
+// The GDSL compiler has undergone plenty of changes over time, its current version is 0.1.9, with 0.2.0 planned to be the
+// addition of proper arrays and for loops that can take advantage of the memory model to test bulk object opperations.
+// Orginally, this started as a one pass string-based parser, similar to my other early domain specific languages. 
+// I was making GDSL (lit. Golden Domain Specific Language) for GUIDE (Golden User Interface Development Envrionment) as
+// a way to store the behaviour of dynamic gui elements with just a string. 
+// While writting the code, I had an idea to eliminate the synactic overhead of the engine API
+// i.e: GDSL was going to be a transpiler to C++, just a way to get rid of 'g_ptr<T>'.
+//     g_ptr<Type> Person = make<Type>();
+//     Person->add_initializer([](g_ptr<Object> object){
+//         object->set<int>("age",42);
+//     }); //Explicit intilizar addition
 
-    // (*Person)+([](g_ptr<Object> object){
-    //     object->set<int>("age",42);
-    // }); //Will be Person +{ * logic here * }
+//     (*Person)+([](g_ptr<Object> object){
+//         object->set<int>("age",42);
+//     }); //Will be Person +{ * logic here * }
 
-    // auto people = make<group>(); //Will be: group people;
-    // auto joe = Person->create(); //Will be: Person joe;
-    // *people << joe; //Will be: people << joe;
-    // auto man = (*people)[0]; //Will be: man people[0];
-    // //print(man->get<int>("age")); //Will be: print(man.age);
-//This was the original API sketch I had for how I wanted GDSL's syntax to look, at this point I had decided
-//this would be a dsl for Golden instead of just a script interpreter for GUIDE.
-//By version 0.0.5 (which is archived in the giant storage dump in the main.cpp of testing) I had moved towards a multi-pass system
-//which is more recognizable as GDSL's compiler, with the pipeline: token -> a_node -> t_node/s_node. This was after about 4 days
-//of development. At this time, I started working on the Type as well, a big pain point with this version was adding types, which each 
-//required explicit handeling such as int_list, float_list, and switch cases to detect them all. 
-//At this time, Type was based on the architecture of Scene, with the idea being we create a struct of arrays/ECS and use that as the memory model.
-//To make Type type agnostic, I came up with the idea to store the bytes directly, and bucket the arrays by size instead of by type. 
-//I eventually implmented this on day 6, and got it working in a very basic state with a clunky API, though in testing it matched a 
-//handmade struct of arrays. I actually made the classes now in Logger/rig (my profiler) such as time_function for this. 
-//I used the new Type in version 0.0.6, and realized the next major pain point would be the switch cases. I didn't like the idea
-//of having to go through a bunch of methods to add and maintain cases, it felt like something that would lead to points of failure
-//and development pain later on. I also *really* didn't want to spend hours refractoring all the switch cases I had accumulated.
-//I avoided this for 3 days, and eventually, I had the spike of motivation to just bite the bullet and get it done.
-//It only took 5 hours to actaully fiqure out how to make it modular with the registry and maps. 
-//After that, it was days of one to two hours of just sorting and converting, I would work on it while doing other things
-//like during a long car drive or while watching a show. Eventually, I had everything aranged into the new module system.
-//I did some more work to get GDSL to a functioning state, up to 0.1.0, then I had to go to college and deal with moving in and such.
-//A couple weeks later, I did further work, all of which should be visible on GitHub now.
-//At one point, while working on something else, I had the idea that maybe I could turn the GDSL compiler into a way to make
-//dsls quickly for various projects, instead of my quick string-based parsers I've made a couple times, yet I haven't tried this yet.
+//     auto people = make<group>(); //Will be: group people;
+//     auto joe = Person->create(); //Will be: Person joe;
+//     *people << joe; //Will be: people << joe;
+//     auto man = (*people)[0]; //Will be: man people[0];
+//     //print(man->get<int>("age")); //Will be: print(man.age);
+// This was the original API sketch I had for how I wanted GDSL's syntax to look, at this point I had decided
+// this would be a dsl for Golden instead of just a script interpreter for GUIDE.
+// By version 0.0.5 (which is archived in the giant storage dump in the main.cpp of testing) I had moved towards a multi-pass system
+// which is more recognizable as GDSL's compiler, with the pipeline: token -> a_node -> t_node/s_node. This was after about 4 days
+// of development. At this time, I started working on the Type as well, a big pain point with this version was adding types, which each 
+// required explicit handeling such as int_list, float_list, and switch cases to detect them all. 
+// At this time, Type was based on the architecture of Scene, with the idea being we create a struct of arrays/ECS and use that as the memory model.
+// To make Type type agnostic, I came up with the idea to store the bytes directly, and bucket the arrays by size instead of by type. 
+// I eventually implmented this on day 6, and got it working in a very basic state with a clunky API, though in testing it matched a 
+// handmade struct of arrays. I actually made the classes now in Logger/rig (my profiler) such as time_function for this. 
+// I used the new Type in version 0.0.6, and realized the next major pain point would be the switch cases. I didn't like the idea
+// of having to go through a bunch of methods to add and maintain cases, it felt like something that would lead to points of failure
+// and development pain later on. I also *really* didn't want to spend hours refractoring all the switch cases I had accumulated.
+// I avoided this for 3 days, and eventually, I had the spike of motivation to just bite the bullet and get it done.
+// It only took 5 hours to actaully fiqure out how to make it modular with the registry and maps. 
+// After that, it was days of one to two hours of just sorting and converting, I would work on it while doing other things
+// like during a long car drive or while watching a show. Eventually, I had everything aranged into the new module system.
+// I did some more work to get GDSL to a functioning state, up to 0.1.0, then I had to go to college and deal with moving in and such.
+// A couple weeks later, I did further work, all of which should be visible on GitHub now.
+// At one point, while working on something else, I had the idea that maybe I could turn the GDSL compiler into a way to make
+// dsls quickly for various projects, instead of my quick string-based parsers I've made a couple times, yet I haven't tried this yet.
 
 
 

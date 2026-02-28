@@ -1,5 +1,6 @@
-// #include<MNIST.hpp>
+#include<cog_lang_test.hpp>
 #include<mnist.hpp>
+
 
 using namespace Eigen;
 
@@ -277,6 +278,8 @@ using namespace Eigen;
 //MATMUL, RELU, ADD_BIAS, SOFTMAX_CE
 //Golden::u_allocator* tensor::gpu_allocator = nullptr;
 
+
+
 int main() {
 
     int win_size_x = 450;
@@ -287,22 +290,26 @@ int main() {
         win_size_y*=2;
     #endif
 
-    #ifdef __APPLE__
-        tensor::gpu_allocator = Golden::create_metal_allocator();
-    #elif defined(__CUDA__)
-        tensor::gpu_allocator = Golden::create_cuda_allocator();
-    #endif
+    // #ifdef __APPLE__
+    //     tensor::gpu_allocator = Golden::create_metal_allocator();
+    // #elif defined(__CUDA__)
+    //     tensor::gpu_allocator = Golden::create_cuda_allocator();
+    // #endif
 
     Window window = Window(win_size_x, win_size_y, "FirML 0.0.7");
     auto scene = make<Scene>(window,2);
     scene->camera.toIso();
     scene->tickEnvironment(0);
     Data d = helper::make_config(scene,K);
+    init_nodenet(scene);
+    //run_cog_mnist(scene,10000);
+    // run_language_test(scene);
+    run_babble_test(scene);
    
-    Log::Line l;
-    l.start();
+    // Log::Line l;
+    // l.start();
 
-    run_mnist(scene,4);
+    // run_mnist(scene,4);
 
     // std::string training_text = 
     // "the quick brown fox jumps over the lazy dog. "

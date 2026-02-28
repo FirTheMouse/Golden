@@ -1,5 +1,6 @@
 #define CRUMB_ROWS 21
 #define CRUMB_COLS 10
+#define AUTO_RECYCLE_CRUMBS 1
 
 #include<core/helper.hpp>
 #include<core/physics.hpp>
@@ -478,15 +479,6 @@ struct c_node : public Object {
                             scene->recycle(c->gui_panel);
                         }
                     }
-                    // for(int i=panel->children.length()-1;i>=0;i--) {
-                    //     if(!panel->children[i]->isAnchor) {
-                    //         for(auto c : panel->children[i]->allChildren()) {
-                    //             scene->recycle(c);
-                    //         }
-                    //         scene->recycle(panel->children[i]);
-                    //         panel->children.removeAt(i);
-                    //     }
-                    // }
                 }
             },color);
             panel->addChild(tbutton);

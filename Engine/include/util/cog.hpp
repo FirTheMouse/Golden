@@ -16,6 +16,11 @@ using namespace helper;
 #define CRUMB_COLS 10
 #endif
 
+//For if we have a global crumbs map or something where we want to recycle on 2 refs
+#ifndef AUTO_RECYCLE_CRUMBS
+#define AUTO_RECYCLE_CRUMBS 0
+#endif
+
 #define LOG_NODENET 1
 #define LOG_REACTIONS 0
 
@@ -32,20 +37,22 @@ struct Crumb : public Object
         setmat(fill);
     }
 
-    void release() override
-    {
-        if (refCount.fetch_sub(1) == 1)
+    #if AUTO_RECYCLE_CRUMBS 
+        void release() override
         {
-            delete this;
-        }
-        else if (getRefCount() == 1)
-        {
-            if (type_ != nullptr && !recycled.load())
+            if (refCount.fetch_sub(1) == 1)
             {
-                type_->recycle(this);
+                delete this;
+            }
+            else if (getRefCount() == 1)
+            {
+                if (type_ != nullptr && !recycled.load())
+                {
+                    type_->recycle(this);
+                }
             }
         }
-    }
+    #endif
 
     Crumb &operator=(const Crumb &other)
     {
@@ -140,7 +147,7 @@ struct Crumb : public Object
                 to_return.append("\n");
             for (int c = 0; c < CRUMB_COLS; c++)
             {
-                to_return.append(std::to_string(mat[r][c]).substr(0, 4) + (c == 9 ? "" : ", "));
+                to_return.append(std::to_string(mat[r][c]).substr(0, 4) + (c == CRUMB_COLS-1 ? "" : ", "));
             }
         }
         return to_return;
@@ -647,13 +654,15 @@ public:
         on_line = parent->children.last();
     }
 
-    void end_line() 
+    double end_line() 
     {
-        if(!on_line) return;
-        on_line->timer.end();
+        double time = 0.0;
+        if(!on_line) return time;
+        time = on_line->timer.end();
         if(on_line->parent) {
             on_line = on_line->parent;
         }
+        return time;
     }
 
     template<typename... Args>
@@ -687,8 +696,8 @@ public:
         span->add_line(label);
     }
 
-    void endline() {
-        span->end_line();
+    double endline() {
+        return span->end_line();
     }
 
     template<typename... Args>
@@ -731,42 +740,6 @@ public:
         return potential_reactions(ep->states);
     }
 
-    // Visit should return false to stop, true to expand.
-    void walk_graph(g_ptr<Episode> start,
-                    std::function<bool(g_ptr<Episode>)> visit,
-                    std::function<list<g_ptr<Episode>>(g_ptr<Episode>)> expand,
-                    bool breadth_first = false)
-    {
-
-        std::set<void *> visited;
-        list<g_ptr<Episode>> queue;
-        queue << start;
-
-        while (!queue.empty())
-        {
-            g_ptr<Episode> current = breadth_first ? queue.first() : queue.last();
-            if (breadth_first)
-                queue.removeAt(0);
-            else
-                queue.pop();
-
-            void *ptr = (void *)current.getPtr();
-            if (visited.count(ptr) > 0)
-                continue;
-            visited.insert(ptr);
-
-            if (!visit(current))
-                continue;
-            queue << expand(current);
-        }
-    }
-
-    void profile(g_ptr<Episode> start, std::function<bool(g_ptr<Episode>)> visit)
-    {
-        walk_graph(start, visit, [this](g_ptr<Episode> ep)
-                   { return potential_reactions(ep); }, false);
-    }
-
     virtual float propagate(g_ptr<Episode> start, int& energy, std::function<bool(g_ptr<Episode>, int&, int)> visit, int depth = 0, float last_score = 0.0f)
     {
         if (energy <= 0)
@@ -792,10 +765,9 @@ public:
         float score = 0.0f;
         float total_weight = 0.0f;
         int slots = std::min(ep->states.length(), crumbs.length());
-
         for (int i = 0; i < slots; i++)
         {
-            float weight = 1.0f / (float)(i + 1);
+            float weight = 1.0f; //1.0f / (float)(i + 1);
             score += sim_evaluate(ep->states[i], eval_verb, crumbs[i], against_verb) * weight;
             total_weight += weight;
         }
@@ -807,8 +779,7 @@ public:
         return match_episode(ep, eval_verb, against->states, against_verb);
     }
 
-    bool has_instinctive_object_permanence = true;
-    void apply_delta(g_ptr<Episode> ep, list<g_ptr<Crumb>> &crumbs)
+    void apply_delta(g_ptr<Episode> ep, list<g_ptr<Crumb>> &crumbs, int verb = ALL)
     {
         for (int i = 0; i < ep->deltas.length() && i < crumbs.length(); i++)
         {
@@ -823,7 +794,7 @@ public:
             }
             else
             {
-                add_mask(crumbs[i], ALL, delta, ALL);
+                add_mask(crumbs[i], verb, delta, verb);
             }
         }
     }
@@ -987,57 +958,6 @@ public:
         return consolidated_hits;
     }
 
-    // virtual void consolidate_episodes() {
-    //     // Sleep = propagate each recent episode with high energy
-    //     // no action selection, just let consolidation accumulate
-    //     for(auto& recent : recent_episodes) {
-    //         float sleep_energy = cognitive_focus * 8; // more energy than live reasoning
-    //         propagate(recent, sleep_energy, [](g_ptr<Episode> ep, float energy) {
-    //             return true; // no selection pressure, just run
-    //         });
-    //     }
-    //     // Full consolidation pass after rehearsal
-    //     consolidate_episodes(0.7f, -1.0f, true);
-    // }
-
-    // virtual void consolidate_episodes() {
-    //     for(auto& recent : recent_episodes) {
-    //         // Find best matching consolidated episode
-    //         int best_idx = -1;
-    //         float best_match = 0.0f;
-    //         for(int i = 0; i < consolidated_episodes.length(); i++) {
-    //             float match = match_episode(consolidated_episodes[i], recent->states);
-    //             if(match > best_match) {
-    //                 best_match = match;
-    //                 best_idx = i;
-    //             }
-    //         }
-
-    //         if(best_match > 0.7f) {
-    //             auto& ep = consolidated_episodes[best_idx];
-    //             ep->hits++;
-    //             float rate = 1.0f / (float)ep->hits;
-
-    //             int slots = std::min(ep->states.length(), recent->states.length());
-    //             for(int i = 0; i < slots; i++) {
-    //                 scale_mask(ep->states[i], ALL, 1.0f - rate);
-    //                 g_ptr<Crumb> recent_scaled = clone(recent->states[i]);
-    //                 scale_mask(recent_scaled, ALL, rate);
-    //                 add_mask(ep->states[i], ALL, recent_scaled, ALL);
-
-    //                 if(recent->deltas[i] != IDENTITY && recent->deltas[i] != ZERO &&
-    //                     ep->deltas[i] != IDENTITY && ep->deltas[i] != ZERO) {
-    //                     scale_mask(ep->deltas[i], ALL, 1.0f - rate);
-    //                     g_ptr<Crumb> delta_scaled = clone(recent->deltas[i]);
-    //                     scale_mask(delta_scaled, ALL, rate);
-    //                     add_mask(ep->deltas[i], ALL, delta_scaled, ALL);
-    //                 }
-    //             }
-    //         } else {
-    //             consolidated_episodes << recent;
-    //         }
-    //     }
-    // }
 };
 
 void init_nodenet(g_ptr<Scene> scene)
