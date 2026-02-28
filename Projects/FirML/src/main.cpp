@@ -1,5 +1,5 @@
-#include<cog_lang_test.hpp>
 #include<mnist.hpp>
+#include<cog_lang_test.hpp>
 
 
 using namespace Eigen;
@@ -301,10 +301,9 @@ int main() {
     scene->camera.toIso();
     scene->tickEnvironment(0);
     Data d = helper::make_config(scene,K);
-    init_nodenet(scene);
-    //run_cog_mnist(scene,10000);
+    run_cog_mnist(scene,20000);
     // run_language_test(scene);
-    run_babble_test(scene);
+    // run_babble_test(scene);
    
     // Log::Line l;
     // l.start();

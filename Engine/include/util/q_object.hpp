@@ -140,6 +140,11 @@ class q_object {
         }
    }
 
+   template<typename T, typename U>
+   g_ptr<T> as(const g_ptr<U>& from) {
+        return g_dynamic_pointer_cast<T>(from);
+   }
+
 }
 
 

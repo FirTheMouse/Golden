@@ -1,7 +1,9 @@
 #pragma once
 
+#ifndef CRUMB_ROWS
 #define CRUMB_ROWS 1
 #define CRUMB_COLS 4
+#endif
 
 #include<util/cog.hpp>
 #include<gui/twig.hpp>
@@ -19,7 +21,7 @@ list<g_ptr<Crumb>> gather_states_from_context(const std::string& text, int pos) 
 void run_language_test(g_ptr<Scene> scene) {
     auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
 
-    g_ptr<Cog> cog = make<Cog>(scene);
+    g_ptr<Cog> cog = make<Cog>();
     cog->span = make<Span>();
 
     float train_match = 0.98f;
@@ -226,7 +228,6 @@ class babble_cog : public Cog {
 
     void run_babble_test(g_ptr<Scene> scene) {
         g_ptr<babble_cog> cog = make<babble_cog>();
-        cog->scene = scene;
         cog->span = make<Span>();
     
         float train_match = 0.5f;

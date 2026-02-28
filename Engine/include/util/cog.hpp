@@ -163,6 +163,11 @@ g_ptr<Crumb> clone(g_ptr<Crumb> crumb)
 
 g_ptr<Crumb> IDENTITY = nullptr;
 g_ptr<Crumb> ZERO = nullptr;
+g_ptr<Type> c_type_ = nullptr;
+
+g_ptr<Crumb> make_crumb() {
+    return as<Crumb>(c_type_->create());
+}
 
 static bool is_mutable(g_ptr<Crumb> c)
 {
@@ -685,11 +690,9 @@ public:
 class Cog : public Object
 {
 public:
-    Cog(g_ptr<Scene> _scene) : scene(_scene) {};
     Cog() {};
     ~Cog() {};
 
-    g_ptr<Scene> scene = nullptr;
     g_ptr<Span> span;
 
     void newline(const std::string& label) {
@@ -960,19 +963,30 @@ public:
 
 };
 
-void init_nodenet(g_ptr<Scene> scene)
+
+
+void init_cog_()
 {
-    scene->define("Crumb", []()
-                  {
-        g_ptr<Crumb> crumb = make<Crumb>();
-        return crumb; });
-    scene->add_initilizer("Crumb", [](g_ptr<Object> obj)
-                          {
-        if(auto crumb = g_dynamic_pointer_cast<Crumb>(obj)) {
-            crumb->setmat(0.0f);
-        } });
-    IDENTITY = scene->create<Crumb>("Crumb");
-    IDENTITY->setmat(1.0f);
-    ZERO = scene->create<Crumb>("Crumb");
-    ZERO->setmat(0.0f);
+    if(!c_type_) {
+        c_type_ = make<Type>();
+        c_type_->make_func = []()
+        {
+            g_ptr<Crumb> crumb = make<Crumb>();
+            return crumb; 
+        };
+        c_type_->add_initializer([](g_ptr<Object> obj)
+        {
+            if(auto crumb = g_dynamic_pointer_cast<Crumb>(obj)) {
+                crumb->setmat(0.0f);
+            } 
+        });
+        IDENTITY = as<Crumb>(c_type_->create());
+        IDENTITY->setmat(1.0f);
+        ZERO = as<Crumb>(c_type_->create());
+        ZERO->setmat(0.0f);
+    }
 }
+struct CogInit {
+    CogInit() { init_cog_(); }
+};
+static CogInit _cog_init;

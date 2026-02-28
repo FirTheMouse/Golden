@@ -18,6 +18,8 @@ int32_t read_int(std::ifstream& file) {
     return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
 }
 
+
+
 namespace Eigen {
 
 std::pair<g_ptr<tensor>, g_ptr<tensor>> load_mnist(
@@ -375,6 +377,7 @@ list<g_ptr<Crumb>> gather_states_from_image(img_mat& img) {
     return to_return;
 }
 
+
 void run_cog_mnist(g_ptr<Scene> scene, int amt = -1) {
     auto source_code = make<Font>(root()+"/Engine/assets/fonts/source_code_black.ttf",100);
 
@@ -424,7 +427,7 @@ void run_cog_mnist(g_ptr<Scene> scene, int amt = -1) {
 
     print("Loaded ", train_imgs.length(), " training images");
 
-    g_ptr<Cog> cog = make<Cog>(scene);
+    g_ptr<Cog> cog = make<Cog>();
     cog->span = make<Span>();
 
     float train_match = 0.98f;
