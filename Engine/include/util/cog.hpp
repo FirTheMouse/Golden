@@ -26,6 +26,25 @@ using namespace helper;
 
 const int ALL = (0 << 16) | CRUMB_ROWS;
 
+
+// struct Crumb : public Object
+// {
+//     Crumb() {}
+
+//     int offset = 0;
+//     int length = 0;
+//     g_ptr<Storage> storage = nullptr;
+
+//     inline float* data() { 
+//         return storage->data.data() + offset; 
+//     }
+//     inline const float* data() const { 
+//         return storage->data.data() + offset; 
+//     }
+//     inline float& operator[](int i) { return data()[i]; }
+//     inline float operator[](int i) const { return data()[i]; }
+// };
+
 struct Crumb : public Object
 {
     Crumb()
@@ -690,10 +709,12 @@ public:
 class Cog : public Object
 {
 public:
-    Cog() {};
+    Cog() {
+        span = make<Span>();
+    };
     ~Cog() {};
 
-    g_ptr<Span> span;
+    g_ptr<Span> span = nullptr;
 
     void newline(const std::string& label) {
         span->add_line(label);

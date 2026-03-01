@@ -156,22 +156,6 @@ struct Pass {
     Mode mode = TRAIN;
 };
 
-// Storage: Shared data container using q_object refcounting
-struct Storage : public q_object {
-    list<float> data;
-    
-    Storage() = default;
-    
-    Storage(int size) {
-        data.resize(size);
-        for(int i = 0; i < size; i++) {
-            data[i] = 0.0f;
-        }
-    }
-    
-    Storage(list<float>&& d) : data(std::move(d)) {}
-};
-
 class tensor : public q_object {
 public:
     list<float> grad_; 

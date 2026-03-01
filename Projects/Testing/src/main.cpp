@@ -8,9 +8,10 @@
 
 #include<util/logger.hpp>
 
-// #include<util/DSL_util.hpp>
+//#include<util/DSL_util.hpp>
 #include<core/GDSL.hpp>
 
+#include<util/cog.hpp>
 
 namespace GDSL {
 
@@ -159,9 +160,8 @@ namespace GDSL {
 
 
 
-        size_t identifier_id = reg::new_type("IDENTIFIER");
-        size_t words_id = make_keyword("words");   
-        a_functions.put(identifier_id,[words_id](a_context& ctx){
+        size_t identifier_id = reg::new_type("IDENTIFIER"); 
+        a_functions.put(identifier_id,[](a_context& ctx){
             //Here keywords lets us skip the T_KEY T_CALL and just go straight to content -> value. This is so we 
             //aren't storing type information on the tokens, and can instead put that in the a_node
             g_ptr<Value> value = keywords.getOrDefault(ctx.token->content,fallback_value);
@@ -179,6 +179,7 @@ namespace GDSL {
             }
             ctx.node->tokens << ctx.token;
         });
+        size_t words_id = make_keyword("words");  
         // t_functions.put(words_id,[](t_context& ctx){
         //     parse_sub_nodes(ctx);
         //     return ctx.result;
@@ -208,7 +209,7 @@ namespace GDSL {
                 ctx.state=opp;
             }
             else
-            print("parse_tokens::653 missing case for type ",TO_STRING(ctx.token->getType()));
+            print("a_default_function: missing case for type ",TO_STRING(ctx.token->getType()));
             ctx.node->tokens << ctx.token;
         };
 
@@ -274,6 +275,7 @@ namespace GDSL {
 using namespace GDSL;
 
 int main() {
+
     // GDSL::helper_test_module::initialize();
     test_module(root()+"/Projects/Testing/src/test.gld");
     // g_ptr<GDSL::Frame> frame = compile(root()+"/Projects/Testing/src/test.gld");

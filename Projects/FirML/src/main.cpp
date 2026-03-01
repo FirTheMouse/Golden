@@ -301,7 +301,12 @@ int main() {
     scene->camera.toIso();
     scene->tickEnvironment(0);
     Data d = helper::make_config(scene,K);
-    run_cog_mnist(scene,20000);
+
+    g_ptr<Cog> cog = make<Cog>();
+    cog->span = make<Span>();
+    
+
+    //run_cog_mnist(scene,20000);
     // run_language_test(scene);
     // run_babble_test(scene);
    

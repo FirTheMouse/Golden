@@ -2487,11 +2487,8 @@ int main() {
     play_book();
 
     #if USE_NODENET
-        init_nodenet(scene);
         net[0] = make<chess_cog>();
-        net[0]->scene = scene;
         net[1] = make<chess_cog>();
-        net[1]->scene = scene;
 
         net[0]->span = make<Span>();
         net[1]->span = make<Span>();

@@ -351,8 +351,8 @@ namespace GDSL
             t_literal_handlers.put(int_id, [t_literal_id, int_id](g_ptr<Token> token) -> g_ptr<t_node> {
                 g_ptr<t_node> node = make<t_node>();
                 node->type = t_literal_id;
-                node->value.type = int_id;
-                node->value.set<int>(std::stoi(token->content));
+                node->value->type = int_id;
+                node->value->set<int>(std::stoi(token->content));
                 return node;
             });
 
@@ -368,9 +368,9 @@ namespace GDSL
             t_literal_handlers.put(bool_id, [t_literal_id, bool_id](g_ptr<Token> token) -> g_ptr<t_node> {
                 g_ptr<t_node> node = make<t_node>();
                 node->type = t_literal_id;
-                node->value.type = bool_id;
+                node->value->type = bool_id;
                 //This means the fallback is false if they do TRUE might want to change it later
-                node->value.set<bool>(token->content=="true" ? true : false); 
+                node->value->set<bool>(token->content=="true" ? true : false); 
                 return node;
             });
                
@@ -405,9 +405,9 @@ namespace GDSL
             t_literal_handlers.put(string_id, [t_literal_id, string_id](g_ptr<Token> token) -> g_ptr<t_node> {
                 g_ptr<t_node> node = make<t_node>();
                 node->type = t_literal_id;
-                node->value.type = string_id;
-                node->value.set<std::string>(token->content);
-                node->value.size = 24;
+                node->value->type = string_id;
+                node->value->set<std::string>(token->content);
+                node->value->size = 24;
                 return node;
             });
             
@@ -416,7 +416,7 @@ namespace GDSL
                 std::string toPrint = "";
                 for(auto r : ctx.node->children) {
                     execute_r_node(r, ctx.frame, ctx.index,ctx.sub_index);
-                    toPrint.append(r->value.to_string());
+                    toPrint.append(r->value->to_string());
                 }
                 print(toPrint);
                 return ctx.node;
@@ -424,7 +424,7 @@ namespace GDSL
 
             add_scoped_keyword("if", 2, [](exec_context& ctx) -> g_ptr<r_node> {
                 execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
-                if(ctx.node->right->value.is_true()) {
+                if(ctx.node->right->value->is_true()) {
                     execute_sub_frame(ctx.node->frame, ctx.frame);
                 }
                 else if(ctx.node->left) {

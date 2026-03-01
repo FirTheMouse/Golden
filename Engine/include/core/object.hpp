@@ -12,6 +12,21 @@ namespace Golden {
 
 class Type;
 
+struct Storage : public q_object {
+    list<float> data;
+    
+    Storage() = default;
+    
+    Storage(int size) {
+        data.resize(size);
+        for(int i = 0; i < size; i++) {
+            data[i] = 0.0f;
+        }
+    }
+    
+    Storage(list<float>&& d) : data(std::move(d)) {}
+};
+
 struct ScriptContext
 {
     Data data;

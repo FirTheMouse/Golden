@@ -316,9 +316,9 @@ namespace array_module {
                         sub << ctx.frame->slots[0];
                         ctx.frame->slots << sub;
                     } 
-                    ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][i] = obj->ID;
+                    ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][i] = obj->TID;
                     ctx.frame->active_objects << obj;
-                    execute_constructor(ctx.node->frame,obj->ID); //Do the constructer
+                    execute_constructor(ctx.node->frame,obj->TID); //Do the constructer
                     if(!ctx.node->children.empty()) { //For constructors
                         //Do something here
                     }
@@ -347,9 +347,9 @@ namespace array_module {
         //                     sub << ctx.frame->slots[0];
         //                     ctx.frame->slots << sub;
         //                 } 
-        //                 ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][i] = obj->ID;
+        //                 ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][i] = obj->TID;
         //                 ctx.frame->active_objects << obj;
-        //                 execute_constructor(ctx.node->frame,obj->ID); //Do the constructer
+        //                 execute_constructor(ctx.node->frame,obj->TID); //Do the constructer
         //                 if(!ctx.node->children.empty()) { //For constructors
         //                     //Do something here
         //                 }
@@ -719,7 +719,7 @@ namespace type_module {
                     ctx.node->frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][assignment->left->slot] = ctx.frame->slots[ctx.sub_index==-1?ctx.index:ctx.sub_index][assignment->right->slot];
                 }
                 else {
-                    execute_r_node(assignment, ctx.node->frame, context->ID,ctx.sub_index);
+                    execute_r_node(assignment, ctx.node->frame, context->TID,ctx.sub_index);
                 }
             }
             ctx.node->frame->return_to = ctx.node;
@@ -1281,9 +1281,9 @@ namespace variables_module {
                     ctx.frame->slots[target_index] << 0; //Not sure if this should be 0
                 }
                 //print("IDX: ",ctx.index," SUB_IDX: ",ctx.sub_index," SLOT: ",ctx.node->slot);
-                ctx.frame->slots[target_index][ctx.node->slot] = obj->ID;
+                ctx.frame->slots[target_index][ctx.node->slot] = obj->TID;
                 ctx.frame->active_objects << obj;
-                execute_constructor(ctx.node->frame,obj->ID); //Do the constructer
+                execute_constructor(ctx.node->frame,obj->TID); //Do the constructer
                 if(!ctx.node->children.empty()) { //For constructors
                     //Do something here
                  }
@@ -1312,9 +1312,9 @@ namespace variables_module {
                 //     ctx.frame->slots[target_index] << 0; //Not sure if this should be 0
                 // }
 
-                frame->slots[slot] = obj->ID;
+                frame->slots[slot] = obj->TID;
                 frame->active_objects << obj;
-                execute_constructor(frame,obj->ID); //Should be down there v
+                execute_constructor(frame,obj->TID); //Should be down there v
                 std::function<void()> func = [resolved_type,frame,slot](){
                    //Run constructor
                 };

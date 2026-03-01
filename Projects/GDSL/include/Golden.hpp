@@ -1557,7 +1557,7 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_ind
 
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
-        execute_r_node(node,frame,context->ID,sub_index);
+        execute_r_node(node,frame,context->TID,sub_index);
         if(!frame->isActive()) {
             break;
         }
@@ -1628,7 +1628,7 @@ static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
     }
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
-        stream_r_node(node,frame,context->ID);
+        stream_r_node(node,frame,context->TID);
     }
     frame->context->recycle(context);
     // for(int i=frame->active_objects.length()-1;i>=0;i--) {

@@ -311,84 +311,17 @@ public:
 
 g_ptr<Value> fallback_value = nullptr;
 
-
-/// @brief BIG WARNING! These leak right now and we need to add cleanup for data in the future!
-struct t_value {
-
-    ~t_value() {
-        //Can't do any of this because it would cause a double free
-        //I should really just make t_value a g_ptr...
-        //free(data);
-    }
-    uint32_t type = 0;
-    void* data;
-    int address = -1;
-    size_t size;
-    int sub_size = -1;
-
-    template<typename T>
-    T get() { return *(T*)data; }
-    
-    template<typename T>
-    void set(const T& value) { 
-        if (!data) {
-            data = malloc(sizeof(T));
-            size = sizeof(T);
-        }
-        new(data) T(value);
-    }
-
-    std::string to_string() {
-        if (!data) {
-            if(type==GET_TYPE(OBJECT)) {
-                return "OBJ";
-            }
-            else {
-                return "[null]";
-            }
-        }
-        
-        try {
-            return value_to_string.get(type)(data);
-        }
-        catch(std::exception e) {
-            return "[missing value_to_string for type "+TO_STRING(type)+"]";
-        }
-    }
-
-    void negate() {
-        if(data) {
-            try {
-                negate_value.get(type)(data);
-            }
-            catch(std::exception e) {
-                print("t_value::450 missing negate_value handler for ",TO_STRING(type));
-            }
-        }
-    }
-
-    bool is_true() {
-        if (IS_TYPE(this,BOOL) && data) {
-            return *(bool*)data; 
-        }
-        return false;
-    }
-};
-
-
 class r_node;
 class Frame;
 
-
-/// @brief WARNING! Value will cause memory leaks on deconstruction in the current version
 class t_node : public Object {
 public:
-    uint32_t type = GET_TYPE(T_NOP);
+    uint32_t type = 0;
     g_ptr<t_node> left;
     g_ptr<t_node> right;
     list<g_ptr<t_node>> children;
     list<g_ptr<t_node>> arguments;
-    t_value value;
+    g_ptr<Value> value;
     std::string name;
     std::string deferred_identifier;
     s_node* scope = nullptr;
@@ -956,8 +889,8 @@ void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type));
     
     // Print value if it exists
-    if (node->value.type != GET_TYPE(UNDEFINED)) {
-        print(indent, "  Value: ", node->value.to_string(), " (type: ", TO_STRING(node->value.type), ")");
+    if (node->value->type != 0) {
+        print(indent, "  Value: ", node->value->to_string(), " (type: ", TO_STRING(node->value->type), ")");
     }
     
     // Print name if it exists
@@ -1034,11 +967,11 @@ class Frame : public Object {
 
 class r_node : public Object {
     public:
-    uint32_t type = GET_TYPE(R_NOP);
+    uint32_t type = 0;
     g_ptr<r_node> left;
     g_ptr<r_node> right;
     list<g_ptr<r_node>> children;
-    t_value value;
+    g_ptr<Value> value;
     g_ptr<Type> in_scope = nullptr;
     g_ptr<Frame> in_frame = nullptr;
     int slot = -1;
@@ -1162,18 +1095,18 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             result->slot = on_scope->slot_map.getOrDefault(node->name,-2);
             //Forgot what all the in_scope, in_frame, frame, are meant to do, find that and comment to remind!
             result->in_scope = on_scope->type_map.get(node->name);
-            result->value.type = GET_TYPE(OBJECT);
+            result->value->type = GET_TYPE(OBJECT);
         } 
         else
-            result->value.address = index;
+            result->value->address = index;
 
         if(on_scope->size_map.hasKey(node->name)) {
-            result->value.size = on_scope->size_map.get(node->name);
-            result->value.type = on_scope->o_type_map.get(node->name);
+            result->value->size = on_scope->size_map.get(node->name);
+            result->value->type = on_scope->o_type_map.get(node->name);
             result->in_scope = on_scope->type_ref;
             result->in_frame = on_scope->frame;
             if(on_scope->total_size_map.hasKey(node->name)) {
-                result->value.sub_size = on_scope->total_size_map.get(node->name);
+                result->value->sub_size = on_scope->total_size_map.get(node->name);
             }
         }
 
@@ -1193,8 +1126,8 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
         // on_scope = find_type_ref(node->name,scope); //Unnesecary because I added this check to the intial scope search check
         if(on_scope) {
             result->name = node->name;
-            result->value.address = -1;
-            result->value.size = 0;
+            result->value->address = -1;
+            result->value->size = 0;
             result->in_scope = on_scope->type_ref;
             //Using TYPE
             // result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
@@ -1203,7 +1136,7 @@ static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_n
             //Trying as a flexible OBJECT instead
             result->in_frame = on_scope->frame;
             result->frame = on_scope->frame;
-            result->value.type = GET_TYPE(OBJECT);
+            result->value->type = GET_TYPE(OBJECT);
 
         }
         else
@@ -1241,8 +1174,8 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
     
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type));
 
-    if (node->value.type != GET_TYPE(UNDEFINED)) {
-        print(indent, "  Value: ", node->value.to_string(), " (type: ", TO_STRING(node->value.type), ")");
+    if (node->value->type != 0) {
+        print(indent, "  Value: ", node->value->to_string(), " (type: ", TO_STRING(node->value->type), ")");
     }
     
     if (!node->name.empty()) {
@@ -1311,35 +1244,6 @@ static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
 static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_index);
 static g_ptr<r_node> execute_r_node(g_ptr<r_node> node,g_ptr<Frame> frame,size_t index,int sub_index);
 
-template<typename Op>
-void execute_r_operation(g_ptr<r_node> node, Op operation,uint32_t result_type, g_ptr<Frame> frame) {
-    if(node->left)
-        execute_r_node(node->left,frame,0,-1);
-    if(node->right)
-        execute_r_node(node->right,frame,0,-1);
-    
-    t_value& left_val = node->left->value;
-    t_value& right_val = node->right->value;
-    node->value.type = result_type;
-    
-    if(left_val.type == GET_TYPE(INT) && right_val.type == GET_TYPE(INT)) {
-        auto result = operation(*(int*)left_val.data, *(int*)right_val.data);
-        if(result_type == GET_TYPE(BOOL)) node->value.set<bool>(result);
-        else node->value.set<int>(result);
-    }
-    else if(left_val.type == GET_TYPE(FLOAT) || right_val.type == GET_TYPE(FLOAT)) {
-        float left_f = (left_val.type == GET_TYPE(FLOAT)) ? *(float*)left_val.data : *(int*)left_val.data;
-        float right_f = (right_val.type == GET_TYPE(FLOAT)) ? *(float*)right_val.data : *(int*)right_val.data;
-        auto result = operation(left_f, right_f);
-        if(result_type == GET_TYPE(BOOL)) node->value.set<bool>(result);
-        else if(result_type == GET_TYPE(FLOAT)) node->value.set<float>(result);
-        else node->value.set<int>(result);
-    }
-    else {
-        print("execute_r_operation::1860 Type error in binary operation");
-    }
-}
-
 struct exec_context {
     g_ptr<r_node> node;
     g_ptr<Frame> frame;
@@ -1376,7 +1280,7 @@ static void execute_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context,int sub_ind
 
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
-        execute_r_node(node,frame,context->ID,sub_index);
+        execute_r_node(node,frame,context->TID,sub_index);
         if(!frame->isActive()) {
             break;
         }
@@ -1447,7 +1351,7 @@ static void stream_r_nodes(g_ptr<Frame> frame,g_ptr<Object> context=nullptr) {
     }
     for(int i = 0; i < frame->nodes.size(); i++) {
         auto node = frame->nodes[i];
-        stream_r_node(node,frame,context->ID);
+        stream_r_node(node,frame,context->TID);
     }
     frame->context->recycle(context);
     // for(int i=frame->active_objects.length()-1;i>=0;i--) {

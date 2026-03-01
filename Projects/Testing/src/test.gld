@@ -1,1 +1,2 @@
-how many words do you know
+string name = "joe";
+print(name);
