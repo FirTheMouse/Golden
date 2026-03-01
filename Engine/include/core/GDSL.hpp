@@ -7,7 +7,7 @@ namespace GDSL {
 
 //Controls for the compiler printing, for debugging
 #define PRINT_ALL 1
-#define PRINT_STYLE 1
+#define PRINT_STYLE 0
 //Very important when adding modules, but will add overhead on execution, causes the reg class
 //to check if a hash exists before using it
 #define CHECK_REG 1
@@ -136,6 +136,78 @@ static std::string fallback = "[undefined]";
 //I should ask: why can size, sub type (i.e number->int/float or indetifier->keyword) not be handled by the a_stage?
 //I've decided I'm just going to nuke t_info and see what happens.
 
+
+//Used for debugging, and for printing 
+map<uint32_t,std::function<std::string(void*)>> value_to_string;
+map<uint32_t, std::function<void(void*)>> negate_value;
+
+static std::string data_to_string(uint32_t type,void* data) {    
+    try {
+        return value_to_string.get(type)(data);
+    }
+    catch(std::exception e) {
+        return "[missing value_to_string for type "+TO_STRING(type)+"]";
+    }
+}
+
+//A value holds all the actaul worked-with information, from it's address in a Type (if Type is used) to the actual ptr to the data.
+//NOTE TO SELF: Should any map storing these be nuked before running? Given as they are smart pointers so if a map holds one it won't get deleted properly
+//from a memory managment standpoint these are pretty bad, but they're here more for the prototype stage, and eventually users should be able to easily replace them.
+class Value : public Object {
+public:
+    Value() {}
+    Value(uint32_t _type) : type(_type) {}
+    Value(uint32_t _type, size_t _size) : type(_type), size(_size) {}
+    Value(uint32_t _type, size_t _size, uint32_t _sub_type) : type(_type), size(_size), sub_type(_sub_type) {}
+    ~Value() {}
+    uint32_t type = 0;
+    uint32_t sub_type = 0;
+    void* data = nullptr;
+    int address = -1;
+    size_t size = 0;
+    int sub_size = -1;
+
+    template<typename T>
+    T get() { return *(T*)data; }
+    
+    template<typename T>
+    void set(const T& value) { 
+        if (!data) {
+            data = malloc(sizeof(T));
+            size = sizeof(T);
+        }
+        new(data) T(value);
+    }
+
+    std::string to_string() {
+        if (!data) {
+            return "[null]";
+        }
+        std::function<std::string(void*)> fallback_func = [this](void* ptr){return "[missing value_to_string for type "+TO_STRING(type)+"]";};
+        return value_to_string.getOrDefault(type,fallback_func)(data);
+    }
+
+    void negate() {
+        if(data) {
+            try {
+                negate_value.get(type)(data);
+            }
+            catch(std::exception e) {
+                print("value::300 missing negate_value handler for ",TO_STRING(type));
+            }
+        }
+    }
+
+    bool is_true() {
+        if (IS_TYPE(this,BOOL) && data) {
+            return *(bool*)data; 
+        }
+        return false;
+    }
+};
+
+g_ptr<Value> fallback_value = nullptr;
+
 //Many classes inherit from Object for the smart pointer, g_ptr, and because I made use of dynamic properties in prototyping
 class Token : public Object {
     public:
@@ -147,6 +219,7 @@ class Token : public Object {
         bool parsed = false;
         bool dotted = false;
         uint32_t type;
+        g_ptr<Value> value = nullptr;
         //Potential optimization could be storing a content-hash if we use a lot of lookups
         std::string content;    
         uint32_t getType() {return type;}
@@ -164,8 +237,6 @@ class Token : public Object {
 // static bool token_is_split(char c) {
 //     return (c=='+'||c=='-'||c=='*'||c=='/'||c=='%'||c=='('||c==')'||c==','||c=='='||c=='>'||c=='<'||c=='['||c==']');
 // }
-
-map<char,bool> char_is_split;
 
 struct tokenizer_context {
     uint32_t& state;
@@ -242,80 +313,19 @@ public:
     bool balanced = false;
 };
 
-//Used for debugging, and for printing 
-map<uint32_t,std::function<std::string(void*)>> value_to_string;
-map<uint32_t, std::function<void(void*)>> negate_value;
-
-static std::string data_to_string(uint32_t type,void* data) {    
-    try {
-        return value_to_string.get(type)(data);
-    }
-    catch(std::exception e) {
-        return "[missing value_to_string for type "+TO_STRING(type)+"]";
-    }
-}
 
 
-//A value holds all the actaul worked-with information, from it's address in a Type (if Type is used) to the actual ptr to the data.
-//NOTE TO SELF: Should any map storing these be nuked before running? Given as they are smart pointers so if a map holds one it won't get deleted properly
-//from a memory managment standpoint these are pretty bad, but they're here more for the prototype stage, and eventually users should be able to easily replace them.
-class Value : public Object {
-public:
-    Value(uint32_t _type) : type(_type) {}
-    Value(uint32_t _type, size_t _size) : type(_type), size(_size) {}
-    ~Value() {}
-    uint32_t type = 0;
-    void* data = nullptr;
-    int address = -1;
-    size_t size = 0;
-    int sub_size = -1;
 
-    template<typename T>
-    T get() { return *(T*)data; }
-    
-    template<typename T>
-    void set(const T& value) { 
-        if (!data) {
-            data = malloc(sizeof(T));
-            size = sizeof(T);
-        }
-        new(data) T(value);
-    }
-
-    std::string to_string() {
-        if (!data) {
-            return "[null]";
-        }
-        std::function<std::string(void*)> fallback_func = [this](void* ptr){return "[missing value_to_string for type "+TO_STRING(type)+"]";};
-        return value_to_string.getOrDefault(type,fallback_func)(data);
-    }
-
-    void negate() {
-        if(data) {
-            try {
-                negate_value.get(type)(data);
-            }
-            catch(std::exception e) {
-                print("value::300 missing negate_value handler for ",TO_STRING(type));
-            }
-        }
-    }
-
-    bool is_true() {
-        if (IS_TYPE(this,BOOL) && data) {
-            return *(bool*)data; 
-        }
-        return false;
-    }
-};
-
-g_ptr<Value> fallback_value = nullptr;
 
 class r_node;
 class Frame;
 
 class t_node : public Object {
 public:
+    t_node() {
+        value = make<Value>();
+    }
+
     uint32_t type = 0;
     g_ptr<t_node> left;
     g_ptr<t_node> right;
@@ -353,11 +363,6 @@ public:
     list<g_ptr<s_node>> children;
 
     map<std::string,int> slot_map;
-    map<std::string,g_ptr<Type>> type_map;
-    map<std::string,size_t> size_map;
-    map<std::string,size_t> total_size_map;
-    map<std::string,uint32_t> o_type_map;
-    map<std::string,g_ptr<r_node>> method_map;
 
     void addToken(g_ptr<Token> token) {
         token->index = tokens.length();
@@ -466,24 +471,6 @@ struct a_context {
 
 using a_handler = std::function<void(a_context& ctx)>;
 map<uint32_t,a_handler> a_functions;
-map<uint32_t,bool> state_is_opp;
-map<uint32_t,uint32_t> token_to_opp;
-map<uint32_t,int> type_precdence;
-
-//This goes in the compiler because it's to do with internals, the modules are trusting this handeling
-auto literal_handler = [](a_context& ctx) {
-    if(ctx.state == 0) {
-        ctx.state = GET_TYPE(LITERAL);
-    }
-    ctx.node->tokens << ctx.token;
-};
-
-auto type_key_handler = [](a_context& ctx) {
-    if(ctx.state == 0) {
-        ctx.state = GET_TYPE(VAR_DECL);
-    }
-    ctx.node->tokens << ctx.token;
-};
 
 a_handler a_default_function;
 
@@ -546,70 +533,6 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
 }
 
 
-static bool balance_nodes(list<g_ptr<a_node>>& result) {
-    uint32_t state = 0;
-    int corrections = 0;
-    for (int i = result.size() - 1; i >= 0; i--) {
-        g_ptr<a_node> right = result[i];
-        if(!right->sub_nodes.empty()) {
-            bool changed = true;
-            int depth = 0;
-            while (changed&&depth<1000) {
-                depth++;
-                changed = balance_nodes(right->sub_nodes);
-            }
-        }
-        if(i==0) continue;
-        state=result[i]->type;
-        g_ptr<a_node> left = result[i-1];
-        if(state_is_opp.getOrDefault(state,false)&&state_is_opp.getOrDefault(left->type,false)) 
-        {
-            //printnl("LEFT:",type_precdence.get(left->type),":",left->balanced,": "); print_a_node(left); printnl("   "); printnl("RIGHT:",type_precdence.get(state),":",right->balanced,": "); print_a_node(right); print("");
-            if(type_precdence.get(left->type)<type_precdence.get(state))
-            {
-                #if PRINT_ALL && PRINT_STYLE == 1
-                    print("");
-                    print_a_node(left); printnl(" <- "); print_a_node(right);
-                    print("\n v v v v v v v v");
-                #endif
-                left->sub_nodes << right;
-                if(!left->tokens.empty()&&!left->balanced) {
-                    right->tokens.insert(left->tokens.pop(),0);
-                }
-                result.removeAt(i);
-                right->balanced = true;
-                left->balanced = true;
-                #if PRINT_ALL && PRINT_STYLE == 1
-                    print_a_node(left); print("\n");
-                #endif
-                corrections++;
-            }
-        }
-    }
-    return corrections!=0;
-}
-
-//As of GDSL 0.1.3 right-associative unary parsing needs explicit parens, i.e if you want to do i=-1, you need i=(-1);
-//Fiqure out how to fix this later
-static void balance_precedence(list<g_ptr<a_node>>& result) {
-    bool changed = true;
-    int depth = 0;
-    while (changed&&depth<1000) {
-        depth++;
-        #if PRINT_ALL
-        print("==BALANCING PASS ",depth,"==");
-        #endif
-        changed = balance_nodes(result);
-    }
-
-    #if PRINT_ALL
-    print("Finished balancing");
-    int i = 0;
-    for (auto& node : result) {
-        print_a_node(node, 0, i++);
-    }
-    #endif
-}
 
 map<uint32_t, std::function<void(g_ptr<s_node>, g_ptr<s_node>, g_ptr<a_node>)>> scope_link_handlers;
 map<uint32_t, int> scope_precedence;
@@ -644,8 +567,7 @@ public:
     bool deferred = false;
 };
 
-/// @brief  This method is not yet complete! Just like the other precdence, it is in need of refinment and 
-/// edge case strengthining in 0.0.9. 
+/// @brief  This method is not yet complete! Just like the other precdence, it is in need of refinment and edge case strengthining in 0.0.9. 
 /// No noted edge cases in light testing
 /// If you don't see a scope in the print out, check link owners, chances are there's no case for linking them meaning it can't be found
 static g_ptr<s_node> parse_scope(list<g_ptr<a_node>> nodes) {
@@ -748,119 +670,19 @@ struct t_context {
     g_ptr<t_node> left = nullptr;
 };
 
-//I *strongly* dislike how this is being used, and very much intened to clean it up
-map<uint32_t, std::function<g_ptr<t_node>(g_ptr<Token>)>> t_literal_handlers;
-auto t_literal_handler = [](t_context& ctx) -> g_ptr<t_node> {
-    //I hate this, it's unsafe and verbose, this needs to change
-    return t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
-};
+
 map<uint32_t, uint32_t> type_key_to_type;
-map<uint32_t,std::function<g_ptr<t_node>(t_context& ctx)>> t_functions;
+using t_handler = std::function<g_ptr<t_node>(t_context& ctx)>;
+map<uint32_t,t_handler> t_functions;
+t_handler t_default_function;
 
-//t_parse_expression is one of my favourite methods, it handles bassicly all experssion parsing for the 't stage'
-//In just 80 lines of code (as of 0.1.9), its a very clean example of how I think code should be structured: 
-//find the core relationship rather than the emergent property.
-static g_ptr<t_node> t_parse_expression(g_ptr<a_node> node,g_ptr<t_node> left=nullptr) {
-    g_ptr<t_node> result = make<t_node>();
-    result->type = node->type;
-    
-    if (node->tokens.size() == 2) {
-        result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-        result->right = t_literal_handlers.get(node->tokens[1]->getType())(node->tokens[1]);
-    } 
-    else if (node->tokens.size() == 1) {
-        if(node->sub_nodes.size()==0) {
-            if(left) {
-                result->left = left;
-                result->right = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-                if(node->in_scope) { //Removes left refrence by taking it's place
-                    if(node->in_scope->t_nodes.last()==left) {
-                        node->in_scope->t_nodes.pop();
-                    }
-                }
-            }
-            else {
-               if(state_is_opp.getOrDefault(node->type,false)&&t_functions.hasKey(node->type)) { //For opperators like i* or i++
-                    t_context ctx(result,node,nullptr);
-                    ctx.left = left;
-                    result = t_functions.get(node->type)(ctx);
-                } 
-                else {
-                    result = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-                }
-            }
-        }
-        else if(node->sub_nodes.size()==1) {
-            result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-            result->right = t_parse_expression(node->sub_nodes[0],nullptr); //To prevent recursion in unary opperators
-            //Was passing result as left, so something else may be broken by this
-        }
-        else if(node->sub_nodes.size()>=2) {
-            result->left = t_literal_handlers.get(node->tokens[0]->getType())(node->tokens[0]);
-            g_ptr<t_node> sub = nullptr;
-            for(auto a : node->sub_nodes) {
-               sub = t_parse_expression(a,sub);
-                if(a==node->sub_nodes.last()) {
-                    result->right = sub;
-                }
-            }
-        }
-    }
-    else if(node->tokens.size()==0) {
-        if(node->sub_nodes.size()==0) {
-            result->right = nullptr;
-            result->left = nullptr;
-        }
-        else if(node->sub_nodes.size()==1) {
-            result->left = left;
-            result->right = t_parse_expression(node->sub_nodes[0],nullptr); //By passing nullptr we stop the recursion
-            if(left&&node->in_scope) { //This removes duplicate left refrences, such as with var_decl + assignment
-                if(node->in_scope->t_nodes.last()==left) {
-                    node->in_scope->t_nodes.pop(); //Used to be set last to result, return nullptr
-                    // node->in_scope->t_nodes.last() = result;
-                    // return nullptr;
-                }
-            } 
-        }
-        else if(node->sub_nodes.size()>=2) {
-            result->left = left;
-            g_ptr<t_node> sub = nullptr;
-            for(auto a : node->sub_nodes) {
-               sub = t_parse_expression(a,sub);
-                if(a==node->sub_nodes.last()) {
-                    result->right = sub;
-                }
-            }
-            if(left&&node->in_scope) {
-                if(node->in_scope->t_nodes.last()==left) {
-                    node->in_scope->t_nodes.pop();
-                }
-            }
-        }
-    }
-
-    return result;
-}
-
-
-static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_node> left = nullptr)
-{
+static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_node> left = nullptr) {
     g_ptr<t_node> result = make<t_node>();
     t_context ctx(result,node,root);
     ctx.left = left;
-    //ARCHIVE NOTES GOLDEN 0.3.1:
-    //Could make a default function that's just t_parse_epxression so we avoid the double lookup
-    //and also for user customization of course!
-    if(t_functions.hasKey(node->type)) {
-        auto func = t_functions.get(node->type);
-        result = func(ctx);
-    }
-    else { //ARCHIVE NOTES GOLDEN 0.3.1: Removed a state_is_opp check
-        result = t_parse_expression(node,left);
-        if(!result) {
-            print("parse_a_nodes::925 NULL RETURNED: ",TO_STRING(node->type));
-        }
-    }
+    if(!t_default_function)
+        print("GDSL::parse_a_node t_stage requires a default function!");
+    result = t_functions.getOrDefault(node->type,t_default_function)(ctx);
     return result;
 }
 
@@ -887,7 +709,12 @@ void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
     
     // Print node info
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type));
-    
+
+    if(!node->value)  {
+        print("NODE NULL VALUE");
+        return;
+    }
+
     // Print value if it exists
     if (node->value->type != 0) {
         print(indent, "  Value: ", node->value->to_string(), " (type: ", TO_STRING(node->value->type), ")");
@@ -959,6 +786,7 @@ class Frame : public Object {
     g_ptr<Type> context;
     list<g_ptr<r_node>> nodes;
     list<list<size_t>> slots;
+    list<g_ptr<Value>> stack;
     g_ptr<r_node> return_to = nullptr;
     list<g_ptr<Object>> active_objects;
     list<void*> active_memory;
@@ -967,6 +795,10 @@ class Frame : public Object {
 
 class r_node : public Object {
     public:
+    r_node() {
+        value = make<Value>();
+    }
+
     uint32_t type = 0;
     g_ptr<r_node> left;
     g_ptr<r_node> right;
@@ -1030,119 +862,6 @@ static void discover_symbols(g_ptr<s_node> root) {
     }
 }
 
-static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root);
-
-static g_ptr<s_node> find_scope(g_ptr<s_node> start, std::function<bool(g_ptr<s_node>)> check) {
-    g_ptr<s_node> on_scope = start;
-    for(auto c : start->children) {
-        if(check(c)) {
-            return c;
-        }
-    }
-    while(true) {
-        if(on_scope->type_ref) {
-            if(check(on_scope)) {
-               return on_scope;
-            }
-        }
-        for(auto c : on_scope->children) {
-            if(c==start||c==on_scope) continue;
-            if(check(c)) {
-               return c;
-            }
-        }
-        if(on_scope->parent) {
-            on_scope = on_scope->parent;
-        }
-        else 
-            break;
-    }
-    return nullptr;
-}
-
-static g_ptr<s_node> find_type_ref(const std::string& match,g_ptr<s_node> start) {
-    return find_scope(start,[match](g_ptr<s_node> c){
-        if(!c->type_ref) return false;
-        return c->type_ref->type_name == match;
-    });
-}
-
-static void resolve_identifier(g_ptr<t_node> node,g_ptr<r_node> result,g_ptr<s_node> scope,g_ptr<Frame> frame = nullptr) {
-    int index = -1;
-    g_ptr<s_node> on_scope = find_scope(scope,[node](g_ptr<s_node> c){
-        return (c->type_ref->get_note(node->name).index!=-1 || c->type_map.hasKey(node->name) || c->type_ref->type_name == node->name);
-    });
-
-    if(!on_scope) {
-        print("resolve_symbol::1318 Unable to resolve an identifier: ",node->name);
-        return;
-    }
-
-    if(on_scope->type_map.hasKey(node->name)) index = 0;
-    else index = on_scope->type_ref->get_note(node->name).index;
-    if(index>-1) {
-        result->name = node->name;
-        if(on_scope->type_map.hasKey(node->name)) {
-            if(on_scope->frame) {
-                //if(on_scope->frame->slots[0].length()<=result->slot) on_scope->frame->slots[0] << 0;
-                result->frame = on_scope->frame; //Why did I make 2 pointers to the frame?
-                result->in_frame = on_scope->frame; //Check later to see if this is actaully used!
-            }
-            else {
-                print("resolve_identifier::1621 no frame for scope!");
-            }
-            //Assign -2 as the default slot for identifiers if they aren't in the slot map
-            result->slot = on_scope->slot_map.getOrDefault(node->name,-2);
-            //Forgot what all the in_scope, in_frame, frame, are meant to do, find that and comment to remind!
-            result->in_scope = on_scope->type_map.get(node->name);
-            result->value->type = GET_TYPE(OBJECT);
-        } 
-        else
-            result->value->address = index;
-
-        if(on_scope->size_map.hasKey(node->name)) {
-            result->value->size = on_scope->size_map.get(node->name);
-            result->value->type = on_scope->o_type_map.get(node->name);
-            result->in_scope = on_scope->type_ref;
-            result->in_frame = on_scope->frame;
-            if(on_scope->total_size_map.hasKey(node->name)) {
-                result->value->sub_size = on_scope->total_size_map.get(node->name);
-            }
-        }
-
-        // if(node->deferred_identifier!="") {
-        //     std::string o_name = node->name; //For cleanup if we ever reuse the nodes
-        //     std::string o_def_id = node->deferred_identifier;
-        //     node->name = node->deferred_identifier;
-        //     node->deferred_identifier = "";
-        //     g_ptr<r_node> sub = make<r_node>();
-        //     resolve_identifier(node,sub,scope);
-        //     result->value = std::move(sub->value);
-        //     node->name = o_name;
-        //     node->deferred_identifier = o_def_id;
-        // }
-    }
-    else { //This is the foundation for using type keys in debug
-        // on_scope = find_type_ref(node->name,scope); //Unnesecary because I added this check to the intial scope search check
-        if(on_scope) {
-            result->name = node->name;
-            result->value->address = -1;
-            result->value->size = 0;
-            result->in_scope = on_scope->type_ref;
-            //Using TYPE
-            // result->value.type = GET_TYPE(TYPE); //Yes this is a token type, I'm using it as a placeholder for keys
-            // result->type = GET_TYPE(TYPE);
-
-            //Trying as a flexible OBJECT instead
-            result->in_frame = on_scope->frame;
-            result->frame = on_scope->frame;
-            result->value->type = GET_TYPE(OBJECT);
-
-        }
-        else
-            print("resolve_symbol::1418 No address found for identifier ",node->name);
-    }
-}
 
 struct r_context {
     g_ptr<t_node> node;
@@ -1384,7 +1103,7 @@ g_ptr<Frame> compile(const std::string& path) {
     std::string code = readFile(path);
     list<g_ptr<Token>> tokens = tokenize(code);
     list<g_ptr<a_node>> nodes = parse_tokens(tokens);
-    balance_precedence(nodes);
+    // balance_precedence(nodes);
     g_ptr<s_node> root = parse_scope(nodes);
     parse_nodes(root);
     discover_symbols(root);

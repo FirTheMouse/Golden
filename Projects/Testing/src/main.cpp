@@ -14,183 +14,121 @@
 #include<util/cog.hpp>
 
 namespace GDSL {
-
-
-    // static std::pair<size_t,size_t> testing_reg_keyword(const std::string& f) {
-    //     size_t key_id = reg::new_type(f+"_KEY");  
-    //     size_t call_id = reg::new_type(f+"_CALL");
-
-    //     std::string s = f;
-    //     std::transform(s.begin(),s.end(), s.begin(), ::tolower);
-    //     reg_t_key(s, key_id, 0, GET_TYPE(F_KEYWORD)); 
-
-    //     token_to_opp.put(key_id, call_id);
-    //     state_is_opp.put(call_id, true);
-    //     type_precdence.put(call_id, 20);
-
-    //     return {key_id,call_id};
-    // }
-
-    // template<typename Op>
-    // static size_t testing_add_function(const std::string& f, Op op) {
-    //     auto key_and_call = testing_reg_keyword(f);
-    //     size_t key_id = key_and_call.first;
-    //     size_t call_id = key_and_call.second;
-
-    //     size_t t_id = reg::new_type("T_"+f);
-    //     t_opp_conversion.put(call_id, t_id); 
-    //     t_functions.put(call_id, [t_id](t_context& ctx) -> g_ptr<t_node> {
-    //         ctx.result->type = t_id;
-    //         parse_sub_nodes(ctx,true);
-    //         return ctx.result;
-    //     });
-    //     size_t r_id = reg::new_type("R_"+f); 
-    //     r_handlers.put(t_id, [r_id](g_ptr<r_node> result, r_context& ctx) {
-    //         result->type = r_id;
-    //         if(ctx.node->left) 
-    //             result->children << resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
-    //         if(ctx.node->right)
-    //             result->children << resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
-    //         for(auto c : ctx.node->children) {
-    //             g_ptr<r_node> sub = resolve_symbol(c, ctx.scope, ctx.frame);
-    //             result->children << sub;
-    //         }
-    //     });
-    //     exec_handlers.put(r_id,op);
-
-    //     return key_id;
-    // }
-
-    // void test_module() {
-
-    //     //Current always defineds
-    //     reg::new_type("UNDEFINED");
-
-    //     reg::new_type("T_NOP"); 
-    //     reg::new_type("UNTYPED"); 
-    //     reg::new_type("R_NOP");
-    //     size_t f_type_key_id = reg::new_type("F_TYPE_KEY");//Honestly not sure about these family types
-    //     size_t f_keyword_id = reg::new_type("F_KEYWORD"); //Keeping them in because it may be useful later
-
-    //     reg::new_type("GLOBAL");
-    //     reg::new_type("BLOCK");
-    //     reg::new_type("T_BLOCK");  
-        
-    //     reg::new_type("NOT"); 
-
-    //     size_t literal_id = reg::new_type("LITERAL");
-    //     t_functions.put(literal_id, [](t_context& ctx) -> g_ptr<t_node> {
-    //         //I hate this, it's unsafe and verbose, this needs to change
-    //         return t_literal_handlers.get(ctx.node->tokens[0]->getType())(ctx.node->tokens[0]);
-    //     });
-    //     size_t t_literal_id = reg::new_type("T_LITERAL");
-    //     size_t r_literal_id = reg::new_type("R_LITERAL");
-    //     r_handlers.put(t_literal_id, [r_literal_id](g_ptr<r_node> result, r_context& ctx) {
-    //         result->type = r_literal_id;
-    //         result->value = std::move(ctx.node->value);
-    //     });
-    //     exec_handlers.put(r_literal_id, [](exec_context& ctx) -> g_ptr<r_node> {
-    //         return ctx.node;
-    //     });
-        
-    //     size_t string_id = reg::new_type("STRING");
-    //     size_t string_key_id = reg::new_type("STRING_KEY");
-    //     size_t in_string_id = reg::new_type("IN_STRING_KEY");
-    //     tokenizer_state_functions.put(in_string_id,[](tokenizer_context& ctx){
-    //         char c = *(ctx.it);
-    //         if(c=='"') {
-    //             ctx.state=0;
-    //             ctx.token->type_info.size = 24;
-    //         }
-    //         else {
-    //             ctx.token->add(c);
-    //         }
-    //     });
-    //     tokenizer_functions.put('"',[string_id,in_string_id](tokenizer_context& ctx){
-    //         ctx.state = in_string_id;
-    //         ctx.token = make<Token>(string_id,"");
-    //         ctx.result << ctx.token;
-    //     });
-    //     reg_t_key("string", string_key_id, 24, f_type_key_id); 
-    //     a_functions.put(string_key_id, [](a_context& ctx) {
-    //         if(ctx.state == 0) {
-    //             ctx.state = GET_TYPE(VAR_DECL);
-    //         }
-    //         ctx.node->tokens << ctx.token;
-    //     });
-    //     value_to_string.put(string_id,[](void* data){
-    //         return *(std::string*)data;
-    //     });
-    //     a_functions.put(string_id,[literal_id](a_context& ctx) {
-    //         if(ctx.state == 0) {
-    //             ctx.state = literal_id;
-    //         }
-    //         ctx.node->tokens << ctx.token;
-    //     });
-    //     type_key_to_type.put(string_key_id, string_id);
-    //     t_literal_handlers.put(string_id, [t_literal_id, string_id](g_ptr<Token> token) -> g_ptr<t_node> {
-    //         g_ptr<t_node> node = make<t_node>();
-    //         node->type = t_literal_id;
-    //         node->value.type = string_id;
-    //         node->value.set<std::string>(token->content);
-    //         node->value.size = 24;
-    //         return node;
-    //     });
-        
-    // }
-
     //These are fancier features, maybe I should make both a manual/simple demo and a fancy one?
     //I'll just do fancy for now because its how I think and flatten it later.
     map<std::string,g_ptr<Value>> keywords;
+    map<char,bool> char_is_split;
+    map<uint32_t,bool> state_is_opp;
+    map<uint32_t,int> type_precdence;
 
-    g_ptr<Value> make_value(const std::string& name, size_t size = 0) {
-        return make<Value>(reg::new_type(name),size);
+
+
+    static bool balance_nodes(list<g_ptr<a_node>>& result) {
+        uint32_t state = 0;
+        int corrections = 0;
+        for (int i = result.size() - 1; i >= 0; i--) {
+            g_ptr<a_node> right = result[i];
+            if(!right->sub_nodes.empty()) {
+                bool changed = true;
+                int depth = 0;
+                while (changed&&depth<1000) {
+                    depth++;
+                    changed = balance_nodes(right->sub_nodes);
+                }
+            }
+            if(i==0) continue;
+            state=result[i]->type;
+            g_ptr<a_node> left = result[i-1];
+            if(state_is_opp.getOrDefault(state,false)&&state_is_opp.getOrDefault(left->type,false)) 
+            {
+                //printnl("LEFT:",type_precdence.get(left->type),":",left->balanced,": "); print_a_node(left); printnl("   "); printnl("RIGHT:",type_precdence.get(state),":",right->balanced,": "); print_a_node(right); print("");
+                if(type_precdence.get(left->type)<type_precdence.get(state))
+                {
+                    #if PRINT_ALL && PRINT_STYLE == 1
+                        print("");
+                        print_a_node(left); printnl(" <- "); print_a_node(right);
+                        print("\n v v v v v v v v");
+                    #endif
+                    left->sub_nodes << right;
+                    if(!left->tokens.empty()&&!left->balanced) {
+                        right->tokens.insert(left->tokens.pop(),0);
+                    }
+                    result.removeAt(i);
+                    right->balanced = true;
+                    left->balanced = true;
+                    #if PRINT_ALL && PRINT_STYLE == 1
+                        print_a_node(left); print("\n");
+                    #endif
+                    corrections++;
+                }
+            }
+        }
+        return corrections!=0;
     }
 
-    size_t make_keyword(const std::string& name, size_t size = 0) {
-        g_ptr<Value> val = make_value(name,size);
+    //As of GDSL 0.1.3 right-associative unary parsing needs explicit parens, i.e if you want to do i=-1, you need i=(-1);
+    //Fiqure out how to fix this later
+    static void balance_precedence(list<g_ptr<a_node>>& result) {
+        bool changed = true;
+        int depth = 0;
+        while (changed&&depth<1000) {
+            depth++;
+            #if PRINT_ALL
+            print("==BALANCING PASS ",depth,"==");
+            #endif
+            changed = balance_nodes(result);
+        }
+
+        #if PRINT_ALL
+        print("Finished balancing");
+        int i = 0;
+        for (auto& node : result) {
+            print_a_node(node, 0, i++);
+        }
+        #endif
+    }
+
+    g_ptr<Value> make_value(const std::string& name, size_t size = 0,uint32_t sub_type = 0) {
+        return make<Value>(reg::new_type(name),size,sub_type);
+    }
+
+    size_t make_keyword(const std::string& name, size_t size = 0, std::string type_name = "", uint32_t sub_type = 0) {
+        g_ptr<Value> val = make_value(type_name==""?name:type_name,size,sub_type);
         keywords.put(name,val);
         return val->type;
     }
 
-    void test_module(const std::string& path) {
-
-        //BASIC TOKENIZATION:
-        size_t undefined_id = reg::new_type("UNDEFINED");
-
-
-
-        size_t identifier_id = reg::new_type("IDENTIFIER"); 
-        a_functions.put(identifier_id,[](a_context& ctx){
-            //Here keywords lets us skip the T_KEY T_CALL and just go straight to content -> value. This is so we 
-            //aren't storing type information on the tokens, and can instead put that in the a_node
-            g_ptr<Value> value = keywords.getOrDefault(ctx.token->content,fallback_value);
-            if(!value) {
-                //Trying out the default handeling as just keep pushing it in
-                //print("identifier_a_function::168 No keyword association for: ",ctx.token->content); //The default handeling here could instead be making it a literal_idenrtifier
-            } else {
-                if(ctx.state == 0) {
-                    ctx.state = value->type; //Switch state and start to gather
-                } else { //If an opp was already gathering, end and start a new node
-                    ctx.node->type = ctx.state;
-                    ctx.result << ctx.node;
-                    ctx.node = make<a_node>();
-                }
-            }
-            ctx.node->tokens << ctx.token;
+    template<typename Op>
+    static size_t add_function(const std::string& f, Op op) {
+        std::string uppercase_name = f;
+        std::transform(uppercase_name.begin(),uppercase_name.end(), uppercase_name.begin(), ::toupper);
+        size_t call_id = make_keyword(f, 0, uppercase_name);
+        state_is_opp.put(call_id, true);
+        type_precdence.put(call_id, 20);
+        t_functions.put(call_id, [call_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = call_id;
+            parse_sub_nodes(ctx, true);
+            return ctx.result;
         });
-        size_t words_id = make_keyword("words");  
-        // t_functions.put(words_id,[](t_context& ctx){
-        //     parse_sub_nodes(ctx);
-        //     return ctx.result;
-        // });
-        // t_functions.put(identifier_id,[](t_context& ctx){
-        //     return ctx.result;
-        // });
+        r_handlers.put(call_id, [call_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = call_id;
+            if(ctx.node->left) 
+                result->children << resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            if(ctx.node->right)
+                result->children << resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+            for(auto c : ctx.node->children) {
+                result->children << resolve_symbol(c, ctx.scope, ctx.frame);
+            }
+        });
+        exec_handlers.put(call_id, op);
 
+        return call_id;
+    }
 
-
-
+    void test_module(const std::string& path) {
+        size_t undefined_id = reg::new_type("UNDEFINED");
+        reg::new_type("GLOBAL");
+        reg::new_type("BLOCK");
 
         //In essence, the a_stage accumulates tokens which will later be sorted into left/right/child by the t_stage
         //So the default function is just saying 'fold in anything not flagged as an opp'
@@ -200,38 +138,198 @@ namespace GDSL {
         //So long as the token_to_opp points T_KEY -> VAR_DECL and EQUALS -> ASSIGNMENT
         //NOTE TO SELF: The current Standard module for GDSLang does this manually with an unesseacry type_key_handler, so that's a bad example!
         a_default_function = [](a_context& ctx){
-            uint32_t opp = token_to_opp.getOrDefault(ctx.token->getType(),(unsigned int)0);
+            uint32_t opp = ctx.token->getType();
             if(opp!=0) {
                 //If we're already in an opperation, end the current one, start a new one
                 if(state_is_opp.getOrDefault(ctx.state,false)) {
                     ctx.end();
                 }
                 ctx.state=opp;
+                return;
             }
-            else
-            print("a_default_function: missing case for type ",TO_STRING(ctx.token->getType()));
             ctx.node->tokens << ctx.token;
         };
+
+
+
+        size_t literal_id = reg::new_type("LITERAL");
+        r_handlers.put(literal_id, [literal_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = literal_id;
+            result->value = ctx.node->value;
+        });
+        exec_handlers.put(literal_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            return ctx.node;
+        });
+
+        size_t var_decl_id = reg::new_type("VAR_DECL");
+
+        size_t identifier_id = reg::new_type("IDENTIFIER"); 
+        a_functions.put(identifier_id,[identifier_id](a_context& ctx){
+            if(ctx.state==0) ctx.state = identifier_id;
+            ctx.node->tokens << ctx.token;
+        });
+        t_functions.put(identifier_id, [identifier_id](t_context& ctx) -> g_ptr<t_node> {
+            g_ptr<t_node> node = make<t_node>();
+            node->type = identifier_id;
+            node->value->type = 0;
+            node->name = ctx.node->tokens[0]->content;
+            return node;
+        });       
+        r_handlers.put(identifier_id, [identifier_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = identifier_id;
+            result->name = ctx.node->name;
+            g_ptr<s_node> scope = ctx.scope;
+            while(scope) {
+                if(scope->slot_map.hasKey(ctx.node->name)) {
+                    result->slot = scope->slot_map.get(ctx.node->name);
+                    result->in_frame = scope->frame;
+                    return;
+                }
+                scope = scope->parent;
+            }
+            print("R_IDENTIFIER: unresolved identifier: ", ctx.node->name);
+        });
+        exec_handlers.put(identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            if(ctx.node->slot != -1) {
+                ctx.node->value = ctx.node->in_frame->stack[ctx.node->slot];
+            }
+            return ctx.node;
+        });
+
+        state_is_opp.put(var_decl_id,true);
+        type_precdence.put(var_decl_id,1);
+        t_functions.put(var_decl_id, [var_decl_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = var_decl_id;
+            ctx.result->value = ctx.node->tokens[0]->value;
+            ctx.result->name = ctx.node->tokens[1]->content; // "name"
+            return ctx.result;
+        });
+        discover_handlers.put(var_decl_id, [](g_ptr<t_node> node, d_context& ctx) {
+            int slot = ctx.root->slot_map.size();
+            ctx.root->slot_map.put(node->name, slot);
+        });
+        r_handlers.put(var_decl_id, [var_decl_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = var_decl_id;
+            result->slot = ctx.scope->slot_map.get(ctx.node->name);
+            result->value->type = ctx.node->value->type;
+            result->name = ctx.node->name;
+        });
+        exec_handlers.put(var_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            while(ctx.frame->stack.length() <= ctx.node->slot)
+                ctx.frame->stack << make<Value>(0);
+            return ctx.node;
+        });
+
+
+        size_t assignment_id = reg::new_type("ASSIGNMENT");
+        char_is_split.put('=',true);
+        tokenizer_functions.put('=',[assignment_id](tokenizer_context& ctx){
+            ctx.token = make<Token>(assignment_id,"=");
+            ctx.result << ctx.token;
+        });
+
+        state_is_opp.put(assignment_id,true);
+        type_precdence.put(assignment_id,1); 
+        r_handlers.put(assignment_id, [assignment_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = assignment_id;
+            result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+        });
+        exec_handlers.put(assignment_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
+            ctx.node->left->in_frame->stack[ctx.node->left->slot] = ctx.node->right->value;
+            return ctx.node;
+        });
+
+        char end_char = ';';
+        char_is_split.put(end_char,true);
+        char_is_split.put(' ',true);
+        size_t end_id = reg::new_type("END"); 
+        a_functions.put(end_id, [end_id](a_context& ctx) {
+            if(ctx.state != 0) {
+                ctx.end_lambda();
+            } 
+            ctx.state = end_id;
+            ctx.end_lambda();
+            ctx.state = 0;
+            ctx.pos = 0;
+        });
+        t_functions.put(end_id, [](t_context& ctx) -> g_ptr<t_node>{
+            return nullptr; //Do nothing
+        });  
+        tokenizer_functions.put(end_char,[end_char,end_id](tokenizer_context& ctx){
+            ctx.token = make<Token>(end_id,end_char);
+            ctx.result << ctx.token;
+        });
+
+        size_t lparen_id = reg::new_type("LPAREN");
+        char_is_split.put('(',true);
+        tokenizer_functions.put('(', [lparen_id](tokenizer_context& ctx){
+            ctx.token = make<Token>(lparen_id, "(");
+            ctx.result << ctx.token;
+        });
+        size_t rparen_id = reg::new_type("RPAREN");
+        char_is_split.put(')',true);
+        tokenizer_functions.put(')', [rparen_id](tokenizer_context& ctx){
+            ctx.token = make<Token>(rparen_id, ")");
+            ctx.result << ctx.token;
+        });
+        reg::new_type("ENTER_PAREN");
+        a_functions.put(lparen_id, [lparen_id,rparen_id](a_context& ctx) {
+            std::pair<int,int> paren_range = balance_tokens(ctx.tokens, lparen_id, rparen_id, ctx.index-1);
+            if (paren_range.first < 0 || paren_range.second < 0) {
+                print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
+                return;
+            }
+    
+            list<g_ptr<Token>> sub_list;
+            for(int i=paren_range.first+1;i<paren_range.second;i++) {
+                sub_list.push(ctx.tokens[i]);
+            }
+            for(auto s : sub_list) print(s->content);
+            ctx.node->sub_nodes = parse_tokens(sub_list,true);
+            if(ctx.state != 0) {
+                ctx.end_lambda();     
+            }
+            ctx.state = 0;        
+            ctx.index = paren_range.second-1;
+            ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
+            ctx.skip_inc = 1; // Can skip more if needed
+        });
+        reg::new_type("EXIT_PAREN"); 
+        a_functions.put(rparen_id, [](a_context& ctx) {
+            if(ctx.local && ctx.state != 0) {
+                ctx.end_lambda();
+                ctx.state = 0;
+            } 
+        });
 
         size_t int_id = reg::new_type("INT");
         size_t float_id = reg::new_type("FLOAT");
 
-     
-
         size_t in_alpha_id = reg::new_type("IN_ALPHA");
-        tokenizer_state_functions.put(in_alpha_id,[](tokenizer_context& ctx){
+        tokenizer_state_functions.put(in_alpha_id,[end_char](tokenizer_context& ctx){
             char c = *(ctx.it);
-            if(c==' ') {
+            if(char_is_split.getOrDefault(c,false)) {
                 ctx.state = 0; 
+                --ctx.it;
+                g_ptr<Value> value = keywords.getOrDefault(ctx.token->content,fallback_value);
+                if(value) {
+                    ctx.token->type = value->type;
+                    ctx.token->value = value;
+                    
+                }
                 return;
-            } 
-            ctx.token->add(c);
+            } else {
+                ctx.token->add(c);
+            }
         });
 
         size_t in_digit_id = reg::new_type("IN_DIGIT");
-        tokenizer_state_functions.put(in_digit_id,[in_alpha_id,float_id](tokenizer_context& ctx){
+        tokenizer_state_functions.put(in_digit_id,[in_alpha_id,float_id,end_char](tokenizer_context& ctx){
             char c = *(ctx.it);
-            if(c==' ') {
+            if(c==' '||c==end_char) {
                 ctx.state = 0; 
                 return;
             } else if(std::isalpha(c)) {
@@ -253,14 +351,163 @@ namespace GDSL {
                 ctx.state = in_digit_id;
                 ctx.token = make<Token>(int_id,c);
                 ctx.result << ctx.token;
-            } else {
-                print("tokenize::default_function missing handling for charachter: ",c);
+            } else if(c==' '||c=='\t'||c=='\n') {
+                //just skip
+            }
+            else {
+                print("tokenize::default_function missing handling for char: ",c);
             }
         };
         tokenizer_default_function = default_function;
 
+        size_t string_id = reg::new_type("STRING");
+        size_t string_key_id = make_keyword("string",24,"STRING_KEY",string_id);
+        a_functions.put(string_key_id, [var_decl_id](a_context& ctx) {
+            if(ctx.state == 0) ctx.state = var_decl_id;
+            ctx.node->tokens << ctx.token;
+        });
+        size_t in_string_id = reg::new_type("IN_STRING_KEY");
+        tokenizer_state_functions.put(in_string_id,[](tokenizer_context& ctx){
+            char c = *(ctx.it);
+            if(c=='"') {
+                ctx.state=0;
+            }
+            else {
+                ctx.token->add(c);
+            }
+        });
+        tokenizer_functions.put('"',[string_id,in_string_id](tokenizer_context& ctx){
+            ctx.state = in_string_id;
+            ctx.token = make<Token>(string_id,"");
+            ctx.result << ctx.token;
+        });
+        value_to_string.put(string_id,[](void* data){
+            return *(std::string*)data;
+        });
+        a_functions.put(string_id, [string_id](a_context& ctx) {
+            if(ctx.state == 0) ctx.state = string_id;
+            ctx.node->tokens << ctx.token;
+        });
+        t_functions.put(string_id, [literal_id, string_id](t_context& ctx) -> g_ptr<t_node>{
+            g_ptr<t_node> node = make<t_node>();
+            node->type = literal_id;
+            node->value->type = string_id;
+            node->value->set<std::string>(ctx.node->tokens[0]->content);
+            node->value->size = 24;
+            return node;
+        });  
 
 
+        t_default_function = [](t_context& ctx) -> g_ptr<t_node>{
+            g_ptr<a_node> node = ctx.node;
+            g_ptr<t_node> left = ctx.left;
+
+            g_ptr<t_node> result = make<t_node>();
+            result->type = node->type;
+
+            auto handle_literal = [&result, &ctx](g_ptr<Token> token) -> g_ptr<t_node> {
+                g_ptr<a_node> stub = make<a_node>();
+                stub->tokens << token;
+                t_context sub_ctx(result, stub, ctx.root);
+                if(!t_functions.hasKey(token->getType())) {
+                    print("t_default_function: no t_function for token type ", TO_STRING(token->getType()));
+                    return nullptr;
+                }
+                return t_functions.get(token->getType())(sub_ctx);
+            };
+
+            auto recurse = [&ctx](g_ptr<a_node> node, g_ptr<t_node> left) -> g_ptr<t_node> {
+                g_ptr<t_node> sub_result = make<t_node>();
+                t_context sub_ctx(sub_result,node,ctx.root);
+                sub_ctx.left = left;
+                return t_default_function(sub_ctx);
+            };
+            
+            if (node->tokens.size() == 2) {
+                result->left = handle_literal(node->tokens[0]);
+                result->right = handle_literal(node->tokens[1]);
+            } 
+            else if (node->tokens.size() == 1) {
+                if(node->sub_nodes.size()==0) {
+                    if(left) {
+                        result->left = left;
+                        result->right = handle_literal(node->tokens[0]);
+                        if(node->in_scope) { //Removes left refrence by taking it's place
+                            if(node->in_scope->t_nodes.last()==left) {
+                                node->in_scope->t_nodes.pop();
+                            }
+                        }
+                    }
+                    else {
+                       if(state_is_opp.getOrDefault(node->type,false)&&t_functions.hasKey(node->type)) { //For opperators like i* or i++
+                            t_context sub_ctx(result,node,nullptr);
+                            ctx.left = left;
+                            result = t_functions.get(node->type)(sub_ctx);
+                        } 
+                        else {
+                            result = handle_literal(node->tokens[0]);
+                        }
+                    }
+                }
+                else if(node->sub_nodes.size()==1) {
+                    result->left = handle_literal(node->tokens[0]);
+                    result->right = recurse(node->sub_nodes[0],nullptr); //To prevent recursion in unary opperators
+                    //Was passing result as left, so something else may be broken by this
+                }
+                else if(node->sub_nodes.size()>=2) {
+                    result->left = handle_literal(node->tokens[0]);
+                    g_ptr<t_node> sub = nullptr;
+                    for(auto a : node->sub_nodes) {
+                       sub = recurse(a,sub);
+                        if(a==node->sub_nodes.last()) {
+                            result->right = sub;
+                        }
+                    }
+                }
+            }
+            else if(node->tokens.size()==0) {
+                if(node->sub_nodes.size()==0) {
+                    result->right = nullptr;
+                    result->left = nullptr;
+                }
+                else if(node->sub_nodes.size()==1) {
+                    result->left = left;
+                    result->right = recurse(node->sub_nodes[0],nullptr); //By passing nullptr we stop the recursion
+                    if(left&&node->in_scope) { //This removes duplicate left refrences, such as with var_decl + assignment
+                        if(node->in_scope->t_nodes.last()==left) {
+                            node->in_scope->t_nodes.pop(); //Used to be set last to result, return nullptr
+                        }
+                    } 
+                }
+                else if(node->sub_nodes.size()>=2) {
+                    result->left = left;
+                    g_ptr<t_node> sub = nullptr;
+                    for(auto a : node->sub_nodes) {
+                       sub = recurse(a,sub);
+                        if(a==node->sub_nodes.last()) {
+                            result->right = sub;
+                        }
+                    }
+                    if(left&&node->in_scope) {
+                        if(node->in_scope->t_nodes.last()==left) {
+                            node->in_scope->t_nodes.pop();
+                        }
+                    }
+                }
+            }
+        
+            return result;
+        };
+
+        add_function("print",[](exec_context& ctx) -> g_ptr<r_node> {
+            std::string toPrint = "";
+            for(auto r : ctx.node->children) {
+                execute_r_node(r, ctx.frame, ctx.index,ctx.sub_index);
+                toPrint.append(r->value->to_string());
+            }
+            print(toPrint);
+            return ctx.node;
+        });
 
         std::string code = readFile(path);
         list<g_ptr<Token>> tokens = tokenize(code);
@@ -268,8 +515,9 @@ namespace GDSL {
         balance_precedence(nodes);
         g_ptr<s_node> root = parse_scope(nodes);
         parse_nodes(root);
-        // discover_symbols(root);
-        // g_ptr<Frame> frame = resolve_symbols(root);
+        discover_symbols(root);
+        g_ptr<Frame> frame = resolve_symbols(root);
+        execute_r_nodes(frame);
     }
 }
 using namespace GDSL;

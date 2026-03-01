@@ -4,8 +4,8 @@
 #include<core/type.hpp>
 
 //Controls for the compiler printing, for debugging
-#define PRINT_ALL 0
-#define PRINT_STYLE 1
+#define PRINT_ALL 1
+#define PRINT_STYLE 0
 //Very important when adding modules, but will add overhead on execution, causes the reg class
 //to check if a hash exists before using it
 #define CHECK_REG 0

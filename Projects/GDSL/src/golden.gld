@@ -1,18 +1,5 @@
-type num {
-    int a;
-}
-
-print("Worked");
-num one;
-print("A");
-int i;
-i = 0;
-while(i<3) {
-    print(i);
-    i = i+1;
-    print(i);
-}
-print("B");
+string name = "joe";
+print(name);
 
 
 
