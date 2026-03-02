@@ -1,2 +1,5 @@
-string name = "joe";
-print(name);
+int a = 3;
+int b = 0;
+if(a>b) {
+    print("B is: ",a);
+}

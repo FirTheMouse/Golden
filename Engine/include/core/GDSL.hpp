@@ -349,7 +349,7 @@ public:
 
     }
 
-    uint32_t scope_type = GET_TYPE(GLOBAL);
+    uint32_t scope_type = 0;
     list<g_ptr<Token>> tokens;
 
     g_ptr<s_node> parent;
@@ -533,132 +533,6 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
 }
 
 
-
-map<uint32_t, std::function<void(g_ptr<s_node>, g_ptr<s_node>, g_ptr<a_node>)>> scope_link_handlers;
-map<uint32_t, int> scope_precedence;
-
-void print_scope(g_ptr<s_node> scope, int depth = 0) {
-    std::string indent(depth * 2, ' ');
-    
-    if (depth > 0) {
-        print(indent, "{");
-    }
-    
-    for (auto& a_node : scope->a_nodes) {
-        print(indent, "  ", TO_STRING(a_node->type));
-    
-        
-        if (a_node->owned_scope) {
-            print_scope(a_node->owned_scope, depth + 1);
-        }
-    }
-    
-    if (depth > 0) {
-        print(indent, "}");
-    }
-}
-
-struct g_value {
-public:
-    g_value() {}
-    g_value(g_ptr<a_node> _owner) : owner(_owner) {}
-    bool explc = false;
-    g_ptr<a_node> owner = nullptr;
-    bool deferred = false;
-};
-
-/// @brief  This method is not yet complete! Just like the other precdence, it is in need of refinment and edge case strengthining in 0.0.9. 
-/// No noted edge cases in light testing
-/// If you don't see a scope in the print out, check link owners, chances are there's no case for linking them meaning it can't be found
-static g_ptr<s_node> parse_scope(list<g_ptr<a_node>> nodes) {
-    g_ptr<s_node> root_scope = make<s_node>();
-    g_ptr<s_node> current_scope = root_scope;
-    list<g_value> stack{g_value()};
-
-    for (int i = 0; i < nodes.size(); ++i) {
-        g_ptr<a_node> node = nodes[i];
-        g_ptr<a_node> owner_node = (i>0) ? nodes[i - 1] : nullptr;
-
-        int p = scope_precedence.getOrDefault(node->type,0);
-        bool on_stack = stack.last().owner ? true : false;
-        if(p<=0) {
-            if(p<0) {
-                if (current_scope->parent) {
-                    current_scope = current_scope->parent;
-                }
-            }
-            else {
-                current_scope->a_nodes << node; 
-                node->in_scope = current_scope.getPtr();
-                //print("On ",a_type_string(node->type));
-                if(on_stack && !stack.last().deferred && !stack.last().explc) {
-                    //print("Popping ",a_type_string(node->type));
-                    if (current_scope->parent) {
-                        current_scope = current_scope->parent;
-                    }
-                }
-            }
-        }
-        else {
-            if(p<10) {
-                current_scope->a_nodes << node;
-                node->in_scope = current_scope.getPtr();
-                owner_node = node;
-            }
-
-            if(on_stack) {
-                int stack_precedence = scope_precedence.getOrDefault(stack.last().owner->type,0);
-                // print(a_type_string(owner_node->type),": ",p);
-                // print(a_type_string(stack.last().owner->type),": ",stack_precedence);
-                    if(p >= stack_precedence) {
-                        stack.last().deferred = true;
-                    } else {
-                        //This should do something 
-                        //stack.pop();
-                        // if (current_scope->parent) {
-                        //     current_scope = current_scope->parent;
-                        // } //Is this needed or not?
-                    }
-            }
-
-            if(p == 10) {
-                if(on_stack) {
-                    stack.last().explc = true;
-                    //print(a_type_string(stack.last().owner->type));
-                    if (current_scope->parent) {
-                        current_scope = current_scope->parent;
-                    }
-                }
-            }
-            else {
-                //print("Pushing ",a_type_string(owner_node->type));
-                stack << g_value(owner_node);
-            }
-
-            g_ptr<s_node> parent_scope = current_scope;
-            current_scope = current_scope->spawn_node();
-            if (owner_node) {
-                //Deffensive check here
-                try {
-                    auto func = scope_link_handlers.get(owner_node->type);
-                    func(current_scope,parent_scope,owner_node);
-                }
-                catch(std::exception e) {
-                    print("parse_scope::809 missing scope link handler for type: ",TO_STRING(owner_node->type));
-                }
-               
-            } else {
-                current_scope->scope_type = GET_TYPE(BLOCK);
-            }
-        }
-    }
-
-    #if PRINT_ALL
-    print("=== PARSE SCOPE PASS ===");
-    print_scope(root_scope);
-    #endif
-    return root_scope;
-}
 
 struct t_context {
     t_context(g_ptr<t_node>& _result,g_ptr<a_node> _node,g_ptr<s_node> _root) : 
@@ -855,9 +729,6 @@ static void discover_symbols(g_ptr<s_node> root) {
     }
     
     for(auto child_scope : root->children) {
-        for(auto e : root->slot_map.entrySet()) {
-            child_scope->slot_map.put(e.key,e.value);
-        }
         discover_symbols(child_scope);
     }
 }
@@ -1098,19 +969,6 @@ static void execute_stream(g_ptr<Frame> frame) {
     //     print("execute_stream::1380 frame context is missing execution functions");
     // }
 }   
-
-g_ptr<Frame> compile(const std::string& path) {
-    std::string code = readFile(path);
-    list<g_ptr<Token>> tokens = tokenize(code);
-    list<g_ptr<a_node>> nodes = parse_tokens(tokens);
-    // balance_precedence(nodes);
-    g_ptr<s_node> root = parse_scope(nodes);
-    parse_nodes(root);
-    discover_symbols(root);
-    g_ptr<Frame> frame = resolve_symbols(root);
-    return frame;
-}
-
 
 // g_ptr<s_node> compile_script(const std::string& file) {
 //     //"../Projects/Testing/src/golden.gld"
