@@ -631,7 +631,7 @@ public:
             note_value(name,8);
         } 
         else {
-        _note note(column_length(size),size); add_column(size); notes.put(name,note);
+        _note note(column_length(size),size,0); add_column(size); notes.put(name,note);
         }
     }
     template<typename T>

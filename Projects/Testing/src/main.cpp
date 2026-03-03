@@ -13,6 +13,51 @@
 
 #include<util/cog.hpp>
 
+// type sub_num {
+//     int x;
+//     int y;
+// }
+
+// type num {
+//     int a;
+//     int b;
+//     sub_num n;
+//     int o;
+// }
+
+// num c;
+// num d;
+
+// c.a = 1; d.a = 4;
+// c.b = 3; d.b = 6;
+// c.n.x = 8; d.n.x = 16;
+// print("c.a: ",c.a," d.a: ",d.a);
+// print("c.b: ",c.b," d.b: ",d.b);
+// print("c.n.x: ",c.n.x," d.n.x: ",d.n.x);
+// c = d;
+// print("c.a: ",c.a," d.a: ",d.a);
+// print("c.b: ",c.b," d.b: ",d.b);
+// print("c.n.x: ",c.n.x," d.n.x: ",d.n.x);
+
+
+// type num {
+//     int x;
+//     int y;
+// }
+
+// num c;
+// c.x = 42;
+// c.y = 7;
+
+// num* ptr;
+// ptr = (&c);
+
+// print("before: ", c.x, " ", c.y);
+// print("via ptr: ", (*ptr).x, " ", (*ptr).y);
+
+// (*ptr).x = 100;
+// print("after: ", c.x);
+
 namespace GDSL {
     map<std::string,g_ptr<Value>> keywords;
     map<char,bool> char_is_split;
@@ -286,14 +331,20 @@ namespace GDSL {
         };
     }
 
-    // xTx <- Binary operator, ctx.node->right and ctx.node->left are what's on your right and left
-    void add_binary_operator(char c, const std::string& f,int precedence,exec_handler operation) {
+    size_t add_token(char c, const std::string& f) {
         size_t id = reg::new_type(f);
         tokenizer_functions.put(c,[id,c](tokenizer_context& ctx) {
             ctx.token = make<Token>(id,c);
             ctx.result << ctx.token;
         });
-        state_is_opp.put(id, true);
+        char_is_split.put(c, true);
+        return id;
+    }
+
+    // xTx <- Binary operator, ctx.node->right and ctx.node->left are what's on your right and left
+    size_t add_binary_operator(char c, const std::string& f,int precedence,exec_handler operation) {
+        size_t id = add_token(c,f);
+        state_is_opp.put(id,true);
         type_precdence.put(id, precedence);
         r_handlers.put(id, [id](g_ptr<r_node> result, r_context& ctx) {
                 result->type = id;
@@ -303,6 +354,7 @@ namespace GDSL {
                     result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
         });
         exec_handlers.put(id, operation);
+        return id;
     }
 
     size_t add_base_type(const std::string& f, size_t size, a_handler key_a_function) {
@@ -328,8 +380,6 @@ namespace GDSL {
         //An example would be: string name = "joe"
         //Which tokenizes as: STRING_KEY IDENTIFIER EQUALS STRING_LITERAL
         //The a_stage will turn that into: VAR_DECL[STRING_KEY, IDENTIFIER] ASSIGNMENT[STRING_LITERAL]
-        //So long as the token_to_opp points T_KEY -> VAR_DECL and EQUALS -> ASSIGNMENT
-        //NOTE TO SELF: The current Standard module for GDSLang does this manually with an unesseacry type_key_handler, so that's a bad example!
         a_default_function = [](a_context& ctx) {
             uint32_t opp = ctx.token->getType();
             if(opp!=0) {
@@ -344,6 +394,44 @@ namespace GDSL {
         };
 
 
+        size_t var_decl_id = reg::new_type("VAR_DECL");
+        size_t object_id = reg::new_type("OBJECT");
+        value_to_string.put(object_id, [](void* data) {
+            return std::string("[object @") + std::to_string((size_t)data) + "]";
+        });
+
+        size_t type_id = reg::new_type("TYPE");
+        size_t type_decl_id = make_keyword("type",8,"TYPE_DECL");
+        a_functions.put(type_decl_id, [type_decl_id](a_context& ctx) {
+            ctx.state = type_decl_id;
+        });
+        scope_link_handlers.put(type_decl_id, [type_id](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
+            new_scope->scope_type = type_id;
+            new_scope->owner = owner_node;
+            new_scope->type_ref = make<Type>();
+            owner_node->owned_scope = new_scope.getPtr();
+        });
+        t_functions.put(type_decl_id, [type_decl_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = type_decl_id;
+            ctx.result->name = ctx.node->tokens.last()->content;
+            ctx.result->scope = ctx.node->owned_scope;
+            ctx.node->owned_scope->t_owner = ctx.result;
+            ctx.result->scope->name = ctx.result->name;
+            return ctx.result;
+        });
+        //DISCOVERY BELOW
+        r_handlers.put(type_decl_id, [type_decl_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = type_decl_id;
+            result->frame = resolve_symbols(ctx.node->scope);
+        });
+        exec_handlers.put(type_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            // Probably do nothing for now
+            return ctx.node;
+        });
+        stream_handlers.put(type_decl_id, [](exec_context& ctx) -> std::function<void()>{
+           return nullptr;
+        });
+
 
         size_t literal_id = reg::new_type("LITERAL");
         r_handlers.put(literal_id, [literal_id](g_ptr<r_node> result, r_context& ctx) {
@@ -354,74 +442,7 @@ namespace GDSL {
             return ctx.node;
         });
 
-        size_t var_decl_id = reg::new_type("VAR_DECL");
-
-        size_t identifier_id = reg::new_type("IDENTIFIER"); 
-        a_functions.put(identifier_id,[identifier_id](a_context& ctx){
-            if(ctx.state==0) ctx.state = identifier_id;
-            ctx.node->tokens << ctx.token;
-        });
-        t_functions.put(identifier_id, [identifier_id](t_context& ctx) -> g_ptr<t_node> {
-            g_ptr<t_node> node = make<t_node>();
-            node->type = identifier_id;
-            node->value->type = 0;
-            node->name = ctx.node->tokens[0]->content;
-            return node;
-        });       
-        r_handlers.put(identifier_id, [identifier_id](g_ptr<r_node> result, r_context& ctx) {
-            result->type = identifier_id;
-            result->name = ctx.node->name;
-            g_ptr<s_node> scope = ctx.scope;
-            while(scope) {
-                if(scope->slot_map.hasKey(ctx.node->name)) {
-                    print("SUCCESS");
-                    result->slot = scope->slot_map.get(ctx.node->name);
-                    result->in_frame = scope->frame;
-                    return;
-                } 
-                scope = scope->parent;
-            }
-            print("R_IDENTIFIER: unresolved identifier: ", ctx.node->name);
-        });
-        exec_handlers.put(identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            if(ctx.node->slot != -1) {
-                ctx.node->value = ctx.node->in_frame->stack[ctx.node->slot];
-            }
-            return ctx.node;
-        });
-
-        state_is_opp.put(var_decl_id,true);
-        type_precdence.put(var_decl_id,1);
-        t_functions.put(var_decl_id, [var_decl_id](t_context& ctx) -> g_ptr<t_node> {
-            ctx.result->type = var_decl_id;
-            ctx.result->value = ctx.node->tokens[0]->value;
-            ctx.result->name = ctx.node->tokens[1]->content; // "name"
-            return ctx.result;
-        });
-        discover_handlers.put(var_decl_id, [](g_ptr<t_node> node, d_context& ctx) {
-            int slot = ctx.root->slot_map.size();
-            ctx.root->slot_map.put(node->name, slot);
-        });
-        r_handlers.put(var_decl_id, [var_decl_id](g_ptr<r_node> result, r_context& ctx) {
-            result->type = var_decl_id;
-            result->slot = ctx.scope->slot_map.get(ctx.node->name);
-            result->value->type = ctx.node->value->type;
-            result->name = ctx.node->name;
-        });
-        exec_handlers.put(var_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
-            while(ctx.frame->stack.length() <= ctx.node->slot)
-                ctx.frame->stack << make<Value>(0);
-            return ctx.node;
-        });
-
-
-        size_t assignment_id = reg::new_type("ASSIGNMENT");
-        char_is_split.put('=',true);
-        tokenizer_functions.put('=',[assignment_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(assignment_id,"=");
-            ctx.result << ctx.token;
-        });
-
+        size_t assignment_id = add_token('=',"ASSIGNMENT");
         state_is_opp.put(assignment_id,true);
         type_precdence.put(assignment_id,1); 
         r_handlers.put(assignment_id, [assignment_id](g_ptr<r_node> result, r_context& ctx) {
@@ -432,126 +453,201 @@ namespace GDSL {
         exec_handlers.put(assignment_id, [](exec_context& ctx) -> g_ptr<r_node> {
             execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
             execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
-            ctx.node->left->in_frame->stack[ctx.node->left->slot] = ctx.node->right->value;
+            memcpy(ctx.node->left->value->data, ctx.node->right->value->data, ctx.node->right->value->size);
             return ctx.node;
         });
 
-        char end_char = ';';
-        char_is_split.put(end_char,true);
-        char_is_split.put(' ',true);
-        size_t end_id = reg::new_type("END"); 
-        a_functions.put(end_id, [end_id](a_context& ctx) {
-            if(ctx.state != 0) {
-                ctx.end_lambda();
-            } 
-            ctx.state = end_id;
-            ctx.end_lambda();
-            ctx.state = 0;
-            ctx.pos = 0;
+        size_t identifier_id = reg::new_type("IDENTIFIER"); 
+        size_t function_id = reg::new_type("FUNCTION");
+        size_t method_id = reg::new_type("METHOD");
+        size_t func_decl_id = reg::new_type("FUNC_DECL");
+        scope_link_handlers.put(var_decl_id, [type_decl_id,function_id,method_id,func_decl_id](g_ptr<s_node> new_scope, g_ptr<s_node> current_scope, g_ptr<a_node> owner_node) {
+            if(current_scope->scope_type == type_decl_id)
+                new_scope->scope_type = method_id;
+            else 
+                new_scope->scope_type = function_id;
+            new_scope->owner = owner_node;
+            owner_node->owned_scope = new_scope.getPtr();
+            owner_node->type = func_decl_id;
+            new_scope->name = owner_node->tokens.last()->content;
         });
-        t_functions.put(end_id, [](t_context& ctx) -> g_ptr<t_node> {
-            return nullptr; //Do nothing
-        });  
-        tokenizer_functions.put(end_char,[end_char,end_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(end_id,end_char);
-            ctx.result << ctx.token;
+        scope_link_handlers.put(identifier_id,scope_link_handlers.get(var_decl_id));
+        t_functions.put(func_decl_id, [func_decl_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.root = ctx.node->owned_scope;
+            parse_sub_nodes(ctx);
+            ctx.result->type = func_decl_id;
+            ctx.result->name = ctx.node->tokens.last()->content;
+            ctx.result->scope = ctx.node->owned_scope;
+            ctx.result->scope->t_owner = ctx.result;
+            return ctx.result;
+        });
+        r_handlers.put(func_decl_id, [func_decl_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = func_decl_id;
+            result->name = ctx.node->name;
+            result->frame = resolve_symbols(ctx.node->scope);
+            for(auto c : ctx.node->children) {
+                g_ptr<r_node> child = resolve_symbol(c, ctx.node->scope, result->frame);
+                result->children << child;
+            }
+        });
+        exec_handlers.put(func_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            //Do nothing
+            return ctx.node;
         });
 
-        size_t lparen_id = reg::new_type("LPAREN");
-        char_is_split.put('(',true);
-        tokenizer_functions.put('(', [lparen_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(lparen_id, "(");
-            ctx.result << ctx.token;
-        });
-        size_t rparen_id = reg::new_type("RPAREN");
-        char_is_split.put(')',true);
-        tokenizer_functions.put(')', [rparen_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(rparen_id, ")");
-            ctx.result << ctx.token;
-        });
-        reg::new_type("ENTER_PAREN");
-        a_functions.put(lparen_id, [lparen_id,rparen_id](a_context& ctx) {
-            std::pair<int,int> paren_range = balance_tokens(ctx.tokens, lparen_id, rparen_id, ctx.index-1);
-            if (paren_range.first < 0 || paren_range.second < 0) {
-                print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
-                return;
+        size_t func_call_id = reg::new_type("FUNC_CALL");
+        r_handlers.put(func_call_id, [func_call_id,func_decl_id,identifier_id,assignment_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = func_call_id;
+            result->name = ctx.node->name;
+            g_ptr<r_node> decl = nullptr;
+            find_scope(ctx.scope,[func_decl_id,result,&decl](g_ptr<s_node> scope){
+                for(auto t : scope->frame->nodes) {
+                    if(t->type==func_decl_id&&t->name==result->name) {
+                        decl = t;
+                        return true;
+                    }
+                }
+                return false;
+            });
+            if(decl) {
+                result->frame = decl->frame;
+                for(int i = 0; i < ctx.node->children.size(); i++) {
+                    g_ptr<r_node> arg = resolve_symbol(ctx.node->children[i], ctx.scope, ctx.frame);
+                    g_ptr<r_node> param = decl->children[i];
+                    // param->type = identifier_id;
+                    g_ptr<r_node> assignment = make<r_node>();
+                    assignment->type = assignment_id;
+                    assignment->left = param;
+                    assignment->right = arg;
+                    result->children << assignment;
+                }
             }
-    
+        });
+        exec_handlers.put(func_call_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            for(auto c : ctx.node->children) {
+                execute_r_node(c, ctx.frame, ctx.index, ctx.sub_index);
+            }
+            ctx.node->frame->return_to = ctx.node;
+            execute_sub_frame(ctx.node->frame, ctx.frame);
+            return ctx.node;
+        });
+        
+        size_t return_id = make_keyword("return",0,"RETURN");
+        a_functions.put(return_id, [return_id](a_context& ctx) {
+            ctx.state = return_id;
+            int next_end = 0;
+            for(int i = ctx.index+1; i < ctx.tokens.length(); i++) {
+                if(ctx.tokens[i]->getType() == GET_TYPE(END)) {
+                    next_end = i;
+                    break;
+                }
+            }
             list<g_ptr<Token>> sub_list;
-            for(int i=paren_range.first+1;i<paren_range.second;i++) {
+            for(int i = ctx.index+1; i < next_end; i++)
                 sub_list.push(ctx.tokens[i]);
-            }
-            for(auto s : sub_list) print(s->content);
-            ctx.node->sub_nodes = parse_tokens(sub_list,true);
-            if(ctx.state != 0) {
-                ctx.end_lambda();     
-            }
-            ctx.state = 0;        
-            ctx.index = paren_range.second-1;
-            ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
-            ctx.skip_inc = 1; // Can skip more if needed
+            ctx.node->sub_nodes = parse_tokens(sub_list, true);
+            ctx.end_lambda();
+            ctx.state = 0;
+            ctx.index = next_end-1;
+            ctx.it = ctx.tokens.begin() + next_end;
+            ctx.skip_inc = 1;
         });
-        reg::new_type("EXIT_PAREN"); 
-        a_functions.put(rparen_id, [](a_context& ctx) {
-            if(ctx.local && ctx.state != 0) {
-                ctx.end_lambda();
-                ctx.state = 0;
-            } 
+        t_functions.put(return_id, [return_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = return_id;
+            parse_sub_nodes(ctx, true);
+            return ctx.result;
+        });
+        r_handlers.put(return_id, [return_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = return_id;
+            result->right = resolve_symbol(ctx.node->children[0], ctx.scope, ctx.frame);
+        });
+        exec_handlers.put(return_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
+            g_ptr<Value> ret_val = make<Value>(ctx.node->right->value->type);
+            ret_val->size = ctx.node->right->value->size;
+            ret_val->data = malloc(ret_val->size);
+            memcpy(ret_val->data, ctx.node->right->value->data, ret_val->size);
+            ctx.frame->return_to->value = ret_val;
+            return ctx.node;
         });
 
-        size_t comma_id = reg::new_type("COMMA");
-        char_is_split.put(',',true);
-        tokenizer_functions.put(',', [comma_id](tokenizer_context& ctx){
-            ctx.token = make<Token>(comma_id, ",");
-            ctx.result << ctx.token;
-        });
-        a_functions.put(comma_id, [comma_id](a_context& ctx) {
-            if(ctx.local && ctx.state != 0) {
-                ctx.end_lambda();
-                ctx.state = comma_id;
-                ctx.end_lambda();
-                ctx.state = 0;
+        a_functions.put(identifier_id,[identifier_id](a_context& ctx){
+            if(ctx.state==0) ctx.state = identifier_id;
+            ctx.node->tokens << ctx.token;
+        });    
+        t_functions.put(identifier_id, [identifier_id,var_decl_id,type_decl_id,object_id,func_call_id](t_context& ctx) -> g_ptr<t_node> {
+            g_ptr<t_node> node = make<t_node>();
+            node->type = identifier_id;
+            
+            std::string type_name = ctx.node->tokens[0]->content;
+            node->name = ctx.node->tokens.size() > 1 ? ctx.node->tokens[1]->content : type_name;
+
+            g_ptr<s_node> scope = find_scope(ctx.root,[type_name,type_decl_id](g_ptr<s_node> scope){
+                return scope->name == type_name;
+            });
+            if(scope) {
+                if(ctx.node->tokens.length()==1&&!ctx.node->sub_nodes.empty()) { //Like one(3);
+                    node->type = func_call_id;
+                    parse_sub_nodes(ctx);
+                    node->children = ctx.result->children;
+                } else { //Like int a;
+                    node->type = var_decl_id;
+                    node->deferred_identifier = type_name;
+                    g_ptr<Value> sub_value = make<Value>(0);
+                    sub_value->type = object_id;
+                    sub_value->sub_type = object_id;
+                    node->value = sub_value;
+                    node->scope = ctx.root.getPtr();
+                }
             }
-            ctx.pos = 0;
-        });
-        t_functions.put(comma_id, [](t_context& ctx) -> g_ptr<t_node> {
-            return nullptr; //Do nothing
+            return node;
         });  
+        r_handlers.put(identifier_id, [identifier_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = identifier_id;
+            result->name = ctx.node->name;
+            g_ptr<s_node> scope = find_scope(ctx.scope,[&](g_ptr<s_node> scope_node){
+                return scope_node->values.hasKey(ctx.node->name);
+            });
+            if(scope) {
+                result->value = scope->values.get(ctx.node->name);
+                result->in_frame = scope->frame;
+            } else {
+                print("UNRESOVED SCOPE FOR: ",result->name);
+            }
+        });
+        exec_handlers.put(identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            return ctx.node;
+        });
 
-        size_t lbrace_id = reg::new_type("LBRACE");
-        char_is_split.put('{',true);
-        tokenizer_functions.put('{', [lbrace_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(lbrace_id, "{");
-            ctx.result << ctx.token;
+        state_is_opp.put(var_decl_id,true);
+        type_precdence.put(var_decl_id,1);
+        t_functions.put(var_decl_id, [var_decl_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = var_decl_id;
+            ctx.result->value = ctx.node->tokens[0]->value;
+            ctx.result->name = ctx.node->tokens[1]->content;
+            ctx.result->scope = ctx.root.getPtr();
+            return ctx.result;
         });
-        size_t enter_scope_id = reg::new_type("ENTER_SCOPE"); 
-        a_functions.put(lbrace_id, [enter_scope_id](a_context& ctx) {
-            if(ctx.state != 0) {
-                ctx.end_lambda();
+        //DISCOVERY BELOW
+        r_handlers.put(var_decl_id, [var_decl_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = var_decl_id;
+            result->name = ctx.node->name;
+            g_ptr<s_node> scope = find_scope(ctx.scope,[&](g_ptr<s_node> s){
+                return s->values.hasKey(ctx.node->name);
+            });
+            if(scope) {
+                result->value = scope->values.get(ctx.node->name);
+                result->in_frame = scope->frame;
             }
-            ctx.state = enter_scope_id;
-            ctx.end_lambda();
-            ctx.state = 0;
-            ctx.pos = 0;
         });
-        scope_precedence.put(enter_scope_id, 10); 
-        size_t rbrace_id = reg::new_type("RBRACE"); 
-        char_is_split.put('}',true);
-        tokenizer_functions.put('}', [rbrace_id](tokenizer_context& ctx) {
-            ctx.token = make<Token>(rbrace_id, "}");
-            ctx.result << ctx.token;
+        exec_handlers.put(var_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            ctx.frame->active_memory << ctx.node->value->data;
+            return ctx.node;
         });
-        size_t exit_scope_id = reg::new_type("EXIT_SCOPE"); 
-        a_functions.put(rbrace_id, [exit_scope_id](a_context& ctx) {
-            if(ctx.state != 0) {
-                ctx.end_lambda();
-            }
-            ctx.state = exit_scope_id;
-            ctx.end_lambda();
-            ctx.state = 0;
-            ctx.pos = 0;
-        });
-        scope_precedence.put(exit_scope_id, -10);
+
+
+
+
 
 
         a_handler make_var_decl_on_key = [var_decl_id](a_context& ctx) {
@@ -559,8 +655,7 @@ namespace GDSL {
             ctx.node->tokens << ctx.token;
         };
 
-
-        size_t float_id = reg::new_type("FLOAT");
+        size_t float_id = add_base_type("float",4,make_var_decl_on_key);
         value_to_string.put(float_id,[](void* data) {
             return std::to_string(*(float*)data);
         });
@@ -605,12 +700,289 @@ namespace GDSL {
             return node;
         }); 
            
-        char_is_split.put('+',true); char_is_split.put('>',true);
         add_binary_operator('+',"ADD", 2, make_arithmetic_handler<int, int>([](auto a, auto b){return a+b;},int_id));
         add_binary_operator('>',"GREATER_THAN", 2, make_arithmetic_handler<int, bool>([](auto a, auto b){return a>b;},bool_id));
 
+
+        //ALL THE OBJECT CODE
+        size_t star_id = add_token('*',"STAR");
+        a_functions.put(star_id, [star_id, var_decl_id](a_context& ctx) {
+            if(ctx.state == var_decl_id && ctx.node->tokens.size() == 1) {
+                ctx.state = star_id;
+                return;
+            }
+            a_default_function(ctx);
+        });
+        state_is_opp.put(star_id, true);
+        type_precdence.put(star_id, 3);
+        size_t pointer_id = reg::new_type("POINTER");
+        size_t deref_id = reg::new_type("DEREF");
+        size_t mul_id = reg::new_type("MUL");
+        t_functions.put(star_id, [star_id, var_decl_id, identifier_id](t_context& ctx) -> g_ptr<t_node> {
+            //Workaround because t_defualt_function and precedence needs more work
+            if(ctx.node->tokens.size() == 1 && ctx.node->sub_nodes.empty()) {
+                //*c — unary dereference
+                g_ptr<t_node> result = make<t_node>();
+                result->type = star_id;
+                g_ptr<a_node> stub = make<a_node>();
+                stub->tokens << ctx.node->tokens[0];
+                stub->type = identifier_id;
+                t_context sub_ctx(result, stub, ctx.root);
+                result->left = t_functions.get(identifier_id)(sub_ctx);
+                return result;
+            }
+            
+            return t_default_function(ctx);
+        });
+        r_handlers.put(star_id, [star_id, var_decl_id, pointer_id, deref_id, mul_id](g_ptr<r_node> result, r_context& ctx) {
+            if(ctx.node->left && ctx.node->left->type == var_decl_id) {
+                //num* c — pointer declaration, just grab what discover already set up
+                result->type = pointer_id;
+                result->name = ctx.node->right->name;
+                result->left = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+                result->value = result->left->value;
+            }
+            else if(ctx.node->right == nullptr) {
+                //*c — dereference
+                result->type = deref_id;
+                result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+            }
+            else {
+                //a * b — multiplication
+                result->type = mul_id;
+                result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+                result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+            }
+        });
+        exec_handlers.put(mul_id, make_arithmetic_handler<int,int>([](auto a, auto b){return a*b;}, int_id));
+        exec_handlers.put(pointer_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            ctx.frame->active_memory << ctx.node->value->data;
+            return ctx.node;
+        });
+        exec_handlers.put(deref_id, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+            ctx.node->value->data = *(void**)ctx.node->left->value->data;
+            ctx.node->value->type = ctx.node->left->value->sub_type;
+            ctx.node->value->size = ctx.node->left->value->size;
+            return ctx.node;
+        });
+
+        size_t amp_id = add_token('&',"AMPERSAND");
+        // state_is_opp.put(amp_id, true);
+        // type_precdence.put(amp_id, 2);
+        t_functions.put(amp_id, [amp_id, identifier_id](t_context& ctx) -> g_ptr<t_node> {
+            //Workaround because t_defualt_function and precedence needs more work
+            g_ptr<t_node> result = make<t_node>();
+            result->type = amp_id;
+            g_ptr<a_node> stub = make<a_node>();
+            stub->tokens << ctx.node->tokens[0];
+            stub->type = identifier_id;
+            t_context sub_ctx(result, stub, ctx.root);
+            result->left = t_functions.get(identifier_id)(sub_ctx);
+            return result;
+        });
+        size_t addr_of_id = reg::new_type("ADDR_OF");
+        r_handlers.put(amp_id, [addr_of_id](g_ptr<r_node> result, r_context& ctx) {
+            result->type = addr_of_id;
+            result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+        });
+        exec_handlers.put(addr_of_id, [pointer_id](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+            ctx.node->value->type = pointer_id;
+            ctx.node->value->size = 8;
+            ctx.node->value->set<void*>(ctx.node->left->value->data);
+            return ctx.node;
+        });
+
+        auto resolve_field_size = [object_id,star_id](g_ptr<t_node> field, g_ptr<s_node> root) -> size_t {
+            if(field->type == star_id) return 8;
+            if(field->value->type == object_id) {
+                g_ptr<s_node> type_scope = find_scope_name(field->deferred_identifier, root);
+                if(type_scope && type_scope->t_owner) {
+                    return type_scope->t_owner->value->size;
+                }
+                return 0;
+            }
+            return field->value->size;
+        };
+        discover_handlers.put(star_id, [var_decl_id,pointer_id](g_ptr<t_node> node, d_context& ctx) {
+            if(node->left && node->left->type == var_decl_id) {
+                g_ptr<Value> ptr_value = make<Value>(pointer_id);
+                ptr_value->size = 8;
+                ptr_value->data = malloc(8);
+                ptr_value->sub_type = node->left->value->type;
+                node->left->scope->values.put(node->right->name, ptr_value);
+            }
+        });
+        discover_handlers.put(var_decl_id, [object_id,resolve_field_size](g_ptr<t_node> node, d_context& ctx) {
+            g_ptr<Value> sub_value = make<Value>(0);
+            sub_value->type = node->value->sub_type;
+            sub_value->size = resolve_field_size(node,ctx.root);
+            sub_value->data = malloc(sub_value->size);
+            node->scope->values.put(node->name,sub_value);
+        });
+        discover_handlers.put(type_decl_id, [var_decl_id,object_id,resolve_field_size](g_ptr<t_node> node, d_context& ctx) {
+            if(!node->scope->type_ref) node->scope->type_ref = make<Type>();
+            node->scope->name = node->name;
+            node->value->size = 0;
+            
+            for(auto field : node->scope->t_nodes) {
+                if(field->type == var_decl_id) {
+                    g_ptr<Value> field_value = make<Value>(0);
+                    field_value->type = field->value->sub_type;
+                    field_value->size = resolve_field_size(field, ctx.root);
+                    field_value->address = node->value->size;
+                    node->value->size += field_value->size;
+                    node->scope->values.put(field->name, field_value);
+                }
+            }       
+        });
+
+        size_t prop_access_id = add_binary_operator('.', "PROP_ACCESS", 8, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
+            ctx.node->value->type = ctx.node->right->value->type;
+            ctx.node->value->size = ctx.node->right->value->size;
+            ctx.node->value->data = (char*)ctx.node->left->value->data + ctx.node->right->value->address;
+            return ctx.node;
+        });
+        t_functions.set(prop_access_id, [prop_access_id, identifier_id](t_context& ctx) -> g_ptr<t_node> {
+            g_ptr<t_node> result = t_default_function(ctx);
+            //Workaround because t_defualt_function and precedence needs more work
+            if(ctx.node->tokens.size()==1 && ctx.node->sub_nodes.size()==1) {
+                std::swap(result->left, result->right);
+            }
+            return result;
+        });
+
+        size_t index_id = add_binary_operator('[', "INDEX", 8, [](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+            execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
+            int i = ctx.node->right->value->get<int>();
+            size_t stride = ctx.node->left->value->size;
+            ctx.node->value->data = (char*)ctx.node->left->value->data + i * stride;
+            ctx.node->value->type = ctx.node->left->value->sub_type;
+            ctx.node->value->size = stride;
+            return ctx.node;
+        });
+        t_functions.put(index_id, [index_id, identifier_id, int_id, literal_id](t_context& ctx) -> g_ptr<t_node> {
+            ctx.result->type = index_id;
+            // left is the array identifier
+            g_ptr<a_node> left_stub = make<a_node>();
+            left_stub->tokens << ctx.node->tokens[0];
+            left_stub->type = identifier_id;
+            ctx.result->left = parse_a_node(left_stub, ctx.root, nullptr);
+            // right is the index literal
+            g_ptr<a_node> right_stub = make<a_node>();
+            right_stub->tokens << ctx.node->tokens[1];
+            right_stub->type = int_id;
+            ctx.result->right = parse_a_node(right_stub, ctx.root, nullptr);
+            return ctx.result;
+        });
+        size_t rbracket_id = add_token(']',"RBRACKET");
+        a_functions.put(rbracket_id, [](a_context& ctx) {
+            if(ctx.local && ctx.state != 0) {
+                ctx.end_lambda();
+                ctx.state = 0;
+            } 
+        });
+        add_function("malloc", [pointer_id](exec_context& ctx) -> g_ptr<r_node> {
+            execute_r_node(ctx.node->children[0], ctx.frame, ctx.index, ctx.sub_index);
+            int size = ctx.node->children[0]->value->get<int>();
+            ctx.node->value->set<void*>(malloc(size));
+            ctx.node->value->type = pointer_id;
+            ctx.node->value->size = 8;
+            return ctx.node;
+        });
+
+        size_t end_id = add_token(';',"END");
+        a_functions.put(end_id, [end_id](a_context& ctx) {
+            if(ctx.state != 0) {
+                ctx.end_lambda();
+            } 
+            ctx.state = end_id;
+            ctx.end_lambda();
+            ctx.state = 0;
+            ctx.pos = 0;
+        });
+        t_functions.put(end_id, [](t_context& ctx) -> g_ptr<t_node> {
+            return nullptr; //Do nothing
+        });  
+
+        size_t lparen_id = add_token('(',"LPAREN");
+        size_t rparen_id = add_token(')',"RPAREN");
+        reg::new_type("ENTER_PAREN");
+        a_functions.put(lparen_id, [lparen_id,rparen_id](a_context& ctx) {
+            std::pair<int,int> paren_range = balance_tokens(ctx.tokens, lparen_id, rparen_id, ctx.index-1);
+            if (paren_range.first < 0 || paren_range.second < 0) {
+                print("parse_tokens::719 Unmatched parenthesis at ", ctx.index);
+                return;
+            }
+    
+            list<g_ptr<Token>> sub_list;
+            for(int i=paren_range.first+1;i<paren_range.second;i++) {
+                sub_list.push(ctx.tokens[i]);
+            }
+            for(auto s : sub_list) print(s->content);
+            ctx.node->sub_nodes = parse_tokens(sub_list,true);
+            if(ctx.state != 0) {
+                ctx.end_lambda();     
+            }
+            ctx.state = 0;        
+            ctx.index = paren_range.second-1;
+            ctx.it = ctx.tokens.begin() + (int)(paren_range.second);
+            ctx.skip_inc = 1; // Can skip more if needed
+        });
+        reg::new_type("EXIT_PAREN"); 
+        a_functions.put(rparen_id, [](a_context& ctx) {
+            if(ctx.local && ctx.state != 0) {
+                ctx.end_lambda();
+                ctx.state = 0;
+            } 
+        });
+
+        size_t comma_id = add_token(',',"COMMA");
+        a_functions.put(comma_id, [comma_id](a_context& ctx) {
+            if(ctx.local && ctx.state != 0) {
+                ctx.end_lambda();
+                ctx.state = comma_id;
+                ctx.end_lambda();
+                ctx.state = 0;
+            }
+            ctx.pos = 0;
+        });
+        t_functions.put(comma_id, [](t_context& ctx) -> g_ptr<t_node> {
+            return nullptr; //Do nothing
+        });  
+
+        size_t lbrace_id = add_token('{',"LBRACE");
+        size_t enter_scope_id = reg::new_type("ENTER_SCOPE"); 
+        a_functions.put(lbrace_id, [enter_scope_id](a_context& ctx) {
+            if(ctx.state != 0) {
+                ctx.end_lambda();
+            }
+            ctx.state = enter_scope_id;
+            ctx.end_lambda();
+            ctx.state = 0;
+            ctx.pos = 0;
+        });
+        scope_precedence.put(enter_scope_id, 10); 
+        size_t rbrace_id = add_token('}',"RBRACE");
+        size_t exit_scope_id = reg::new_type("EXIT_SCOPE"); 
+        a_functions.put(rbrace_id, [exit_scope_id](a_context& ctx) {
+            if(ctx.state != 0) {
+                ctx.end_lambda();
+            }
+            ctx.state = exit_scope_id;
+            ctx.end_lambda();
+            ctx.state = 0;
+            ctx.pos = 0;
+        });
+        scope_precedence.put(exit_scope_id, -10);
+
+        char_is_split.put(' ',true);
         size_t in_alpha_id = reg::new_type("IN_ALPHA");
-        tokenizer_state_functions.put(in_alpha_id,[end_char](tokenizer_context& ctx) {
+        tokenizer_state_functions.put(in_alpha_id,[](tokenizer_context& ctx) {
             char c = *(ctx.it);
             if(char_is_split.getOrDefault(c,false)) {
                 ctx.state = 0; 
@@ -628,7 +1000,7 @@ namespace GDSL {
         });
 
         size_t in_digit_id = reg::new_type("IN_DIGIT");
-        tokenizer_state_functions.put(in_digit_id,[in_alpha_id,float_id,end_char](tokenizer_context& ctx) {
+        tokenizer_state_functions.put(in_digit_id,[in_alpha_id,float_id](tokenizer_context& ctx) {
             char c = *(ctx.it);
             if(char_is_split.getOrDefault(c,false)) {
                 ctx.state = 0; 
@@ -752,8 +1124,9 @@ namespace GDSL {
                 }
                 else if(node->sub_nodes.size()==1) {
                     result->left = handle_literal(node->tokens[0]);
-                    result->right = recurse(node->sub_nodes[0],nullptr); //To prevent recursion in unary opperators
-                    //Was passing result as left, so something else may be broken by this
+                    // result->right = recurse(node->sub_nodes[0],nullptr); //To prevent recursion in unary opperators
+                    // //Was passing result as left, so something else may be broken by this
+                    result->right = parse_a_node(node->sub_nodes[0], ctx.root, nullptr);
                 }
                 else if(node->sub_nodes.size()>=2) {
                     result->left = handle_literal(node->tokens[0]);
@@ -810,6 +1183,29 @@ namespace GDSL {
             return ctx.node;
         });
 
+        add_function("layout", [int_id](exec_context& ctx) -> g_ptr<r_node> {
+            int mode = 1;
+            if(!ctx.node->children.empty()) {
+                execute_r_node(ctx.node->children[0],ctx.frame,ctx.index,ctx.sub_index);
+                if(ctx.node->children.length()>1) {
+                    execute_r_node(ctx.node->children[1],ctx.frame,ctx.index,ctx.sub_index);
+                    mode = ctx.node->children[1]->value->get<int>();
+                    print(ctx.node->children[0]->in_frame->context->type_to_string(mode));
+                }
+                else {
+                    if(ctx.node->children[0]->value->type==int_id) {
+                        mode = ctx.node->children[0]->value->get<int>();
+                        print(ctx.frame->context->type_to_string(mode));
+                    } else {
+                        print(ctx.node->children[0]->in_frame->context->type_to_string(mode));
+                    }
+                }
+            }
+            else
+                print(ctx.frame->context->type_to_string(mode));
+            return ctx.node;
+        });
+
         add_scoped_keyword("if", 2, [](exec_context& ctx) -> g_ptr<r_node> {
             execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
             if(ctx.node->right->value->is_true()) {
@@ -827,8 +1223,10 @@ namespace GDSL {
         balance_precedence(nodes);
         g_ptr<s_node> root = parse_scope(nodes);
         parse_nodes(root);
+        print("==DISCOVERING SYMBOLS==");
         discover_symbols(root);
         g_ptr<Frame> frame = resolve_symbols(root);
+        print("==EXECUTING==");
         execute_r_nodes(frame);
     }
 }
@@ -1048,6 +1446,138 @@ int main() {
 
     return 0;
 }
+
+
+
+//Database like runtime model
+    // size_t var_decl_id = reg::new_type("VAR_DECL");
+    // size_t object_id = reg::new_type("OBJECT");
+
+    // size_t identifier_id = reg::new_type("IDENTIFIER"); 
+    // a_functions.put(identifier_id,[identifier_id](a_context& ctx){
+    //     if(ctx.state==0) ctx.state = identifier_id;
+    //     ctx.node->tokens << ctx.token;
+    // });
+    // t_functions.put(identifier_id, [identifier_id,var_decl_id,type_decl_id,object_id](t_context& ctx) -> g_ptr<t_node> {
+    //     g_ptr<t_node> node = make<t_node>();
+    //     node->name = ctx.node->tokens[0]->content;
+    //     node->type = identifier_id;
+    //     g_ptr<s_node> type_decl_scope = find_scope(ctx.root,[node,type_decl_id](g_ptr<s_node> scope){
+    //         if(!scope->type_ref) 
+    //             return false;
+    //         return scope->type_ref->type_name == node->name;
+    //     });
+    //     if(type_decl_scope) {
+    //         node->type = var_decl_id;
+    //         g_ptr<Value> sub_value = make<Value>(0);
+    //         sub_value->type = object_id;
+    //         sub_value->sub_type = object_id;
+    //         node->value = sub_value;
+    //         node->name = ctx.node->tokens[1]->content;
+    //         node->scope = type_decl_scope.getPtr();
+    //     }
+    //     return node;
+    // });       
+    // r_handlers.put(identifier_id, [identifier_id](g_ptr<r_node> result, r_context& ctx) {
+    //     result->type = identifier_id;
+    //     result->name = ctx.node->name;
+    //     g_ptr<s_node> scope = find_scope(ctx.scope,[&](g_ptr<s_node> scope_node){
+    //         return scope_node->has(ctx.node->name+"_value");
+    //     });
+    //     if(scope) {
+    //         result->value = scope->get<g_ptr<Value>>(ctx.node->name+"_value");
+    //         if(scope->type_ref->has(ctx.node->name)) {
+    //             _note& note = scope->type_ref->get_note(ctx.node->name);
+    //             result->index = note.sub_index;
+    //             result->value->address = note.index;
+    //             result->value->size = note.size;
+    //         } 
+    //         if(scope->has(ctx.node->name+"_TID")) {
+    //             result->value->address = 0; //This is dictated by prop acess somehow
+    //             result->index = scope->get<int>(ctx.node->name+"_TID");
+    //         }
+    //         result->in_frame = scope->frame;
+    //     } 
+    // });
+    // exec_handlers.put(identifier_id, [](exec_context& ctx) -> g_ptr<r_node> {
+    //     ctx.node->value->data = ctx.node->in_frame->context->get(ctx.node->value->address,ctx.node->index,ctx.node->value->size);
+    //     return ctx.node;
+    // });
+
+    // state_is_opp.put(var_decl_id,true);
+    // type_precdence.put(var_decl_id,1);
+    // t_functions.put(var_decl_id, [var_decl_id](t_context& ctx) -> g_ptr<t_node> {
+    //     ctx.result->type = var_decl_id;
+    //     ctx.result->value = ctx.node->tokens[0]->value;
+    //     ctx.result->name = ctx.node->tokens[1]->content;
+    //     ctx.result->scope = ctx.root.getPtr();
+    //     return ctx.result;
+    // });
+    // discover_handlers.put(var_decl_id, [object_id](g_ptr<t_node> node, d_context& ctx) {
+    //     g_ptr<Value> sub_value = make<Value>(0);
+    //     sub_value->type = node->value->sub_type;
+    //     node->scope->add<g_ptr<Value>>(node->name+"_value", sub_value);
+    //     if(node->value->type!=object_id) {
+    //         node->scope->type_ref->note_value(node->name,node->value->size);
+    //     } else {
+    //         g_ptr<Object> obj = node->scope->type_ref->create(); //Make a new object
+    //         node->scope->add<int>(node->name+"_TID",obj->TID);
+    //     }
+    // });
+    // r_handlers.put(var_decl_id, [var_decl_id](g_ptr<r_node> result, r_context& ctx) {
+    //     result->type = var_decl_id;
+    //     _note& note = ctx.scope->type_ref->get_note(ctx.node->name);
+    //     result->index = note.sub_index;
+    //     result->value->address = note.index;
+    //     result->value->type = ctx.node->value->type;
+    //     result->value->size = note.size;
+    //     result->name = ctx.node->name;
+    // });
+    // exec_handlers.put(var_decl_id, [](exec_context& ctx) -> g_ptr<r_node> {
+    //     //Do nothing for now.
+    //     return ctx.node;
+    // });
+
+    // char_is_split.put('.',true);
+    // add_binary_operator('.', "PROP_ACCESS", 8, [](exec_context& ctx) -> g_ptr<r_node> {
+    //     execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+    //     ctx.node->value->type = ctx.node->right->value->type;
+    //     ctx.node->value->address = ctx.node->right->value->address;
+    //     ctx.node->index = ctx.node->left->index;
+    //     ctx.node->value->size = ctx.node->right->value->size;
+    //     ctx.node->in_frame = ctx.node->left->in_frame;
+    //     // print("L = ",ctx.node->left->name," ADDR: ",ctx.node->left->value->address," IDX: ",ctx.node->left->index);
+    //     // print("R = ",ctx.node->right->name," ADDR: ",ctx.node->right->value->address," IDX: ",ctx.node->right->index);
+    //     ctx.node->value->data = ctx.node->left->in_frame->context->get(
+    //         ctx.node->value->address,  ctx.node->index, ctx.node->value->size);
+    //     return ctx.node;
+    // });
+
+
+    // size_t assignment_id = reg::new_type("ASSIGNMENT");
+    // char_is_split.put('=',true);
+    // tokenizer_functions.put('=',[assignment_id](tokenizer_context& ctx) {
+    //     ctx.token = make<Token>(assignment_id,"=");
+    //     ctx.result << ctx.token;
+    // });
+    // state_is_opp.put(assignment_id,true);
+    // type_precdence.put(assignment_id,1); 
+    // r_handlers.put(assignment_id, [assignment_id](g_ptr<r_node> result, r_context& ctx) {
+    //     result->type = assignment_id;
+    //     result->left = resolve_symbol(ctx.node->left, ctx.scope, ctx.frame);
+    //     result->right = resolve_symbol(ctx.node->right, ctx.scope, ctx.frame);
+    // });
+    // exec_handlers.put(assignment_id, [](exec_context& ctx) -> g_ptr<r_node> {
+    //     execute_r_node(ctx.node->left, ctx.frame, ctx.index, ctx.sub_index);
+    //     execute_r_node(ctx.node->right, ctx.frame, ctx.index, ctx.sub_index);
+    //     size_t target_index = ctx.node->left->index==-1?ctx.index:ctx.node->left->index;
+    //     ctx.node->left->in_frame->context->set(
+    //         ctx.node->left->value->address,
+    //         target_index,
+    //         ctx.node->left->value->size,
+    //         ctx.node->right->value->data);
+    //     return ctx.node;
+    // });
 
 //Old test module for GDSL:
 

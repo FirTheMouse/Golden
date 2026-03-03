@@ -1,5 +1,13 @@
-int a = 3;
-int b = 0;
-if(a>b) {
-    print("B is: ",a);
+print("A");
+
+type num {
+    int o;
 }
+
+num* ptr;
+int* arr;
+arr = malloc(16);
+arr[0] = 10;
+arr[1] = 20;
+arr[2] = 30;
+print(arr[0], " ", arr[1], " ", arr[2]);

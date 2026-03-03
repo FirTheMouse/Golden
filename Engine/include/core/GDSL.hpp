@@ -352,17 +352,18 @@ public:
     uint32_t scope_type = 0;
     list<g_ptr<Token>> tokens;
 
-    g_ptr<s_node> parent;
+    s_node* parent = nullptr;
+    std::string name = "";
     g_ptr<Type> type_ref = nullptr;
     g_ptr<Frame> frame = nullptr;
 
-    g_ptr<a_node> owner;
-    g_ptr<t_node> t_owner;
+    g_ptr<a_node> owner = nullptr;
+    g_ptr<t_node> t_owner = nullptr;
     list<g_ptr<a_node>> a_nodes;
     list<g_ptr<t_node>> t_nodes;
     list<g_ptr<s_node>> children;
 
-    map<std::string,int> slot_map;
+    map<std::string,g_ptr<Value>> values;
 
     void addToken(g_ptr<Token> token) {
         token->index = tokens.length();
@@ -478,7 +479,7 @@ a_handler a_default_function;
 //Proper prescedence could be added here, alongside discernment of specific identity based upon token rather than the previous rich token requirments with t_info.
 static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = false) {
         #if PRINT_ALL
-        print("==PARSE TOKENS PASS==");
+        print("==PARSE TOKENS PASS (A)==");
         #endif
         list<g_ptr<a_node>> result;
         uint32_t state = 0;
@@ -534,6 +535,34 @@ static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = f
 
 
 
+static g_ptr<s_node> find_scope(g_ptr<s_node> start, std::function<bool(g_ptr<s_node>)> check) {
+    g_ptr<s_node> on_scope = start;
+    while(true) {
+        if(check(on_scope)) {
+            return on_scope;
+        }
+        for(auto c : on_scope->children) {
+            if(c==start||c==on_scope) continue;
+            if(check(c)) {
+               return c;
+            }
+        }
+        if(on_scope->parent) {
+            on_scope = on_scope->parent;
+        }
+        else 
+            break;
+    }
+    return nullptr;
+}
+
+static g_ptr<s_node> find_scope_name(const std::string& match,g_ptr<s_node> start) {
+    return find_scope(start,[match](g_ptr<s_node> c){
+        return c->name == match;
+    });
+}
+
+
 struct t_context {
     t_context(g_ptr<t_node>& _result,g_ptr<a_node> _node,g_ptr<s_node> _root) : 
     result(_result), node(_node), root(_root) {}
@@ -556,6 +585,7 @@ static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_
     ctx.left = left;
     if(!t_default_function)
         print("GDSL::parse_a_node t_stage requires a default function!");
+    print("RUNNING: ",TO_STRING(node->type));
     result = t_functions.getOrDefault(node->type,t_default_function)(ctx);
     return result;
 }
@@ -627,7 +657,7 @@ void print_t_node(const g_ptr<t_node>& node, int depth = 0, int index = 0) {
 
 static void parse_nodes(g_ptr<s_node> root) {
     #if PRINT_ALL
-    print("==PARSE NODES PASS==");
+    print("==PARSE NODES PASS (T)==");
     #endif
     g_ptr<t_node> last = nullptr;
     for(int i = 0; i < root->a_nodes.size(); i++) {
@@ -678,7 +708,6 @@ class r_node : public Object {
     g_ptr<r_node> right;
     list<g_ptr<r_node>> children;
     g_ptr<Value> value;
-    g_ptr<Type> in_scope = nullptr;
     g_ptr<Frame> in_frame = nullptr;
     int slot = -1;
     int index = -1;
@@ -747,7 +776,6 @@ static g_ptr<r_node> resolve_symbol(g_ptr<t_node> node,g_ptr<s_node> scope,g_ptr
     if(!result) result = make<r_node>();
     r_context ctx(node,scope,frame);
     try {
-        result->in_scope = scope->type_ref;
         result->in_frame = scope->frame;
         r_handlers.get(node->type)(result,ctx);
     }
@@ -765,19 +793,27 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
     print(indent, "Node #", index, " Type: ", TO_STRING(node->type));
 
     if (node->value->type != 0) {
-        print(indent, "  Value: ", node->value->to_string(), " (type: ", TO_STRING(node->value->type), ")");
+        print(indent, "  Value: ", node->value->to_string(), " (type: ", TO_STRING(node->value->type),node->value->address!=-1?(", address: "+std::to_string(node->value->address)):"",")");
     }
     
     if (!node->name.empty()) {
         print(indent, "  Name: ", node->name);
     }
 
-    if(node->in_scope) {
-        print(indent,"  Scope: ", node->in_scope->type_name);
+    if(node->in_frame) {
+        print(indent,"  Scope: ", node->in_frame->context->type_name);
     }
 
     if(node->slot!=-1) {
         print(indent,"  Slot: ", node->slot);
+    }
+
+    if(node->index!=-1) {
+        print(indent,"  Index: ", node->index);
+    }
+
+    if(node->index!=-1) {
+        print(indent,"  Index: ", node->index);
     }
     
     if (node->left) {
@@ -801,7 +837,7 @@ void print_r_node(const g_ptr<r_node>& node, int depth = 0, int index = 0) {
 
 static g_ptr<Frame> resolve_symbols(g_ptr<s_node> root) {
     #if PRINT_ALL
-    print("==RESOLVE SYMBOLS PASS==");
+    print("==RESOLVE SYMBOLS PASS (R)==");
     #endif
     g_ptr<Frame> frame = make<Frame>();
     frame->type = root->scope_type;
