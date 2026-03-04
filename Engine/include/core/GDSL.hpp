@@ -60,7 +60,6 @@ namespace GDSL {
 //This needs to be simplified. 
 
 
-
 constexpr uint32_t hashString(const char* str) {
     uint32_t hash = 5381;
     while (*str) {
@@ -310,7 +309,6 @@ public:
     list<g_ptr<a_node>> sub_nodes;
     s_node* owned_scope = nullptr;
     s_node* in_scope = nullptr;
-    bool balanced = false;
 };
 
 
@@ -448,26 +446,15 @@ static std::pair<int,int> balance_tokens(list<g_ptr<Token>> tokens, uint32_t a, 
 }
 
 struct a_context {
-    uint32_t& state;
-    g_ptr<Token> token;
-    g_ptr<a_node>& node;
-    list<g_ptr<a_node>>& result;
-    bool& no_add;
-    std::function<void()> end_lambda;
     list<g_ptr<Token>>& tokens;
     int& index;
-    g_ptr<Token>*& it;
-    int& pos;
+    g_ptr<a_node> node;
+    list<g_ptr<a_node>>& result;
+    g_ptr<a_node> left = nullptr;
     bool local;
-    int skip_inc = 0;
     
-    a_context(uint32_t& state, g_ptr<Token> token, g_ptr<a_node>& node, 
-              list<g_ptr<a_node>>& result, bool& no_add, std::function<void()> end_lambda,
-              list<g_ptr<Token>>& tokens, int& index, g_ptr<Token>*& it, int& pos, bool local)
-        : state(state), token(token), node(node), result(result), no_add(no_add),
-          end_lambda(end_lambda), tokens(tokens), index(index), it(it), pos(pos), local(local) {}
-    
-    void end() { end_lambda(); }
+    a_context(list<g_ptr<Token>>& _tokens, int& _index, g_ptr<a_node> _node, list<g_ptr<a_node>>& _result, bool _local) :
+    tokens(_tokens), index(_index), node(_node), result(_result), local(_local) {}
 };
 
 using a_handler = std::function<void(a_context& ctx)>;
@@ -475,49 +462,24 @@ map<uint32_t,a_handler> a_functions;
 
 a_handler a_default_function;
 
-//This should be called the a_stage instead. This is defintly overcomplicated.
-//Proper prescedence could be added here, alongside discernment of specific identity based upon token rather than the previous rich token requirments with t_info.
 static list<g_ptr<a_node>> parse_tokens(list<g_ptr<Token>> tokens,bool local = false) {
         #if PRINT_ALL
         print("==PARSE TOKENS PASS (A)==");
         #endif
-        list<g_ptr<a_node>> result;
-        uint32_t state = 0;
-        g_ptr<a_node> node = make<a_node>();
-        bool no_add = false;
-
-        auto end = [&](){
-            node->type = state;
-            if(no_add) 
-                no_add = false;
-            else
-                result << node;
-            node = make<a_node>();
-        };
-
+        
         if(!a_default_function)
             print("GDSL::parse_tokens a_stage requires a default function!");
 
-        auto it = tokens.begin();
-        int pos = 1;
-        int index = -1;
-        a_context ctx(state, nullptr, node, result, no_add, end, tokens, index, it, pos, local);
-        while(it!=tokens.end()) {
-            if(!*it) break;
+        list<g_ptr<a_node>> result;
+        int index = 0;
+        
+        while(index < tokens.length()) {
+            if(!tokens[index]) break;
+            a_context ctx(tokens, index, nullptr, result, local);
+            print("In parse tokens, running: ",tokens[index]->content," [",TO_STRING(tokens[index]->getType()),", idx: ",ctx.index,"]");
+            a_functions.getOrDefault(tokens[index]->getType(),a_default_function)(ctx);
+            print("Finished");
             index++;
-            if(ctx.skip_inc>0) {
-                ctx.skip_inc--;
-                continue;
-            }
-            ctx.token = *it; //What if we let each a_function deicde to change or not change the token handeling?
-            a_handler& func = a_functions.getOrDefault(ctx.token->getType(),a_default_function);
-            func(ctx);
-            if(ctx.skip_inc>0) {
-                ctx.skip_inc--;
-                continue;
-            }
-            ++it;
-            ++pos;
         }
 
         #if PRINT_ALL
@@ -585,7 +547,6 @@ static g_ptr<t_node> parse_a_node(g_ptr<a_node> node,g_ptr<s_node> root,g_ptr<t_
     ctx.left = left;
     if(!t_default_function)
         print("GDSL::parse_a_node t_stage requires a default function!");
-    print("RUNNING: ",TO_STRING(node->type));
     result = t_functions.getOrDefault(node->type,t_default_function)(ctx);
     return result;
 }

@@ -1,13 +1,2 @@
-print("A");
-
-type num {
-    int o;
-}
-
-num* ptr;
-int* arr;
-arr = malloc(16);
-arr[0] = 10;
-arr[1] = 20;
-arr[2] = 30;
-print(arr[0], " ", arr[1], " ", arr[2]);
+print(1,2,3);
+return 30;
