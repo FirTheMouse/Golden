@@ -428,7 +428,7 @@ void run_cog_mnist(g_ptr<Scene> scene, int amt = -1) {
     print("Loaded ", train_imgs.length(), " training images");
 
     g_ptr<Cog> cog = make<Cog>();
-    cog->span = make<Span>();
+    cog->span = make<Log::Span>();
 
     float train_match = 0.98f;
     float train_lr = 0.1f;
@@ -456,7 +456,7 @@ void run_cog_mnist(g_ptr<Scene> scene, int amt = -1) {
         cog->newline("training"); //Start TRN
 
         for(int i = 1; i < train_imgs.length(); i++) {
-            print("IMG: ",i," RECENT_EPISODES: ",cog->recent_episodes.length()," CONSOLIDATED: ",cog->consolidated_episodes.length());
+            //print("IMG: ",i," RECENT_EPISODES: ",cog->recent_episodes.length()," CONSOLIDATED: ",cog->consolidated_episodes.length());
             g_ptr<Episode> ep = cog->form_episode(
                 gather_states_from_image(train_imgs[i-1]),
                 gather_states_from_image(train_imgs[i]),
@@ -487,7 +487,7 @@ void run_cog_mnist(g_ptr<Scene> scene, int amt = -1) {
             cog->consolidated_episodes.removeAt(e);
             cog->consolidate_episode(to_consolidate,cog->consolidated_episodes, IMG, sleep_match, sleep_lr);
         }
-        cog->span = make<Span>();
+        cog->span = make<Log::Span>();
         // print("Consolidated epiosdes:");
         // for(auto c : cog->consolidated_episodes) {
         //     print(c->to_string());

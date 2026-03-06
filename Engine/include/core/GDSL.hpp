@@ -56,8 +56,23 @@ namespace GDSL {
 //In January of 2026 I turned it from a compiler for a specific language into a general framework usable in all Golden projects as an
 //embedable programming language designer.
 
-//ARCHIVE REFRACTOR NOTES GOLDEN 0.3.1
-//This needs to be simplified. 
+g_ptr<Log::Span> span = nullptr;
+static void newline(const std::string& label) {
+    span->add_line(label);
+}
+static double endline() {
+    return span->end_line();
+}
+
+
+#if PRINT_ALL
+    template<typename... Args>
+    static void log(Args&&... args) {
+        span->log(std::forward<Args>(args)...);
+    }
+#else
+    #define log(...)
+#endif
 
 
 constexpr uint32_t hashString(const char* str) {
@@ -155,6 +170,18 @@ public:
     int address = -1;
     size_t size = 0;
     int sub_size = -1;
+    list<uint32_t> quals;
+
+    void copy(g_ptr<Value> o) {
+        type = o->type; sub_type = o->sub_type; 
+        address = o->address; size = o->size; sub_size = o->sub_size;
+        quals << o->quals;
+
+        if(o->data) {
+            data = malloc(size);
+            memcpy(data,o->data,size);
+        }
+    }
 
     template<typename T>
     T get() { return *(T*)data; }
@@ -188,7 +215,7 @@ public:
     }
 
     bool is_true() {
-        if (IS_TYPE(this,BOOL) && data) {
+        if (data && IS_TYPE(this,BOOL)) {
             return *(bool*)data; 
         }
         return false;
@@ -216,26 +243,33 @@ public:
     list<g_ptr<Node>> children;
     g_ptr<Frame> frame = nullptr;
 
-    Node* parent;
-    Node* owner;
-    Node* owned_scope;
-    Node* scope;
+    list<g_ptr<Node>> scopes;
+    Node* parent = nullptr;
+    Node* owner = nullptr;
+    Node* in_scope = nullptr;
 
     map<std::string,g_ptr<Value>> value_table;
 
+    g_ptr<Node> scope() { return scopes.empty() ? nullptr : scopes[0]; }
     uint32_t getType() {return type;}
     void setType(uint32_t _type) {type = _type;}
 
-    g_ptr<Node> spawn_node() {
+    g_ptr<Node> spawn_sub_scope() {
         g_ptr<Node> new_node = make<Node>();
         new_node->parent = this;
-        children << new_node;
+        scopes << new_node;
         return new_node; 
     }
 
+    void place_in_scope(Node* scope) {
+        in_scope = scope;
+        for(auto c : children) 
+            c->place_in_scope(scope);
+    }
+
     //Could probably replace this using the Object data system, keep them for explicitness but may just cmd+f replace them later
-    list<g_ptr<Node>> opt_sub;
-    list<g_ptr<Node>> opt_sub_2; //Kludge for scopes
+    // list<g_ptr<Node>> opt_sub;
+    // list<g_ptr<Node>> opt_sub_2; //Kludge for scopes
     std::string opt_str;
 
     //Noted scope special cases:
@@ -243,53 +277,114 @@ public:
     //opt_sub = a_nodes
     //opt_sub_2 = t_nodes
 
+    void populate_lr() {
+        left = nullptr;
+        right = nullptr;
+        for(int i = 0; i<children.length();i++) {
+            if(i==0) left = children[i];
+            else if(i==1) right = children[i];
+        }
+    }
+
+    bool has_qual(uint32_t qual) {
+        return value->quals.has(qual);
+    }
+
+    std::string info() {
+        std::string to_return = "";
+        
+        to_return += TO_STRING(type) + " [Name: " + name;
+        if(value && value->type != 0) {
+            to_return += ", Value: " + value->to_string() + " (type: " + TO_STRING(value->type) + (opt_str.empty()?"":(", opt_str: "+opt_str)) + ")";
+        }
+        to_return += "]";
+        return to_return;
+    }
+
     std::string to_string(int depth = 0, int index = 0) {
         std::string indent(depth * 2, ' ');
         std::string to_return = "";
         
-        to_return += indent + "Node #" + std::to_string(index) + " Type: " + TO_STRING(type) + "\n";
-    
+        to_return += indent + "Node #" + std::to_string(index) + " Type: " + TO_STRING(type);
         if(value && value->type != 0) {
-            to_return += indent + "  Value: " + value->to_string() + " (type: " + TO_STRING(value->type) + ")\n";
+            to_return += "\n" + indent + "  Value: " + value->to_string() + " (type: " + TO_STRING(value->type);
+            if(!value->quals.empty()) {
+                to_return += ", Quals:";
+                for(auto q : value->quals) {
+                    to_return += " "+TO_STRING(q);
+                }
+            }
+            to_return += ")";
         }
     
         if(!name.empty()) {
-            to_return += indent + "  Name: " + name + "\n";
+            to_return +=  "\n" + indent + "  Name: " + name;
+        }
+
+        if(!opt_str.empty()) {
+            to_return +=  "\n" + indent + "  Opt_str: " + opt_str;
+        }
+
+        //Add this back once we've figured out how to attack frame names, or just keep it in scope
+        // if(frame) {
+        //     to_return +=  "\n" + indent + "  Frame: " + "[yes]";
+        // }
+        if(!scopes.empty()) {
+            to_return +=  "\n" + indent + "  Scopes: " + std::to_string(scopes.size());
+            int i = 0;
+            for(auto& scope : scopes) {
+                to_return += "\n" + indent + "    " + scope->name;
+            }
+        }
+        // if(in_scope) {
+        //     to_return +=  "\n" + indent + "  In_scope: " + in_scope->name;
+        // }
+        if(owner) {
+            to_return +=  "\n" + indent + "  Owner: " + owner->name;
         }
      
         if(left) {
-            to_return += indent + "  Left:\n";
+            to_return +=  "\n" + indent + "  Left:\n";
             to_return += left->to_string(depth + 1, 0);
         }
     
         if(right) {
-            to_return += indent + "  Right:\n";
+            to_return +=  "\n" + indent + "  Right:\n";
             to_return += right->to_string(depth + 1, 0);
         }
     
         if(!children.empty()) {
-            to_return += indent + "  Children: " + std::to_string(children.size()) + "\n";
-            int i = 0;
-            for(auto& child : children) {
-                to_return += child->to_string(depth + 1, i++);
+            int total_children = children.length();
+            if(left) total_children--;
+            if(right) total_children--;
+            if(total_children>0) {
+                to_return +=  "\n" + indent + "  Children: " + std::to_string(total_children);
+                for(int i=0;i<children.length();i++) {
+                    if(i==0&&left) continue;
+                    if(i==1&&right) continue;
+                    if(children[i])
+                        to_return += "\n " + children[i]->to_string(depth + 1, i);
+                    else 
+                        to_return += "\n" + indent + "[NULL]";
+                }
             }
         }
     
-        if(!opt_sub.empty()) {
-            to_return += indent + "  A-Nodes: " + std::to_string(opt_sub.size()) + "\n";
-            int i = 0;
-            for(auto& child : opt_sub) {
-                to_return += child->to_string(depth + 1, i++);
-            }
-        }
+        // if(!opt_sub.empty()) {
+        //     to_return +=  "\n" + indent + "  Opt_sub: " + std::to_string(opt_sub.size());
+        //     int i = 0;
+        //     for(auto& child : opt_sub) {
+        //         to_return += "\n " + child->to_string(depth + 1, i++);
+        //     }
+        // }
     
-        if(!opt_sub_2.empty()) {
-            to_return += indent + "  T-Nodes: " + std::to_string(opt_sub_2.size()) + "\n";
-            int i = 0;
-            for(auto& child : opt_sub_2) {
-                to_return += child->to_string(depth + 1, i++);
-            }
-        }
+        // if(!opt_sub_2.empty()) {
+        //     to_return +=  "\n" + indent + "  Opt_sub_2: " + std::to_string(opt_sub_2.size());
+        //     int i = 0;
+        //     for(auto& child : opt_sub_2) {
+        //         to_return += "\n " + child->to_string(depth + 1, i++);
+        //     }
+        // }
     
         return to_return;
     }
@@ -314,20 +409,19 @@ class Frame : public Object {
     list<std::function<void()>> stored_functions;
 };
 
-static list<g_ptr<Node>> _ctx_dummy_result;
 static int _ctx_dummy_index = 0;
 
 
 struct Context {
-    Context() : result(_ctx_dummy_result), index(_ctx_dummy_index) {}
-    Context(list<g_ptr<Node>>& _result, int& _index) : result(_result), index(_index) {}
+    Context() : index(_ctx_dummy_index) {}
+    Context(list<g_ptr<Node>>& _result, int& _index) : result(&_result), index(_index) {}
 
     g_ptr<Node> node;
     g_ptr<Node> left;
     g_ptr<Node> out;
     g_ptr<Node> root;
     g_ptr<Frame> frame;
-    list<g_ptr<Node>>& result;
+    list<g_ptr<Node>>* result = nullptr;
     list<g_ptr<Node>> nodes;
     int& index;
     uint32_t state;
@@ -336,7 +430,7 @@ struct Context {
 
 
     Context sub() {
-        return Context(result, index);
+        return Context((*result), index);
     }
 };
 
@@ -346,7 +440,7 @@ map<char,Handler> tokenizer_state_functions;
 Handler tokenizer_default_function = nullptr;
 
 map<uint32_t,Handler> a_functions;
-Handler a_default_function;
+Handler a_parse_function;
 
 map<uint32_t,Handler> t_functions;
 Handler t_default_function;
@@ -354,6 +448,7 @@ Handler t_default_function;
 map<uint32_t, Handler> discover_handlers;
 
 map<uint32_t, Handler> r_handlers;
+Handler r_default_function;
 
 map<uint32_t, Handler> exec_handlers;
 
@@ -363,6 +458,10 @@ static list<g_ptr<Node>> tokenize(const std::string& code) {
     int index = 0;
     Context ctx(result,index);
     ctx.source = code;
+
+    #if PRINT_ALL
+    newline("tokenize pass");
+    #endif
 
     if(!tokenizer_default_function) {
         print("GDSL::tokenize warning! No defined default function, please define one");
@@ -381,23 +480,24 @@ static list<g_ptr<Node>> tokenize(const std::string& code) {
     }  
 
     #if PRINT_ALL
+    int i = 0;
     for(auto t : result) {
         if(t->getType()) {
-            print(TO_STRING(t->getType()),": ",t->name);
+            log(i++," ",TO_STRING(t->getType()),": ",t->name);
         }
     }
+    endline();
     #endif
 
     return result;
 }
 
+//Doesn't advance it's own index so be wary of infinite recursion with a bad a_parse_function
 static list<g_ptr<Node>> parse_tokens(list<g_ptr<Node>> tokens,bool local = false) {
-        #if PRINT_ALL
-        print("==PARSE TOKENS PASS (A)==");
-        #endif
+        newline("Parse tokens pass (A)");
         
-        if(!a_default_function)
-            print("GDSL::parse_tokens a_stage requires a default function!");
+        if(!a_parse_function)
+            print("GDSL::parse_tokens a_stage requires a parsing function!");
 
         list<g_ptr<Node>> result;
         int index = 0;
@@ -406,20 +506,21 @@ static list<g_ptr<Node>> parse_tokens(list<g_ptr<Node>> tokens,bool local = fals
             if(!tokens[index]) break;
             Context ctx(result, index);
             ctx.nodes = tokens;
-            #if PRINT_ALL
-                print("In parse tokens, running: ",tokens[index]->name," [",TO_STRING(tokens[index]->getType()),", idx: ",ctx.index,"]");
-            #endif
-            a_functions.getOrDefault(tokens[index]->getType(),a_default_function)(ctx);
-            index++;
+            
+            newline("Parsing (A): "+tokens[index]->info());
+            //a_functions.getOrDefault(tokens[index]->getType(),a_default_function)(ctx);
+            a_parse_function(ctx);
+            endline();
+            //index++;
         }
 
-        #if PRINT_ALL
+        log("==A_NODES==");
         int i = 0;
         for (auto& node : result) {
-            print(node->to_string(0,i++));
+            log(node->to_string(0,i++));
         }
-        #endif
 
+        endline();
         return result;
 }
 
@@ -431,7 +532,7 @@ static g_ptr<Node> find_scope(g_ptr<Node> start, std::function<bool(g_ptr<Node>)
         if(check(on_scope)) {
             return on_scope;
         }
-        for(auto c : on_scope->children) {
+        for(auto c : on_scope->scopes) {
             if(c==start||c==on_scope) continue;
             if(check(c)) {
                return c;
@@ -454,75 +555,54 @@ static g_ptr<Node> find_scope_name(const std::string& match,g_ptr<Node> start) {
 
 
 static g_ptr<Node> parse_a_node(g_ptr<Node> node,g_ptr<Node> root,g_ptr<Node> left = nullptr) {
-    g_ptr<Node> result = make<Node>();
-    int index = 0; list<g_ptr<Node>> results;
-    Context ctx(results,index);
+    Context ctx;
     ctx.root = root;
     ctx.node = node;
-    ctx.out = result;
     ctx.left = left;
     if(!t_default_function)
         print("GDSL::parse_a_node t_stage requires a default function!");
+    newline("Parsing (T): "+node->info());
     t_functions.getOrDefault(node->type,t_default_function)(ctx);
-    return ctx.out;
+    endline();
+    return ctx.node;
 }
 
-static void parse_sub_nodes(Context& ctx, bool deduplicate = false) {
-    if(!ctx.node->children.empty()) {
-        g_ptr<Node> last = nullptr;
-        for(auto c : ctx.node->children) {
-            g_ptr<Node> sub = parse_a_node(c, ctx.root, last);
-            if(sub) {
-                if(deduplicate && last && sub->left == last) {
-                    ctx.out->children.erase(last);
-                }
-                last = sub;
-                ctx.out->children << last;
-            } else {
-                last = nullptr;
-            }
-        }
+static void parse_sub_nodes(Context& ctx) {
+    for(int i = 0; i<ctx.node->children.length();i++) {
+        parse_a_node(ctx.node->children[i], ctx.root);
     }
 }
 
 static void parse_nodes(g_ptr<Node> root) {
-    #if PRINT_ALL
-    print("==PARSE NODES PASS (T)==");
-    #endif
-    g_ptr<Node> last = nullptr;
-    for(int i = 0; i < root->opt_sub.size(); i++) {
-        auto node = root->opt_sub[i];
-        g_ptr<Node> sub = parse_a_node(node,root,last);
-        last = sub;
-        if(sub) {
-            root->opt_sub_2 << last;
-        }
-    }
+    newline("Parse nodes pass (T)");
 
-    #if PRINT_ALL
-    for(auto t : root->opt_sub_2) {
-        print(t->to_string());
+    g_ptr<Node> last = nullptr;
+    for(int i = 0; i < root->children.size(); i++) {
+        auto node = root->children[i];
+        last = parse_a_node(node,root,last);
     }
-    #endif
     
-    for(auto child_scope : root->children) {
+    for(auto child_scope : root->scopes) {
         parse_nodes(child_scope);
     }
+
+    log("==T_NODES IN ",root->name,"==");
+    for(auto t : root->children) {
+        t->populate_lr();
+        log(t->to_string());
+    }
+    endline();
 }
 
 static void discover_symbol(g_ptr<Node> node,Context& ctx) {
     if(discover_handlers.hasKey(node->type)) {
         auto func = discover_handlers.get(node->type);
         ctx.node = node;
+        newline("Discovering: "+node->info());
         func(ctx);
+        endline();
     }
     else {
-        if(node->left) {
-            discover_symbol(node->left,ctx);
-        }
-        if(node->right) {
-            discover_symbol(node->right,ctx);
-        }
         for(auto c : node->children) {
             discover_symbol(c,ctx);
         }
@@ -535,60 +615,56 @@ static void discover_symbols(g_ptr<Node> root) {
     Context ctx(results, idx);
     ctx.root = root;
     
-    for(int i = 0; i < root->opt_sub_2.size(); i++) {
-        discover_symbol(root->opt_sub_2[i], ctx);
+    for(int i = 0; i < root->children.size(); i++) {
+        discover_symbol(root->children[i], ctx);
     }
     
-    for(auto child_scope : root->children) {
+    for(auto child_scope : root->scopes) {
         discover_symbols(child_scope);
     }
 }
 
-static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame> frame,g_ptr<Node> result = nullptr) {
-    if(!result) result = make<Node>();
-    int index = 0; list<g_ptr<Node>> results;
-    Context ctx(results,index);
+static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame> frame) {
+    Context ctx;
     ctx.node = node;
     ctx.root = scope;
     ctx.frame = frame;
-    ctx.out = result; 
-    if(r_handlers.hasKey(node->type)) {
-        result->frame = scope->frame;
-        r_handlers.get(node->type)(ctx);
+    if(!r_default_function)
+        print("GDSL::resolve_symbol r_stage requires a default function!");
+    ctx.node->frame = scope->frame;
+    newline("Resolving: "+node->info());
+    r_handlers.getOrDefault(node->type,r_default_function)(ctx);
+    endline();
+    return node;
+}
+
+static void resolve_sub_nodes(Context& ctx) {
+    for(int i = 0; i<ctx.node->children.length();i++) {
+        resolve_symbol(ctx.node->children[i], ctx.root, ctx.frame);
     }
-    else {
-        print("resolve_symbol::1222 Missing case for t_type: ",TO_STRING(node->type));
-        return nullptr;
-    }
-    return result;
 }
 
 static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
-    #if PRINT_ALL
-    print("==RESOLVE SYMBOLS PASS (R)==");
-    #endif
-    g_ptr<Frame> frame = make<Frame>();
-    frame->type = root->type;
-    frame->name = root->name;
-    root->frame = frame;
+    newline("Resolve symbols pass (R)");
 
-    for(int i = 0; i < root->opt_sub_2.size(); i++) {
-        auto node = root->opt_sub_2[i];
-        g_ptr<Node> rnode = resolve_symbol(node,root,frame);
-        if(rnode) frame->nodes << rnode;
+    root->frame->type = root->type;
+    root->frame->name = root->name;
+    for(int i = 0; i < root->children.size(); i++) {
+        g_ptr<Node> rnode = resolve_symbol(root->children[i],root,root->frame);
+        if(rnode) 
+            root->frame->nodes << rnode;
     }
 
-    #if PRINT_ALL
-    print("==RESOLVED SYMBOLS: ",frame->name,"==");
-    for(auto r : frame->nodes) {
-        print(r->to_string());
+    log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
+    for(auto r : root->frame->nodes) {
+        log(r->to_string());
     }
-    #endif
+    endline();
     
-    for(auto child_scope : root->children) {
+    for(auto child_scope : root->scopes) {
         resolve_symbols(child_scope);
     }
-    return frame;
+    return root->frame;
 }   
 
 static g_ptr<Node> execute_r_node(g_ptr<Node> node,g_ptr<Frame> frame) {
@@ -597,7 +673,9 @@ static g_ptr<Node> execute_r_node(g_ptr<Node> node,g_ptr<Frame> frame) {
     ctx.node = node;
     ctx.frame = frame;
     if(exec_handlers.hasKey(node->type)) {
+        newline("Executing: "+node->info());
         exec_handlers.get(node->type)(ctx);
+        endline();
     }
     else {
         print("execute_r_node::1343 Missing case for r_type: ",TO_STRING(node->type));

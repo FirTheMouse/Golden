@@ -2218,7 +2218,6 @@ int main() {
      terrain->setPhysicsState(P_State::NONE);
      terrain->setPosition({0,-0.1f,0});
 
-     g_ptr<Model> a_model = make<Model>(MROOT+"agents/WhiskersLOD3.glb");
      g_ptr<Model> b_model = make<Model>(makeTestBox(1.0f));
      g_ptr<Model> c_model = make<Model>(makeTestBox(grid->cellSize));
 
@@ -2674,12 +2673,12 @@ int main() {
 
 
 
-     g_ptr<Thread> run_thread = make<Thread>();
-     g_ptr<Thread> update_thread = make<Thread>();
+    g_ptr<Thread> run_thread = make<Thread>();
+    g_ptr<Thread> update_thread = make<Thread>();
      
-     int width = (int)std::sqrt(amt);
-     float spacing = side_length / width;
-
+    int width = (int)std::sqrt(amt);
+    float spacing = side_length / width;
+    g_ptr<Model> a_model = make<Model>(MROOT+"agents/WhiskersLOD3.glb");
     scene->define("agent",[&](){
         g_ptr<Single> agent = make<Single>(a_model);
         scene->add(agent);

@@ -1,7 +1,3 @@
-int a = 1 + 2 * 3;
-int b = a * 2 + 1;
-int* p = &a;
-int c = *p;
+inline int addOne(int a) const {
 
-print(1,2,3);
-return 30;
+}

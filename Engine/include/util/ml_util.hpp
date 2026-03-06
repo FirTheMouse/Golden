@@ -261,16 +261,19 @@ public:
         inputs_.clear();
         op_ = NOP;
         cache_.clear();
+        cache_tensors_.clear();
     }
     
     static void clear_graph(g_ptr<tensor> root) {
-        // Recursively clear computational graph
         if(!root || root->inputs_.empty()) return;
         
-        for(auto& input : root->inputs_) {
+        // Hold local references so nothing dies mid-traversal
+        list<g_ptr<tensor>> inputs = root->inputs_;
+        root->detach(); // detach first, clearing root->inputs_
+        
+        for(auto& input : inputs) {
             clear_graph(input);
         }
-        root->detach();
     }
 
     g_ptr<tensor> get_batch(int start, int batch_size) {

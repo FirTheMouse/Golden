@@ -594,53 +594,53 @@ int main()  {
         }
     }
     else if (TESTING==8) {
-        GDSL::helper_test_module::initialize();
-        GDSL::add_keyword("make_quad",[](GDSL::exec_context& ctx){
-            g_ptr<Quad> box = make<Quad>();
-            scene->add(box);
-            box->scale({100,100});
-            box->setColor(vec4(1,0,0,1));
-            box->setPosition({500,500});
-            return ctx.node;
-        });
+        // GDSL::helper_test_module::initialize();
+        // GDSL::add_keyword("make_quad",[](GDSL::exec_context& ctx){
+        //     g_ptr<Quad> box = make<Quad>();
+        //     scene->add(box);
+        //     box->scale({100,100});
+        //     box->setColor(vec4(1,0,0,1));
+        //     box->setPosition({500,500});
+        //     return ctx.node;
+        // });
 
-        GDSL::add_function("make_quad_pos",[](GDSL::exec_context& ctx){
-            g_ptr<Quad> box = make<Quad>();
-            scene->add(box);
-            box->scale({100,100});
-            box->setColor(vec4(1,0,0,1));
-            if(ctx.node->children.length()<2) print("WARNING: at least two args required for make_quad_pos!");
-            //Haven't implmented the get_arg yet, this is just a dummy demonstration I found in a random test file
-            // float x = get_arg<int>(ctx, 0);
-            // float y = get_arg<int>(ctx, 1);
-            // box->setPosition({x, y});
-            return ctx.node;
-        });
+        // GDSL::add_function("make_quad_pos",[](GDSL::exec_context& ctx){
+        //     g_ptr<Quad> box = make<Quad>();
+        //     scene->add(box);
+        //     box->scale({100,100});
+        //     box->setColor(vec4(1,0,0,1));
+        //     if(ctx.node->children.length()<2) print("WARNING: at least two args required for make_quad_pos!");
+        //     //Haven't implmented the get_arg yet, this is just a dummy demonstration I found in a random test file
+        //     // float x = get_arg<int>(ctx, 0);
+        //     // float y = get_arg<int>(ctx, 1);
+        //     // box->setPosition({x, y});
+        //     return ctx.node;
+        // });
 
-        g_ptr<GDSL::Frame> frame = GDSL::compile(root()+"/Projects/Testing/src/test.gld");
-        Log::Line l; l.start();
-        for(int i=0;i<4;i++) {
-            g_ptr<Quad> box = make<Quad>();
-            scene->add(box);
-            box->scale({100,100});
-            box->setColor(vec4(1,0,0,1));
-            box->setPosition({100, 800});
-        }
-        print("Time taken: ",l.end()/1000000,"ms"); l.start();
-        GDSL::execute_r_nodes(frame);
-        print("Time taken: ",l.end()/1000000,"ms"); l.start();
-        for(int i=0;i<4;i++) {
-            g_ptr<Quad> box = make<Quad>();
-            scene->add(box);
-            box->scale({100,100});
-            box->setColor(vec4(1,0,0,1));
-            box->setPosition({100, 800});
-        }
-        print("Time taken: ",l.end()/1000000,"ms"); l.start();
-        GDSL::execute_r_nodes(frame);
-        print("Time taken: ",l.end()/1000000,"ms");
+        // g_ptr<GDSL::Frame> frame = GDSL::compile(root()+"/Projects/Testing/src/test.gld");
+        // Log::Line l; l.start();
+        // for(int i=0;i<4;i++) {
+        //     g_ptr<Quad> box = make<Quad>();
+        //     scene->add(box);
+        //     box->scale({100,100});
+        //     box->setColor(vec4(1,0,0,1));
+        //     box->setPosition({100, 800});
+        // }
+        // print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        // GDSL::execute_r_nodes(frame);
+        // print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        // for(int i=0;i<4;i++) {
+        //     g_ptr<Quad> box = make<Quad>();
+        //     scene->add(box);
+        //     box->scale({100,100});
+        //     box->setColor(vec4(1,0,0,1));
+        //     box->setPosition({100, 800});
+        // }
+        // print("Time taken: ",l.end()/1000000,"ms"); l.start();
+        // GDSL::execute_r_nodes(frame);
+        // print("Time taken: ",l.end()/1000000,"ms");
 
-        print("Done!");
+        // print("Done!");
     }
     else if(TESTING==9) {
         // g_ptr<Quad> box = make<Quad>();

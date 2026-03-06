@@ -375,6 +375,12 @@ public:
         --size_;
     }
 
+    T take(size_t index) {
+        T val = ptr[index];
+        removeAt(index);
+        return val;
+    }
+
     // T& rand() {return }
     
     inline T& get(size_t index) {

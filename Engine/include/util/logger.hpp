@@ -133,6 +133,183 @@ public:
     }
 };
 
+
+struct SeqLine : public q_object
+{
+    SeqLine() {};
+    SeqLine(const std::string _label, bool _is_log) {
+        label = _label;
+        is_log = _is_log;
+        Log::Line new_timer; new_timer.start();
+        timer = new_timer;
+    }
+
+    Log::Line timer;
+    std::string label = "";
+    SeqLine* parent = nullptr;
+    list<g_ptr<SeqLine>> children;
+    bool is_log = true;
+
+    std::string get_indent() {
+        if(!parent) return "";
+        int depth = 0;
+        SeqLine* cursor = this;
+        while(cursor->parent) { depth++; cursor = cursor->parent; }
+        std::string indent(depth * 3, ' ');
+        return indent;
+    }
+
+    std::string to_string() {
+        std::string indent = get_indent();
+        std::string to_return = "";
+        if(is_log) {
+            to_return.append(indent+label+"\n");
+        } else {
+            to_return.append(indent+label+" [time: " + ftime(timer.total_time_)+"]\n");
+            for(auto& child : children) {
+                to_return.append(child->to_string());
+            }
+        }
+        return to_return;
+    }
+};
+
+class Span : public Object
+{
+public:
+    Span() {
+        line_root = make<SeqLine>("Root",false);
+    };
+
+    map<std::string, Log::Line> timers;
+    map<std::string, int> counters;
+    bool print_on_line_end = true;
+    bool log_everything = false;
+
+    void start_timer(const std::string &label)
+    {
+        if (timers.hasKey(label))
+        {
+            Log::Line &timer = timers.get(label);
+            timer.start();
+        }
+        else
+        {
+            Log::Line timer;
+            timer.start();
+            timers.put(label, timer);
+        }
+    }
+
+    double end_timer(const std::string &label)
+    {
+        if (timers.hasKey(label))
+        {
+            Log::Line &timer = timers.get(label);
+            return timer.end();
+        }
+        return 0.0;
+    }
+
+    double get_time(const std::string &label)
+    {
+        if (timers.hasKey(label))
+        {
+            return timers.get(label).total_time_;
+        }
+        else
+        {
+            return -1.0;
+        }
+    }
+
+    std::string timer_string(const std::string &label)
+    {
+        return label + ": " + ftime(get_time(label));
+    }
+
+    void print_timers()
+    {
+        for (auto label : timers.keySet())
+        {
+            print(timer_string(label));
+        }
+    }
+
+    void increment(const std::string &label, int by = 1)
+    {
+        counters.getOrPut(label, 0) += by;
+    }
+
+    int get_count(const std::string &label)
+    {
+        return counters.getOrDefault(label, 0);
+    }
+
+    void print_counters()
+    {
+        for (auto label : counters.keySet())
+        {
+            print(label, ": ", get_count(label));
+        }
+    }
+
+    g_ptr<SeqLine> line_root = nullptr;
+    g_ptr<SeqLine> on_line = nullptr;
+
+    g_ptr<SeqLine> get_last_line() {
+        if(on_line) return on_line;
+        else return line_root;
+    }
+
+    void add_line(const std::string& label) {
+        g_ptr<SeqLine> parent = get_last_line();
+        parent->children << make<SeqLine>(label,false);
+        parent->children.last()->parent = parent.getPtr();
+        on_line = parent->children.last();
+    }
+
+    double end_line() 
+    {
+        double time = 0.0;
+        if(!on_line) return time;
+        time = on_line->timer.end();
+        if(print_on_line_end)
+            std::cout << on_line->to_string() << std::flush;
+        if(on_line->parent) {
+            on_line = on_line->parent;
+        }
+        return time;
+    }
+
+    template<typename... Args>
+    void log(Args&&... args) {
+        std::ostringstream oss;
+        (oss << ... << args);
+        if(log_everything)
+            std::cout << oss.str() << std::endl;
+        std::string indent = get_last_line()->get_indent();
+        indent += "  > "; //Extra space to distinquish from header
+        std::string msg = indent+oss.str();
+        indent_multiline(msg,indent);
+        g_ptr<SeqLine> new_log = make<SeqLine>(msg,true);
+        get_last_line()->children << new_log;
+    }
+
+    void print_all() {
+        line_root->timer.end();
+        print(line_root->to_string());
+    }
+
+    void newline(const std::string& label) {
+        add_line(label);
+    }
+
+    double endline() {
+        return end_line();
+    }
+};
+
 }
 
 
