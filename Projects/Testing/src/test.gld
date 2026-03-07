@@ -1,3 +1,16 @@
-inline int addOne(int a) const {
+num {
+    int a;
+    int b;
 
+    int sayNum(int val) {
+        print("Gonna say the val...");
+        print("The value is: ",val);
+        print("Said it!");
+    }
 }
+
+num c;
+c.a = 8;
+print(c.a);
+
+c.sayNum(3);

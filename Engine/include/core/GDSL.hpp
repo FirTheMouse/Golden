@@ -154,6 +154,8 @@ static std::string data_to_string(uint32_t type,void* data) {
     }
 }
 
+class Node;
+
 //A value holds all the actaul worked-with information, from it's address in a Type (if Type is used) to the actual ptr to the data.
 //NOTE TO SELF: Should any map storing these be nuked before running? Given as they are smart pointers so if a map holds one it won't get deleted properly
 //from a memory managment standpoint these are pretty bad, but they're here more for the prototype stage, and eventually users should be able to easily replace them.
@@ -167,14 +169,19 @@ public:
     uint32_t type = 0;
     uint32_t sub_type = 0;
     void* data = nullptr;
-    int address = -1;
+    int address = 0;
     size_t size = 0;
-    int sub_size = -1;
+    int sub_size = 0;
     list<uint32_t> quals;
+    Node* type_scope = nullptr;
 
     void copy(g_ptr<Value> o) {
-        type = o->type; sub_type = o->sub_type; 
-        address = o->address; size = o->size; sub_size = o->sub_size;
+        type = o->type; 
+        sub_type = o->sub_type; 
+        address = o->address; 
+        size = o->size; 
+        sub_size = o->sub_size;
+        type_scope = o->type_scope;
         quals << o->quals;
 
         if(o->data) {
@@ -201,6 +208,20 @@ public:
         }
         std::function<std::string(void*)> fallback_func = [this](void* ptr){return "[missing value_to_string for type "+TO_STRING(type)+"]";};
         return value_to_string.getOrDefault(type,fallback_func)(data);
+    }
+
+    std::string info() {
+        std::string to_return = "";
+        to_return += "Value: " + to_string() + " (type: " + TO_STRING(type) + ", sub_type: " + TO_STRING(sub_type) + (type_scope?", type_scope: [yes]":"");
+        to_return += ", size: " + std::to_string(size) + ", address: " + std::to_string(address);
+        if(!quals.empty()) {
+            to_return += ", Quals:";
+            for(auto q : quals) {
+                to_return += " "+TO_STRING(q);
+            }
+        }
+        to_return += ")";
+        return to_return;
     }
 
     void negate() {
@@ -249,6 +270,7 @@ public:
     Node* in_scope = nullptr;
 
     map<std::string,g_ptr<Value>> value_table;
+    map<std::string,g_ptr<Node>> node_table;
 
     g_ptr<Node> scope() { return scopes.empty() ? nullptr : scopes[0]; }
     uint32_t getType() {return type;}
@@ -261,10 +283,25 @@ public:
         return new_node; 
     }
 
+
     void place_in_scope(Node* scope) {
         in_scope = scope;
         for(auto c : children) 
             c->place_in_scope(scope);
+    }
+
+    void distribute_value(const std::string& label, g_ptr<Value> val) {
+        value_table.put(label,val);
+        for(auto s : scopes) {
+            s->distribute_value(label,val);
+        }
+    }
+
+    void distribute_node(const std::string& label, g_ptr<Node> node) {
+        node_table.put(label,node);
+        for(auto s : scopes) {
+            s->distribute_node(label,node);
+        }
     }
 
     //Could probably replace this using the Object data system, keep them for explicitness but may just cmd+f replace them later
@@ -272,17 +309,14 @@ public:
     // list<g_ptr<Node>> opt_sub_2; //Kludge for scopes
     std::string opt_str;
 
-    //Noted scope special cases:
-    //Children = scope children
-    //opt_sub = a_nodes
-    //opt_sub_2 = t_nodes
-
     void populate_lr() {
         left = nullptr;
         right = nullptr;
         for(int i = 0; i<children.length();i++) {
             if(i==0) left = children[i];
             else if(i==1) right = children[i];
+
+            children[i]->populate_lr();
         }
     }
 
@@ -294,27 +328,27 @@ public:
         std::string to_return = "";
         
         to_return += TO_STRING(type) + " [Name: " + name;
-        if(value && value->type != 0) {
-            to_return += ", Value: " + value->to_string() + " (type: " + TO_STRING(value->type) + (opt_str.empty()?"":(", opt_str: "+opt_str)) + ")";
+        if(value) {
+            to_return += ", "+value->info();
         }
         to_return += "]";
         return to_return;
     }
 
-    std::string to_string(int depth = 0, int index = 0) {
+    std::string to_string(int depth = 0, int index = 0, bool print_sub_scopes = false) {
         std::string indent(depth * 2, ' ');
         std::string to_return = "";
         
         to_return += indent + "Node #" + std::to_string(index) + " Type: " + TO_STRING(type);
-        if(value && value->type != 0) {
-            to_return += "\n" + indent + "  Value: " + value->to_string() + " (type: " + TO_STRING(value->type);
-            if(!value->quals.empty()) {
-                to_return += ", Quals:";
-                for(auto q : value->quals) {
-                    to_return += " "+TO_STRING(q);
-                }
+        if(value && (value->type != 0 || value->sub_type !=0) ) {
+            to_return += "\n" + indent + "  "+value->info();
+        }
+
+        if(value_table.size()>0) {
+            to_return += "\n" + indent + "Value table:";
+            for(auto [key,val] : value_table.entrySet()) {
+                to_return += "\n" + indent + "   Key: "+key+" | "+val->info();
             }
-            to_return += ")";
         }
     
         if(!name.empty()) {
@@ -325,7 +359,7 @@ public:
             to_return +=  "\n" + indent + "  Opt_str: " + opt_str;
         }
 
-        //Add this back once we've figured out how to attack frame names, or just keep it in scope
+        //Add this back once we've figured out how to attach frame names, or just keep it in scope
         // if(frame) {
         //     to_return +=  "\n" + indent + "  Frame: " + "[yes]";
         // }
@@ -333,12 +367,16 @@ public:
             to_return +=  "\n" + indent + "  Scopes: " + std::to_string(scopes.size());
             int i = 0;
             for(auto& scope : scopes) {
-                to_return += "\n" + indent + "    " + scope->name;
+                to_return += "\n" + indent + "    "; 
+                if(print_sub_scopes)
+                    to_return += scope->name;
+                else
+                    to_return += scope->to_string(depth + 1,index,print_sub_scopes);
             }
         }
-        // if(in_scope) {
-        //     to_return +=  "\n" + indent + "  In_scope: " + in_scope->name;
-        // }
+        if(in_scope) {
+            to_return +=  "\n" + indent + "  In_scope: " + in_scope->name;
+        }
         if(owner) {
             to_return +=  "\n" + indent + "  Owner: " + owner->name;
         }
@@ -363,7 +401,7 @@ public:
                     if(i==0&&left) continue;
                     if(i==1&&right) continue;
                     if(children[i])
-                        to_return += "\n " + children[i]->to_string(depth + 1, i);
+                        to_return += "\n " + children[i]->to_string(depth + 1, i, print_sub_scopes);
                     else 
                         to_return += "\n" + indent + "[NULL]";
                 }
@@ -579,11 +617,20 @@ static void parse_nodes(g_ptr<Node> root) {
     g_ptr<Node> last = nullptr;
     for(int i = 0; i < root->children.size(); i++) {
         auto node = root->children[i];
-        last = parse_a_node(node,root,last);
+        if(node->scope()) {
+            last = parse_a_node(node,root,last);
+        }
     }
     
     for(auto child_scope : root->scopes) {
         parse_nodes(child_scope);
+    }
+    
+    for(int i = 0; i < root->children.size(); i++) {
+        auto node = root->children[i];
+        if(!node->scope()) {
+            last = parse_a_node(node,root,last);
+        }
     }
 
     log("==T_NODES IN ",root->name,"==");
@@ -632,6 +679,8 @@ static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame
     if(!r_default_function)
         print("GDSL::resolve_symbol r_stage requires a default function!");
     ctx.node->frame = scope->frame;
+    if(ctx.node->scope()) 
+        ctx.node->frame = ctx.node->scope()->frame;
     newline("Resolving: "+node->info());
     r_handlers.getOrDefault(node->type,r_default_function)(ctx);
     endline();
@@ -649,10 +698,15 @@ static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
 
     root->frame->type = root->type;
     root->frame->name = root->name;
+
     for(int i = 0; i < root->children.size(); i++) {
         g_ptr<Node> rnode = resolve_symbol(root->children[i],root,root->frame);
         if(rnode) 
             root->frame->nodes << rnode;
+    }
+
+    for(auto child_scope : root->scopes) {
+        resolve_symbols(child_scope);
     }
 
     log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
@@ -661,9 +715,7 @@ static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
     }
     endline();
     
-    for(auto child_scope : root->scopes) {
-        resolve_symbols(child_scope);
-    }
+
     return root->frame;
 }   
 
