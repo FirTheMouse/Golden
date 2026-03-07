@@ -212,7 +212,7 @@ public:
 
     std::string info() {
         std::string to_return = "";
-        to_return += "Value: " + to_string() + " (type: " + TO_STRING(type) + ", sub_type: " + TO_STRING(sub_type) + (type_scope?", type_scope: [yes]":"");
+        to_return += "Value: " + to_string() + "["+std::to_string((size_t)(void*)this)+"] (type: " + TO_STRING(type) + ", sub_type: " + TO_STRING(sub_type) + (type_scope?", type_scope: [yes]":"");
         to_return += ", size: " + std::to_string(size) + ", address: " + std::to_string(address);
         if(!quals.empty()) {
             to_return += ", Quals:";
@@ -272,9 +272,28 @@ public:
     map<std::string,g_ptr<Value>> value_table;
     map<std::string,g_ptr<Node>> node_table;
 
+    void copy(g_ptr<Node> o) {
+        type = o->type;
+        name = o->name;
+        value = o->value;
+        left = o->left;
+        right = o->right;
+        children = o->children;
+        frame = o->frame;
+        scopes = o->scopes;
+        parent = o->parent;
+        owner = o->owner;
+        in_scope = o->in_scope;
+        value_table = o->value_table;
+        node_table = o->node_table;
+        opt_str = o->opt_str;
+    }
+
     g_ptr<Node> scope() { return scopes.empty() ? nullptr : scopes[0]; }
     uint32_t getType() {return type;}
     void setType(uint32_t _type) {type = _type;}
+
+    std::string addr_str() {return std::to_string((size_t)(void*)this);}
 
     g_ptr<Node> spawn_sub_scope() {
         g_ptr<Node> new_node = make<Node>();
@@ -290,18 +309,39 @@ public:
             c->place_in_scope(scope);
     }
 
-    void distribute_value(const std::string& label, g_ptr<Value> val) {
-        value_table.put(label,val);
-        for(auto s : scopes) {
-            s->distribute_value(label,val);
+    g_ptr<Value> distribute_value(const std::string& label, g_ptr<Value> val, bool overwrite) {
+        //log("On scope: ",addr_str());
+        if(value_table.hasKey(label)) {
+            g_ptr<Value> table_value = value_table.get(label);
+            if(table_value->type == 0) {
+                //log("Copying ",val->info()," to ",table_value->info());
+                table_value->copy(val);
+                val = table_value;
+            }
+        } else {
+            //log("Putting ",val->info()," into scope");
+            value_table.put(label, val);
         }
+        for(auto s : scopes) {
+            val = s->distribute_value(label, val, overwrite);
+        }
+        return val;
     }
 
-    void distribute_node(const std::string& label, g_ptr<Node> node) {
-        node_table.put(label,node);
-        for(auto s : scopes) {
-            s->distribute_node(label,node);
+    g_ptr<Node> distribute_node(const std::string& label, g_ptr<Node> node, bool overwrite) {
+        if(value_table.hasKey(label)) {
+            g_ptr<Node> table_node = node_table.get(label);
+            if(table_node->name.empty()) {
+                table_node->copy(node);
+                node = table_node;
+            }
+        } else {
+            node_table.put(label, node);
         }
+        for(auto s : scopes) {
+            node = s->distribute_node(label,node,overwrite);
+        }
+        return node;
     }
 
     //Could probably replace this using the Object data system, keep them for explicitness but may just cmd+f replace them later
@@ -350,6 +390,13 @@ public:
                 to_return += "\n" + indent + "   Key: "+key+" | "+val->info();
             }
         }
+
+        if(node_table.size()>0) {
+            to_return += "\n" + indent + "Node table:";
+            for(auto [key,val] : node_table.entrySet()) {
+                to_return += "\n" + indent + "   Key: "+key+" | "+val->info();
+            }
+        }
     
         if(!name.empty()) {
             to_return +=  "\n" + indent + "  Name: " + name;
@@ -367,11 +414,13 @@ public:
             to_return +=  "\n" + indent + "  Scopes: " + std::to_string(scopes.size());
             int i = 0;
             for(auto& scope : scopes) {
-                to_return += "\n" + indent + "    "; 
-                if(print_sub_scopes)
-                    to_return += scope->name;
-                else
-                    to_return += scope->to_string(depth + 1,index,print_sub_scopes);
+                to_return += "\n" + indent; 
+                if(print_sub_scopes) {
+                    to_return += scope->to_string(depth + 3,index,print_sub_scopes);
+                }
+                else {
+                    to_return += "    " + scope->name;
+                }
             }
         }
         if(in_scope) {
@@ -383,12 +432,12 @@ public:
      
         if(left) {
             to_return +=  "\n" + indent + "  Left:\n";
-            to_return += left->to_string(depth + 1, 0);
+            to_return += left->to_string(depth + 1, 0, print_sub_scopes);
         }
     
         if(right) {
             to_return +=  "\n" + indent + "  Right:\n";
-            to_return += right->to_string(depth + 1, 0);
+            to_return += right->to_string(depth + 1, 0, print_sub_scopes);
         }
     
         if(!children.empty()) {
@@ -532,7 +581,7 @@ static list<g_ptr<Node>> tokenize(const std::string& code) {
 
 //Doesn't advance it's own index so be wary of infinite recursion with a bad a_parse_function
 static list<g_ptr<Node>> parse_tokens(list<g_ptr<Node>> tokens,bool local = false) {
-        newline("Parse tokens pass (A)");
+        newline("Parse tokens pass (A) over: "+std::to_string(tokens.length())+" tokens");
         
         if(!a_parse_function)
             print("GDSL::parse_tokens a_stage requires a parsing function!");
@@ -612,7 +661,7 @@ static void parse_sub_nodes(Context& ctx) {
 }
 
 static void parse_nodes(g_ptr<Node> root) {
-    newline("Parse nodes pass (T)");
+    newline("Parse nodes pass (T) over "+std::to_string(root->children.size())+" nodes");
 
     g_ptr<Node> last = nullptr;
     for(int i = 0; i < root->children.size(); i++) {
@@ -657,6 +706,7 @@ static void discover_symbol(g_ptr<Node> node,Context& ctx) {
 }
 
 static void discover_symbols(g_ptr<Node> root) {
+    newline("Discover symbols pass over "+std::to_string(root->children.size())+" nodes");
     int idx = 0;
     list<g_ptr<Node>> results;
     Context ctx(results, idx);
@@ -669,6 +719,7 @@ static void discover_symbols(g_ptr<Node> root) {
     for(auto child_scope : root->scopes) {
         discover_symbols(child_scope);
     }
+    endline();
 }
 
 static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame> frame) {
@@ -682,6 +733,7 @@ static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame
     if(ctx.node->scope()) 
         ctx.node->frame = ctx.node->scope()->frame;
     newline("Resolving: "+node->info());
+    log("Resolign: ",node->info());
     r_handlers.getOrDefault(node->type,r_default_function)(ctx);
     endline();
     return node;
@@ -694,7 +746,7 @@ static void resolve_sub_nodes(Context& ctx) {
 }
 
 static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
-    newline("Resolve symbols pass (R)");
+    newline("Resolve symbols pass (R) over "+std::to_string(root->children.size())+" nodes");
 
     root->frame->type = root->type;
     root->frame->name = root->name;
@@ -709,9 +761,9 @@ static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
         resolve_symbols(child_scope);
     }
 
-    log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
+    //log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
     for(auto r : root->frame->nodes) {
-        log(r->to_string());
+        //log(r->to_string());
     }
     endline();
     

@@ -1,0 +1,185 @@
+Vec2 {
+    int x;
+    int y;
+
+    int add(int ox, int oy) {
+        print(ox);
+        print(oy);
+    }
+
+    int negate(int val) {
+        print(val);
+    }
+}
+
+Vec3 {
+    int x;
+    int y;
+    int z;
+
+    int dot(int ox, int oy, int oz) {
+        print(ox);
+        print(oy);
+        print(oz);
+    }
+
+    int scale(int factor) {
+        print(factor);
+    }
+
+    int zero(int a, int b, int c) {
+        print(a);
+    }
+}
+
+Mat2 {
+    int a;
+    int b;
+    int c;
+    int d;
+
+    int transform(int val) {
+        print(val);
+    }
+
+    int trace(int x, int y) {
+        print(x);
+        print(y);
+    }
+}
+
+Mat3 {
+    int a;
+    int b;
+    int c;
+    int d;
+    int e;
+    int f;
+    int g;
+    int h;
+    int i;
+
+    int apply(int val) {
+        print(val);
+    }
+}
+
+Color {
+    int r;
+    int g;
+    int b;
+    int a;
+
+    int blend(int other) {
+        print(other);
+    }
+
+    int brighten(int amount) {
+        print(amount);
+    }
+}
+
+Rect {
+    int x;
+    int y;
+    int w;
+    int h;
+
+    int area(int width, int height) {
+        print(width);
+        print(height);
+    }
+
+    int translate(int dx, int dy) {
+        print(dx);
+        print(dy);
+    }
+}
+
+int a = 1;
+int b = 2;
+int c = 3;
+int d = 4;
+int e = 5;
+int f = 6;
+int g = 7;
+int h = 8;
+
+Vec2 p;
+p.x = 10;
+p.y = 20;
+
+Vec3 v;
+v.x = 1;
+v.y = 2;
+v.z = 3;
+
+Mat2 m;
+m.a = 1;
+m.b = 0;
+m.c = 0;
+m.d = 1;
+
+Mat3 n;
+n.a = 1;
+n.b = 0;
+n.c = 0;
+n.d = 0;
+n.e = 1;
+n.f = 0;
+n.g = 0; 
+n.h = 0;
+n.i = 1;
+
+Color col;
+col.r = 255;
+col.g = 128;
+col.b = 64;
+col.a = 255;
+
+Rect r;
+r.x = 0;
+r.y = 0;
+r.w = 800;
+r.h = 600;
+
+v.dot(a, b, c);
+v.scale(d);
+m.transform(e);
+p.add(f, g);
+col.blend(h);
+r.area(a, b);
+n.apply(c);
+
+print(v.x);
+print(v.y);
+print(v.z);
+print(p.x);
+print(p.y);
+print(m.a);
+print(col.r);
+print(col.g);
+print(r.w);
+print(r.h);
+print(n.e);
+
+int x = 1 + 2;
+int y = 3 * 4;
+int z = x + y;
+int w = z * 2;
+int q = w + x * 3;
+int s = q * y + z;
+int t = s + w * q;
+int u = t * 2 + s;
+int aa = u + t * x;
+int bb = aa * 3 + u;
+int cc = bb + aa * y;
+int dd = cc * z + bb;
+int ee = dd + cc * 2;
+int ff = ee * x + dd;
+int gg = ff + ee * 3;
+int hh = gg * y + ff;
+int ii = hh + gg * z;
+int jj = ii * 2 + hh;
+int kk = jj + ii * x;
+int ll = kk * 3 + jj;
