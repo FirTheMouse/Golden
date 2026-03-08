@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include<core/type.hpp>
-#include<util/string_generator.hpp>
+#include<util/strings.hpp>
 
 #include<util/logger.hpp>
 
@@ -1086,81 +1086,7 @@ namespace GDSL {
             }
         });
 
-        r_handlers.put(identifier_id, [identifier_id](Context& ctx) {
-            // g_ptr<Node> scope = find_scope(ctx.root,[&](g_ptr<Node> scope_node){
-            //     return scope_node->value_table.hasKey(ctx.node->name);
-            // });
-            // if(scope) {
-            //     ctx.node->value = scope->value_table.get(ctx.node->name);
-            //     ctx.node->frame = scope->frame;
-            // } else {
-            //     print("UNRESOVED SCOPE FOR: ",ctx.node->name);
-            // }
-        });
-        exec_handlers.put(identifier_id, [](Context& ctx){
-        });
-
-                
-
-
-
-     
-        // size_t pointer_id = reg::new_type("POINTER");
-        // size_t deref_id = reg::new_type("DEREF");
-        // size_t pointer_decl = reg::new_type("POINTER_DECL");
-        // t_functions.put(pointer_decl, [pointer_decl](Context& ctx) {
-        //     ctx.node->type = pointer_decl;
-        //     ctx.node->value = ctx.node->children[0]->value;
-        //     ctx.node->name = ctx.node->children[1]->name;
-        //     ctx.node->scope() = ctx.root.getPtr();
-        // });
-     
-
-
-        // discover_handlers.put(pointer_decl, [](Context& ctx) {
-        //     g_ptr<Value> sub_value = make<Value>(0);
-        //     sub_value->type = ctx.node->value->sub_type;
-        //     sub_value->size = 8;
-        //     sub_value->data = malloc(sub_value->size);
-        //     ctx.node->scope()->value_table.put(ctx.node->name,sub_value);
-        // });
-        // r_handlers.put(pointer_decl, [](Context& ctx) {
-        //     g_ptr<Node> scope = find_scope(ctx.root,[&](g_ptr<Node> s){
-        //         return s->value_table.hasKey(ctx.node->name);
-        //     });
-        //     if(scope) {
-        //         ctx.node->value = scope->value_table.get(ctx.node->name);
-        //         ctx.node->frame = scope->frame;
-        //     }
-        // });
-        // exec_handlers.put(pointer_decl, [](Context& ctx) {
-        //     //Do nothing for now
-        // });
-
-        // r_handlers.put(deref_id, [deref_id](Context& ctx) {
-        //     ctx.node->type = deref_id;
-        //     resolve_sub_nodes(ctx);
-        // });
-        // exec_handlers.put(deref_id, [](Context& ctx) {
-        //     execute_r_node(ctx.node->left, ctx.frame);
-        //     ctx.node->value->data = *(void**)ctx.node->left->value->data;
-        //     ctx.node->value->type = ctx.node->left->value->sub_type;
-        //     ctx.node->value->size = ctx.node->left->value->sub_size;
-        // });
-
-        //add_token('&',"AMPERSAND");
-        // right_binding_power.put(amp_id, 8);
-        // size_t addr_of_id = reg::new_type("ADDR_OF");
-        // r_handlers.put(amp_id, [addr_of_id](Context& ctx) {
-        //     ctx.node->type = addr_of_id;
-        //     resolve_sub_nodes(ctx);
-        // });
-        // exec_handlers.put(addr_of_id, [pointer_id](Context& ctx) {
-        //     execute_r_node(ctx.node->left, ctx.frame);
-        //     ctx.node->value->type = pointer_id;
-        //     ctx.node->value->size = 8;
-        //     ctx.node->value->set<void*>(ctx.node->left->value->data);
-        // });
+        exec_handlers.put(identifier_id, [](Context& ctx){});
 
         size_t lbrace_id = add_token('{', "LBRACE");
         scope_precedence.put(lbrace_id, 10);
@@ -1231,28 +1157,6 @@ namespace GDSL {
                 toPrint.append(r->value->to_string());
             }
             print(toPrint);
-        });
-
-        add_function("layout", [int_id](Context& ctx) {
-            int mode = 1;
-            if(!ctx.node->children.empty()) {
-                execute_r_node(ctx.node->children[0],ctx.frame);
-                if(ctx.node->children.length()>1) {
-                    execute_r_node(ctx.node->children[1],ctx.frame);
-                    mode = ctx.node->children[1]->value->get<int>();
-                    print(ctx.node->children[0]->frame->context->type_to_string(mode));
-                }
-                else {
-                    if(ctx.node->children[0]->value->type==int_id) {
-                        mode = ctx.node->children[0]->value->get<int>();
-                        print(ctx.frame->context->type_to_string(mode));
-                    } else {
-                        print(ctx.node->children[0]->frame->context->type_to_string(mode));
-                    }
-                }
-            }
-            else
-                print(ctx.frame->context->type_to_string(mode));
         });
 
         size_t if_id = add_scoped_keyword("if", 2, [](Context& ctx) {
@@ -1352,7 +1256,7 @@ namespace GDSL {
         print("R STAGE");
         g_ptr<Frame> frame = resolve_symbols(root);
 
-        log(root->to_string(0,0,true));
+        //log(root->to_string(0,0,true));
         print("==LOG==");
         span->print_all();
 
@@ -1378,6 +1282,28 @@ int main() {
     // execute_r_nodes(frame);
 
 
+
+    // add_function("layout", [int_id](Context& ctx) {
+    //     int mode = 1;
+    //     if(!ctx.node->children.empty()) {
+    //         execute_r_node(ctx.node->children[0],ctx.frame);
+    //         if(ctx.node->children.length()>1) {
+    //             execute_r_node(ctx.node->children[1],ctx.frame);
+    //             mode = ctx.node->children[1]->value->get<int>();
+    //             print(ctx.node->children[0]->frame->context->type_to_string(mode));
+    //         }
+    //         else {
+    //             if(ctx.node->children[0]->value->type==int_id) {
+    //                 mode = ctx.node->children[0]->value->get<int>();
+    //                 print(ctx.frame->context->type_to_string(mode));
+    //             } else {
+    //                 print(ctx.node->children[0]->frame->context->type_to_string(mode));
+    //             }
+    //         }
+    //     }
+    //     else
+    //         print(ctx.frame->context->type_to_string(mode));
+    // });
 
         // discover_handlers.put(star_id, [var_decl_id,pointer_id](g_ptr<Node> node, Context& ctx) {
         //     if(node->left && node->left->type == var_decl_id) {

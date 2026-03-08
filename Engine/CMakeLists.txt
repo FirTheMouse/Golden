@@ -35,6 +35,11 @@ target_include_directories(eigen INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/eigen-5.0.0
 )
 
+add_library(g_lib INTERFACE)
+target_include_directories(g_lib INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ext/g_lib
+)
+
 if(APPLE)
     target_compile_definitions(GoldenEngine PUBLIC 
         ACCELERATE_NEW_LAPACK
@@ -62,6 +67,7 @@ target_link_libraries(GoldenEngine PUBLIC
     nlohmann_json
     tinygltf
     eigen
+    g_lib
 )
 
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" )

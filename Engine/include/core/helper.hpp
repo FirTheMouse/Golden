@@ -6,6 +6,7 @@
 #include<util/files.hpp>
 #include<core/grid.hpp>
 #include<gui/twig.hpp>
+#include<util/strings.hpp>
 
 namespace Golden
 {

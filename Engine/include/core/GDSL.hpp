@@ -1,6 +1,5 @@
 #pragma once
 
-#include<util/util.hpp>
 #include<core/type.hpp>
 
 namespace GDSL {

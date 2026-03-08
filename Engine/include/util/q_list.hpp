@@ -3,7 +3,7 @@
 #include<atomic>
 #include<future>
 #include<util/list.hpp>
-#include<util/q_object.hpp>
+#include<core/q_object.hpp>
 
 #define Q_LIST_DEBUG 0
 
