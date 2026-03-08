@@ -40,6 +40,12 @@ target_include_directories(g_lib INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/ext/g_lib
 )
 
+add_library(GDSL INTERFACE)
+target_include_directories(GDSL INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ext/GDSL
+)
+
+
 if(APPLE)
     target_compile_definitions(GoldenEngine PUBLIC 
         ACCELERATE_NEW_LAPACK
@@ -68,6 +74,7 @@ target_link_libraries(GoldenEngine PUBLIC
     tinygltf
     eigen
     g_lib
+    GDSL
 )
 
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" )

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <utility>
 #include <core/object.hpp>
+#include <util/q_list.hpp>
 //#include <rendering/scene_object.hpp>
 
 namespace tinygltf {

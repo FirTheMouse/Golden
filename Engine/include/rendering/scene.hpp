@@ -485,7 +485,7 @@ public:
     }
 
     //I liked "make" better but that conflicts with Object
-    template<typename T, typename = std::enable_if_t<std::is_base_of_v<Golden::Object, T>>>
+    template<typename T, typename = std::enable_if_t<std::is_base_of_v<Object, T>>>
     g_ptr<T> create(const std::string& label) {
         g_ptr<Type> type = getType(label);
         if(type) {
