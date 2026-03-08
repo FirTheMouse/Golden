@@ -1,0 +1,6 @@
+[submodule "Engine/ext/g_lib"]
+	path = Engine/ext/g_lib
+	url = https://github.com/FirTheMouse/g_lib
+[submodule "Engine/ext/GDSL"]
+	path = Engine/ext/GDSL
+	url = https://github.com/FirTheMouse/GDSL
