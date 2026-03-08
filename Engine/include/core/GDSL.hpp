@@ -690,30 +690,25 @@ static void parse_nodes(g_ptr<Node> root) {
     endline();
 }
 
-static void discover_symbol(g_ptr<Node> node,Context& ctx) {
+static void discover_symbol(g_ptr<Node> node, g_ptr<Node> root) {
     if(discover_handlers.hasKey(node->type)) {
         auto func = discover_handlers.get(node->type);
+        Context ctx;
+        ctx.root = root;
         ctx.node = node;
         newline("Discovering: "+node->info());
         func(ctx);
         endline();
     }
-    else {
-        for(auto c : node->children) {
-            discover_symbol(c,ctx);
-        }
+    for(auto c : node->children) {
+        discover_symbol(c,root);
     }
 }
 
 static void discover_symbols(g_ptr<Node> root) {
-    newline("Discover symbols pass over "+std::to_string(root->children.size())+" nodes");
-    int idx = 0;
-    list<g_ptr<Node>> results;
-    Context ctx(results, idx);
-    ctx.root = root;
-    
+    newline("Discover symbols pass over "+std::to_string(root->children.size())+" nodes");   
     for(int i = 0; i < root->children.size(); i++) {
-        discover_symbol(root->children[i], ctx);
+        discover_symbol(root->children[i], root);
     }
     
     for(auto child_scope : root->scopes) {
@@ -733,10 +728,9 @@ static g_ptr<Node> resolve_symbol(g_ptr<Node> node,g_ptr<Node> scope,g_ptr<Frame
     if(ctx.node->scope()) 
         ctx.node->frame = ctx.node->scope()->frame;
     newline("Resolving: "+node->info());
-    log("Resolign: ",node->info());
     r_handlers.getOrDefault(node->type,r_default_function)(ctx);
     endline();
-    return node;
+    return ctx.node;
 }
 
 static void resolve_sub_nodes(Context& ctx) {
@@ -755,15 +749,17 @@ static g_ptr<Frame> resolve_symbols(g_ptr<Node> root) {
         g_ptr<Node> rnode = resolve_symbol(root->children[i],root,root->frame);
         if(rnode) 
             root->frame->nodes << rnode;
+        else
+            i--;
     }
 
     for(auto child_scope : root->scopes) {
         resolve_symbols(child_scope);
     }
 
-    //log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
+    log("==RESOLVED SYMBOLS: ",root->frame->name,"==");
     for(auto r : root->frame->nodes) {
-        //log(r->to_string());
+        log(r->to_string());
     }
     endline();
     
@@ -800,6 +796,7 @@ static void execute_r_nodes(g_ptr<Frame> frame, g_ptr<Object> context=nullptr) {
         auto node = frame->nodes[i];
         execute_r_node(node,frame);
         if(!frame->isActive()) {
+            log("Frame was deactivated on ",node->info());
             break;
         }
     }

@@ -345,6 +345,8 @@ namespace GDSL {
         size_t unary_id;
     };
     
+    size_t var_decl_id = 0;
+
     // xTx <- Binary operator, ctx.node->right and ctx.node->left are what's on your right and left
     BinaryOpIds add_binary_operator(char c, const std::string& f,int left_bp, int right_bp) {
         size_t id = add_token(c,f);
@@ -357,13 +359,14 @@ namespace GDSL {
 
         t_functions.put(id,[decl_id,unary_id](Context& ctx){
             auto& children = ctx.node->children;
+            parse_sub_nodes(ctx);
             if(children.length() == 2) {
                 g_ptr<Node> type_term = children[0];
                 g_ptr<Node> id_term = children[1];
                 
-                if(type_term->value && (type_term->value->sub_type != 0 || !type_term->value->quals.empty())) {
+                if(type_term->type==var_decl_id) {
                     ctx.node->children.clear();
-                } else if(!type_term->children.empty() && type_term->children[0]->value && (type_term->children[0]->value->sub_type != 0 || !type_term->children[0]->value->quals.empty())) {
+                } else if(!type_term->children.empty() && type_term->children[0]->type==var_decl_id) {
                     g_ptr<Node> lbracket = ctx.node->children[0];
                     g_ptr<Node> type_node = lbracket->children.take(0);
                     g_ptr<Node> size_expr = lbracket->children[0];
@@ -374,19 +377,24 @@ namespace GDSL {
                     ctx.node->children.clear();
                     ctx.node->children << size_expr;
                 }
-        
-                if(type_term->value && (type_term->value->sub_type != 0 || !type_term->value->quals.empty())) {
+
+                if(type_term->type==var_decl_id) {
                     ctx.node->type = decl_id;
                     ctx.node->value = type_term->value;
                     ctx.node->name = id_term->name;
         
                     ctx.node->value->sub_type = 0;
-                    ctx.node->in_scope->distribute_value(ctx.node->name,ctx.node->value,false);
+                    ctx.node->value = ctx.node->in_scope->distribute_value(ctx.node->name,ctx.node->value,true);
                 }
             } else if(children.length() == 1) {
+                //g_ptr<Node> type_term = children[0];
+
                 ctx.node->type = unary_id;
+                // ctx.node->name = type_term->name;
+                // ctx.node->value = type_term->value;
+
+                // ctx.node->children.cl
             }
-            parse_sub_nodes(ctx);
         });
         
         return BinaryOpIds(id,decl_id,unary_id);
@@ -435,8 +443,13 @@ namespace GDSL {
         return call_id;
     }
 
+    size_t end_id = 0;
     g_ptr<Node> a_parse_expression(Context& ctx, int min_bp, g_ptr<Node> left_node = nullptr) {
         //Prefixual pass
+        if(ctx.index>=ctx.nodes.length()) return nullptr;
+        while(ctx.index < ctx.nodes.length() && ctx.nodes[ctx.index]->getType() == end_id) {
+            ctx.index++;
+        }
         if(ctx.index>=ctx.nodes.length()) return nullptr;
         g_ptr<Node> token = ctx.nodes[ctx.index];
 
@@ -610,10 +623,10 @@ namespace GDSL {
         discard_types.put(undefined_id,true);
         size_t literal_id = reg::new_type("LITERAL");
         exec_handlers.put(literal_id, [](Context& ctx){});
-        size_t end_id = add_token(';',"END");
+        end_id = add_token(';',"END");
         discard_types.put(end_id,true);
 
-        size_t var_decl_id = reg::new_type("VAR_DECL");
+        var_decl_id = reg::new_type("VAR_DECL");
         size_t object_id = reg::new_type("OBJECT");
         value_to_string.put(object_id, [](void* data) {
             return std::string("[object @") + std::to_string((size_t)data) + "]";
@@ -657,39 +670,7 @@ namespace GDSL {
         left_binding_power.put(lparen_id, 10);
         right_binding_power.put(lparen_id, 0);
         register_bracket_pair(lparen_id,rparen_id);
-        // a_functions.put(lparen_id, [rparen_id,lparen_id](Context& ctx) {
-        //     list<g_ptr<Node>>* main_result = ctx.result;
-        //     g_ptr<Node> result_node = nullptr;
-        //     if(ctx.left && ctx.left->type != 0 && ctx.left->type != lparen_id) {
-        //         result_node = ctx.left;
-        //         if(!ctx.left->children.empty())
-        //             ctx.left = ctx.left->children.last();
-        //         log("In paren, has a left: ",ctx.left->info());
-        //         ctx.result = &ctx.left->children;
-        //         log("Set results to target children, result node is now:\n",result_node->to_string(1));
-        //     } else {
-        //         log("In paren, doesn't have a left, making a new result node");
-        //         result_node = make<Node>();
-        //         ctx.result = &result_node->children;
-        //     }
-        //     newline("Starting a paren loop");
-        //     while(ctx.index < ctx.nodes.length() && ctx.nodes[ctx.index]->getType() != rparen_id) {
-        //         g_ptr<Node> inner = a_parse_expression(ctx, 0);
-        //         if(inner && !discard_types.getOrDefault(inner->getType(),false)) 
-        //             ctx.result->push(inner);
-        //     }
-        //     endline();
-        //     ctx.result = main_result;
-        //     if(result_node && discard_types.getOrDefault(result_node->getType(),false) && !result_node->children.empty()) 
-        //     {
-        //         log("Invalid result_node, so promoting: ",result_node->children[0]->info());
-        //         g_ptr<Node> to_promote = result_node->children.take(0);
-        //         to_promote->children << result_node->children;
-        //         result_node = to_promote;
-        //     }
-        //     ctx.node = result_node;
-        //     ctx.index++;
-        // });
+      
 
         size_t float_id = add_base_type("float",4);
         value_to_string.put(float_id,[](void* data) {
@@ -765,11 +746,14 @@ namespace GDSL {
         BinaryOpIds plus_ids = add_binary_operator('+',"PLUS", 4, 5);
         exec_handlers.put(plus_ids.op_id,make_arithmetic_handler<int, int>([](auto a, auto b){return a+b;},int_id));
 
-        BinaryOpIds rangle_ids = add_binary_operator('>',"RANGLE", 4, 5);
+        BinaryOpIds dash_ids = add_binary_operator('-',"DASH", 4, 5);
+        exec_handlers.put(dash_ids.op_id,make_arithmetic_handler<int, int>([](auto a, auto b){return a-b;},int_id));
+
+        BinaryOpIds rangle_ids = add_binary_operator('>',"RANGLE", 2, 3);
         exec_handlers.put(rangle_ids.op_id,make_arithmetic_handler<int, bool>([](auto a, auto b){return a>b;},bool_id));
 
-        BinaryOpIds langle_ids = add_binary_operator('<',"LANGLE", 4, 5);
-        exec_handlers.put(langle_ids.op_id,make_arithmetic_handler<int, bool>([](auto a, auto b){return a>b;},bool_id));
+        BinaryOpIds langle_ids = add_binary_operator('<',"LANGLE", 2, 3);
+        exec_handlers.put(langle_ids.op_id,make_arithmetic_handler<int, bool>([](auto a, auto b){return a<b;},bool_id));
 
         std::function<void(list<g_ptr<Node>>&,bool)> t_pass_register_generics = [rangle_ids,langle_ids,&t_pass_register_generics](list<g_ptr<Node>>& nodes, bool in_generic){
             size_t rangle = rangle_ids.op_id;
@@ -850,8 +834,39 @@ namespace GDSL {
 
         BinaryOpIds star_ids = add_binary_operator('*',"STAR", 6, 7);
         exec_handlers.put(star_ids.op_id,make_arithmetic_handler<int, int>([](auto a, auto b){return a*b;},int_id));
-
         BinaryOpIds amp_ids = add_binary_operator('&',"AMPERSAND",-1,8);
+
+        discover_handlers.put(star_ids.decl_id, [](Context& ctx) {
+            ctx.node->value->size = 8;
+            ctx.node->in_scope->distribute_value(ctx.node->name, ctx.node->value, true);
+        });
+
+        exec_handlers.put(star_ids.decl_id, [](Context& ctx) {
+            if(!ctx.node->value->data) {
+                ctx.node->value->data = malloc(8);
+            }
+            ctx.frame->active_memory << ctx.node->value->data;
+        });
+        
+        exec_handlers.put(star_ids.unary_id, [](Context& ctx) {
+            execute_r_node(ctx.node->left, ctx.frame);
+            ctx.node->value->data = *(void**)ctx.node->left->value->data;
+            ctx.node->value->type = ctx.node->left->value->type;
+            ctx.node->value->size = ctx.node->left->value->size;
+        });
+        
+        exec_handlers.put(amp_ids.unary_id, [](Context& ctx) {
+            execute_r_node(ctx.node->left, ctx.frame);
+            ctx.node->value->type = ctx.node->left->value->type;
+            ctx.node->value->size = 8;
+            ctx.node->value->set<void*>(ctx.node->left->value->data);
+        });
+
+
+        discover_handlers.put(star_ids.unary_id, [](Context& ctx) {
+            discover_symbol(ctx.node->left,ctx.root);
+            ctx.node->value->copy(ctx.node->left->value);
+        });
 
         BinaryOpIds dot_ids = add_binary_operator('.', "PROP_ACCESS", 8, 9);
         t_functions.set(dot_ids.op_id, [](Context& ctx) {
@@ -859,11 +874,21 @@ namespace GDSL {
             g_ptr<Node> right = ctx.node->children[1];
             parse_a_node(left, ctx.root);
 
-            right->in_scope = left->value->type_scope;
-            if(!left->value->type_scope) print(red("MISSING A TYPE SCOPE!!"));
-            print(red(right->in_scope->to_string(0,0,true)));
+            if(left->value->type_scope)
+                right->in_scope = left->value->type_scope;
 
-            parse_a_node(right, ctx.root);
+            if(right)
+                parse_a_node(right, ctx.root);
+        });
+        discover_handlers.put(dot_ids.op_id, [](Context& ctx) {
+            discover_symbol(ctx.node->left,ctx.root);
+            if(ctx.node->left->value->type_scope) {
+                ctx.node->right->in_scope = ctx.node->left->value->type_scope;
+            } else {
+                print(red("NO SCOPE!!"));
+            }
+            if(ctx.node->right)
+                discover_symbol(ctx.node->right,ctx.root);
         });
         exec_handlers.put(dot_ids.op_id,[func_call_id](Context& ctx) {
             execute_r_node(ctx.node->left, ctx.frame);
@@ -874,6 +899,22 @@ namespace GDSL {
                 ctx.node->value->data = ctx.node->right->value->data;
             } else {
                 ctx.node->value->data = (char*)ctx.node->left->value->data + ctx.node->right->value->address;
+            }
+        });
+
+        //-> for sugar
+        r_handlers.put(dash_ids.op_id, [dash_ids, rangle_ids, star_ids, dot_ids](Context& ctx) {
+            if(ctx.node->right && ctx.node->right->type == rangle_ids.unary_id) {
+                ctx.node->type = dot_ids.op_id;
+                g_ptr<Node> star = make<Node>();
+                star->type = star_ids.unary_id;
+                star->children << ctx.node->left;
+                star->left = ctx.node->left;
+                ctx.node->left = star;
+                ctx.node->right = ctx.node->right->left;
+                print("Assembled node: ",ctx.node->to_string());
+            } else {
+                resolve_sub_nodes(ctx);
             }
         });
         
@@ -898,7 +939,7 @@ namespace GDSL {
         BinaryOpIds bracket_ids = add_binary_operator(']',"BRACKETS", 2, 3);
         BinaryOpIds lbracket_ids = add_binary_operator('[',"LBRACKET", 2, 3);
 
-        r_handlers.put(var_decl_id, [var_decl_id](Context& ctx) {
+        r_handlers.put(var_decl_id, [](Context& ctx) {
             //Do nothing
         });
         exec_handlers.put(var_decl_id, [](Context& ctx) {
@@ -914,7 +955,7 @@ namespace GDSL {
         });
 
         size_t type_decl_id = reg::new_type("TYPE_DECL");
-        discover_handlers.put(type_decl_id,[var_decl_id,star_ids](Context& ctx){
+        discover_handlers.put(type_decl_id,[star_ids](Context& ctx){
             g_ptr<Node> node  = ctx.node;
             for(auto child : node->scope()->children) {
                 child->value->address = node->value->size;
@@ -946,7 +987,7 @@ namespace GDSL {
             }
             new_scope->name = owner_node->name;
         });
-        t_functions.put(identifier_id, [identifier_id,var_decl_id,type_decl_id,object_id,func_call_id,func_decl_id](Context& ctx) {
+        t_functions.put(identifier_id, [identifier_id,type_decl_id,object_id,func_call_id,func_decl_id](Context& ctx) {
             log("Parsing an idenitifer:\n",ctx.node->to_string(1));
             g_ptr<Node> node = ctx.node;
             g_ptr<Value> decl_value = make<Value>(0);
@@ -998,71 +1039,51 @@ namespace GDSL {
             if(has_scope) {
                 if(has_type_value) {
                     node->type = func_decl_id;
-                    if(node->in_scope->node_table.hasKey(node->name)) {
-                        //Implment the shadow handeling later
-                        //node->in_scope->node_table.get(node->name)->copy(node);
-                    } else {
-                        node->scopes[0] = node->in_scope->distribute_node(node->name,node->scope(),true);
-                    }
+                    node->scopes[0] = node->in_scope->distribute_node(node->name,node->scope(),true);
                 } else {
                     node->type = type_decl_id;
-                    if(node->in_scope->node_table.hasKey(node->name)) {
-                        //Implment the shadow handeling later
-                        //node->in_scope->node_table.get(node->name)->copy(node);
-                    } else {
-                        node->scopes[0] = node->in_scope->distribute_node(node->name,node->scope(),true);
-                    }
+                    node->scopes[0] = node->in_scope->distribute_node(node->name,node->scope(),true);
                     node->value->copy(register_user_defined_type(node->name,0));
-                    if(node->in_scope->value_table.hasKey(node->name)) {
-                        //Implment the shadow handeling later
-                        //node->in_scope->value_table.get(node->name)->copy(node->value);
-                    } else {
-                        node->value = node->in_scope->distribute_value(node->name,node->value,true);
-                    }
                     node->value->type_scope = node->scope().getPtr();
+                    node->value = node->in_scope->distribute_value(node->name,node->value,true);
+
+                    log(yellow("Declared a type_decl!"));
                 }
                 node->scope()->owner = node.getPtr();
                 node->scope()->name = node->name;
             } else {
                 if(has_type_value) {
                     node->type = var_decl_id;
+                    node->value = node->in_scope->distribute_value(node->name,node->value,true);
                     node->value->sub_type = 0;
-                    if(node->in_scope->value_table.hasKey(node->name)) {
-                        //Implment the shadow handeling later
-                        // g_ptr<Value> existing = node->in_scope->value_table.get(node->name);
-                        // if(existing->type == 0) {
-                            
-                        // } else {
-                        //     node->value = node->in_scope->distribute_value(node->name, node->value, true);
-                        //     node->in_scope->value_table.set(node->name, node->value);
-                        // }
-                    } else {
-                        node->value = node->in_scope->distribute_value(node->name,node->value,true);
-                    }
                 } else if(has_children) {
                     node->type = func_call_id;
                     if(node->in_scope->node_table.hasKey(node->name)) {
                         node->scopes << node->in_scope->node_table.get(node->name);
-                    } else {
-                        g_ptr<Node> dummy = make<Node>();
-                        node->scopes << node->in_scope->distribute_node(node->name, dummy, true);
-                    }
+                    } 
                 } else {
                     if(node->in_scope->value_table.hasKey(node->name)) {
                         node->value = node->in_scope->value_table.get(node->name);
-                    } else {
-                        node->value = node->in_scope->distribute_value(node->name,node->value,true);
                     }
                 }
             }
-            // ctx.node = node;
-            //log("Returning as:\n",node->to_string(1));
+            log("Returning as:\n",node->to_string(1));
         });
         discover_handlers.put(identifier_id,[](Context& ctx) {
-            
+            if(ctx.node->in_scope->value_table.hasKey(ctx.node->name)) {
+                ctx.node->value = ctx.node->in_scope->value_table.get(ctx.node->name);
+            } else {
+                log(red("NO VALUE FOUND FOR: "+ctx.node->info()));
+            }
         });
         discover_handlers.put(func_call_id,[](Context& ctx){
-            
+            if(ctx.node->in_scope->node_table.hasKey(ctx.node->name)) {
+                g_ptr<Node> scope = ctx.node->in_scope->node_table.get(ctx.node->name);
+                if(ctx.node->scope()) ctx.node->scopes[0] = scope;
+                else ctx.node->scopes << scope;
+            } else {
+                log(red("NO SCOPE FOUND FOR: "+ctx.node->info()));
+            }
         });
 
         r_handlers.put(identifier_id, [identifier_id](Context& ctx) {
@@ -1255,6 +1276,7 @@ namespace GDSL {
                     left->right = ctx.node;
                 }
             }
+            ctx.node = nullptr;
         });
 
         size_t while_id = add_scoped_keyword("while", 2, [](Context& ctx) {
@@ -1288,7 +1310,7 @@ namespace GDSL {
 
 
         span->print_on_line_end = false; //While things aren't crashing
-        span->log_everything = true; //While things are crashing
+        //span->log_everything = true; //While things are crashing
 
         std::string code = readFile(path);
         print("TOKENIZE");
@@ -1320,7 +1342,7 @@ namespace GDSL {
         // print("==LOG==");
         // span->print_all();
 
-        log(root->to_string(0,0,true));
+        //log(root->to_string(0,0,true));
 
 
         newline("Discovering symbols");
@@ -1330,7 +1352,7 @@ namespace GDSL {
         print("R STAGE");
         g_ptr<Frame> frame = resolve_symbols(root);
 
-        // log(root->to_string(0,0,true));
+        log(root->to_string(0,0,true));
         print("==LOG==");
         span->print_all();
 
@@ -1339,8 +1361,10 @@ namespace GDSL {
         execute_r_nodes(frame);
         endline();
 
+        
 
 
+        // span->print_all();
 
     }
 }
