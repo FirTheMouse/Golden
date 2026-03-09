@@ -1,2 +1,1 @@
-int-3- dash_decl;
-int a;
+int[3] a;
