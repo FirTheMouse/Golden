@@ -1,0 +1,36 @@
+subnum {
+    int x;
+    int y;
+}
+
+
+num {
+    int a;
+    subnum sub;
+
+    int addOne(int val) {
+        val = val+1;
+        return a+val;
+    }
+}
+
+
+int main() {
+    num c;
+    num* ptr = &c;
+    (*ptr).a = 3;
+    print((*ptr).a);
+
+    num b;
+    b.a = 8;
+
+    c.sub.x = 10;
+    print(c.sub.x);
+
+    print("b.a: ",b.a);
+
+    print(c.addOne(5));
+    print(b.addOne(2));
+}
+
+main();
