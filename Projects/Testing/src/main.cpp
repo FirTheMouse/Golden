@@ -1,4 +1,12 @@
-#include<modules/GDSL-C>
+#include<core/type.hpp>
+#include<util/strings.hpp>
+#include<util/logger.hpp>
+#include<util/engine_util.hpp>
+#include<util/cog.hpp>
+
+#include<modules/GDSL-LISP.hpp>
+
+
 
 using namespace GDSL;
 

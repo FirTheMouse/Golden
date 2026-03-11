@@ -1,35 +1,3 @@
-num {
-    int x;
-    int y;
-
-    int inc(int val, num* counter) {
-
-        print("Counter x: ",(*counter).x);
-        print("Raw: ",coutner.x);
-
-        num t = *counter;
-        int depth = 0;
-        while(t.x<val) {
-            t.x = t.x+1;
-            if(t.x>x) {
-                return t.x;
-            }
-            depth = depth+1;
-            if(depth>8) return 0;
-        }
-        return t.x;
-    }
-}
-
-int main() {
-    num c;
-    c.x = 5;
-    num j;
-    j.x = 0;
-    print(c.inc(6,&j));
-    j.x = 2;
-    print(c.inc(4,&j));
-
-
-}
-main();
+(defun max (x y) (if (> x y) x y))
+(print (max 3 7))
+(print (max 10 2))
