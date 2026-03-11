@@ -3,6 +3,10 @@ num {
     int y;
 
     int inc(int val, num* counter) {
+
+        print("Counter x: ",(*counter).x);
+        print("Raw: ",coutner.x);
+
         num t = *counter;
         int depth = 0;
         while(t.x<val) {
