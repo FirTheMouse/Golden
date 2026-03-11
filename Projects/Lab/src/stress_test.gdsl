@@ -1,0 +1,224 @@
+int add(int a, int b) {
+    return a + b;
+}
+
+int mul(int a, int b) {
+    return a * b;
+}
+
+int sub(int a, int b) {
+    return a - b;
+}
+
+int fma(int a, int b, int c) {
+    return add(mul(a, b), c);
+}
+
+int dot3(int a, int b, int c, int d, int e, int f) {
+    return add(add(mul(a, d), mul(b, e)), mul(c, f));
+}
+
+int clamp(int val, int lo, int hi) {
+    if(val < lo) {
+        return lo;
+    }
+    if(val > hi) {
+        return hi;
+    }
+    return val;
+}
+
+int lerp(int a, int b, int t) {
+    return add(a, mul(sub(b, a), t));
+}
+
+int sum4(int a, int b, int c, int d) {
+    return add(add(a, b), add(c, d));
+}
+
+int sum8(int a, int b, int c, int d, int e, int f, int g, int h) {
+    return add(sum4(a, b, c, d), sum4(e, f, g, h));
+}
+
+int chain(int x) {
+    return mul(add(x, 1), sub(x, 1));
+}
+
+int deep(int x) {
+    return add(chain(mul(x, 2)), chain(add(x, 3)));
+}
+
+int cascade(int a, int b, int c) {
+    return fma(deep(a), deep(b), deep(c));
+}
+
+Vec3 {
+    int x;
+    int y;
+    int z;
+
+    int dot(int ox, int oy, int oz) {
+        return add(add(mul(x, ox), mul(y, oy)), mul(z, oz));
+    }
+
+    int lengthSq() {
+        return add(add(mul(x, x), mul(y, y)), mul(z, z));
+    }
+
+    int sum() {
+        return add(add(x, y), z);
+    }
+}
+
+Mat2 {
+    int a;
+    int b;
+    int c;
+    int d;
+
+    int det() {
+        return sub(mul(a, d), mul(b, c));
+    }
+
+    int trace() {
+        return add(a, d);
+    }
+
+    int apply(int x, int y) {
+        return add(mul(a, x), mul(b, y));
+    }
+}
+
+Color {
+    int r;
+    int g;
+    int b;
+    int a;
+
+    int luminance() {
+        return add(add(mul(r, 2), mul(g, 4)), mul(b, 1));
+    }
+
+    int sum() {
+        return add(add(add(r, g), b), a);
+    }
+}
+
+int main() {
+    int a = 1;
+    int b = 2;
+    int c = 3;
+    int d = 4;
+    int e = 5;
+    int f = 6;
+    int g = 7;
+    int h = 8;
+
+    int r0 = add(a, b);
+    int r1 = mul(r0, c);
+    int r2 = fma(r1, d, e);
+    int r3 = dot3(a, b, c, d, e, f);
+    int r4 = clamp(r3, 0, 100);
+    int r5 = lerp(r0, r1, a);
+    int r6 = sum4(r0, r1, r2, r3);
+    int r7 = sum8(a, b, c, d, e, f, g, h);
+    int r8 = chain(r4);
+    int r9 = deep(r5);
+    int r10 = cascade(a, b, c);
+
+    int r11 = add(r0, r1);
+    int r12 = mul(r2, r3);
+    int r13 = fma(r4, r5, r6);
+    int r14 = dot3(r7, r8, r9, r10, r11, r12);
+    int r15 = clamp(r14, 0, 1000);
+    int r16 = lerp(r13, r14, b);
+    int r17 = sum4(r10, r11, r12, r13);
+    int r18 = sum8(r8, r9, r10, r11, r12, r13, r14, r15);
+    int r19 = chain(r16);
+    int r20 = deep(r17);
+
+    int r21 = cascade(r0, r1, r2);
+    int r22 = cascade(r3, r4, r5);
+    int r23 = cascade(r6, r7, r8);
+    int r24 = add(cascade(r9, r10, r11), cascade(r12, r13, r14));
+    int r25 = mul(cascade(r15, r16, r17), cascade(r18, r19, r20));
+
+    Vec3 v;
+    v.x = r0;
+    v.y = r1;
+    v.z = r2;
+
+    int vd = v.dot(r3, r4, r5);
+    int vl = v.lengthSq();
+    int vs = v.sum();
+
+    Vec3 u;
+    u.x = r6;
+    u.y = r7;
+    u.z = r8;
+
+    int ud = u.dot(r9, r10, r11);
+    int ul = u.lengthSq();
+    int us = u.sum();
+
+    Mat2 m;
+    m.a = r0;
+    m.b = r1;
+    m.c = r2;
+    m.d = r3;
+
+    int mdet = m.det();
+    int mtr = m.trace();
+    int map1 = m.apply(r4, r5);
+    int map2 = m.apply(r6, r7);
+
+    Mat2 n;
+    n.a = r8;
+    n.b = r9;
+    n.c = r10;
+    n.d = r11;
+
+    int ndet = n.det();
+    int ntr = n.trace();
+    int nap = n.apply(r12, r13);
+
+    Color col;
+    col.r = clamp(r14, 0, 255);
+    col.g = clamp(r15, 0, 255);
+    col.b = clamp(r16, 0, 255);
+    col.a = 255;
+
+    int lum = col.luminance();
+    int csum = col.sum();
+
+    int x0 = 1 + 2;
+    int x1 = 3 * 4;
+    int x2 = x0 + x1;
+    int x3 = x2 * 2;
+    int x4 = x3 + x0 * 3;
+    int x5 = x4 * x1 + x2;
+    int x6 = x5 + x3 * x4;
+    int x7 = x6 * 2 + x5;
+    int x8 = x7 + x6 * x0;
+    int x9 = x8 * 3 + x7;
+    int x10 = x9 + x8 * x1;
+    int x11 = x10 * x2 + x9;
+    int x12 = x11 + x10 * 2;
+    int x13 = x12 * x0 + x11;
+    int x14 = x13 + x12 * 3;
+    int x15 = x14 * x1 + x13;
+    int x16 = x15 + x14 * x2;
+    int x17 = x16 * 2 + x15;
+    int x18 = x17 + x16 * x0;
+    int x19 = x18 * 3 + x17;
+
+    int final = sum8(r21, r22, r23, r24, vd, ud, mdet, ndet);
+    int final2 = add(cascade(x10, x11, x12), cascade(x13, x14, x15));
+    int final3 = fma(lum, csum, final);
+
+    print(final);
+    print(final2);
+    print(final3);
+}
+
+main();

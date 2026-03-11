@@ -1,5 +1,31 @@
-int a[3][2];
-a[0][0] = 5;
-a[0][1] = 10;
-a[1][0] = 3;
-print(a[0][0]," and ",a[0][1]," and ",a[1][0]);
+num {
+    int x;
+    int y;
+
+    int inc(int val, num* counter) {
+        num t = *counter;
+        int depth = 0;
+        while(t.x<val) {
+            t.x = t.x+1;
+            if(t.x>x) {
+                return t.x;
+            }
+            depth = depth+1;
+            if(depth>8) return 0;
+        }
+        return t.x;
+    }
+}
+
+int main() {
+    num c;
+    c.x = 5;
+    num j;
+    j.x = 0;
+    print(c.inc(6,&j));
+    j.x = 2;
+    print(c.inc(4,&j));
+
+
+}
+main();

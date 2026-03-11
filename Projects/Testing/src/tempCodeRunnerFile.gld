@@ -5,15 +5,6 @@ num {
         x = x+val;
         return x;
     }
-
-    int subtract(int val) {
-        x = x-val;
-        return x;
-    }
-
-    int sayX() {
-        print(x);
-    }
 }
 
 int main() {
@@ -25,8 +16,6 @@ int main() {
     n[0] = 4;
     n[1] = 2;
     print("Starting value (from a ptr): ",(*ptr).x);
-
-    int b;
 
     (*ptr).add(n[0]);
     c.add(n[1]);
