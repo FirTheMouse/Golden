@@ -1,31 +1,30 @@
-template<typename T>
-list {
- T thing;
+list<int> testList;
+wubfull wubless map<string, int> testMap;
+
+num {
+    int a;
+    int add(int var) {
+        var = var+1;
+        return var;
+    }
 }
 
-template<typename K, typename V>
-map {
+
+int main() {
+    num c;
+    c.a = 8;
+    print(c.a);
+    print(c.add(3));
+
+    testList.push(3);
+    print(testList.get(0));
+
+    testMap.put("w",1);
+    testMap.put("d",8);
+    print(testMap.get("w"));
+    print(testMap.get("d"));
+    
 
 }
 
-int add() {
-
-}
-
-int sub(int var) {
-
-}
-
-list<int> lOne;
-list<list<int>> lNested;
-list<list<list<int>>> lVeryNested;
-map<int, float> mTwo;
-map<int, list<int>> mNested;
-map<int, map<int, float>> mNestedTwo;
-
-list<map<int, float>> mapLst;
-
-map<int, list<list<float>>, string> badCase;
-
-
-
+main();
