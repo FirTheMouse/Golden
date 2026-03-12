@@ -1,3 +1,31 @@
-(defun max (x y) (if (> x y) x y))
-(print (max 3 7))
-(print (max 10 2))
+template<typename T>
+list {
+ T thing;
+}
+
+template<typename K, typename V>
+map {
+
+}
+
+int add() {
+
+}
+
+int sub(int var) {
+
+}
+
+list<int> lOne;
+list<list<int>> lNested;
+list<list<list<int>>> lVeryNested;
+map<int, float> mTwo;
+map<int, list<int>> mNested;
+map<int, map<int, float>> mNestedTwo;
+
+list<map<int, float>> mapLst;
+
+map<int, list<list<float>>, string> badCase;
+
+
+
