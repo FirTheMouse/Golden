@@ -4,7 +4,8 @@
 #include<util/engine_util.hpp>
 #include<util/cog.hpp>
 
-// #include<modules/GDSL-C.hpp>
+//#include<modules/GDSL-C.hpp>
+//#include<modules/GDSL-LISP.hpp>
 #include<modules/GDSL-Apex.hpp>
 
 
@@ -12,11 +13,16 @@
 using namespace GDSL;
 
 int main() {
-    // GDSL::helper_test_module::initialize();
     //test_module(root()+"/Projects/Lab/src/stresstest.cpp");
+
+    //Standard test
     test_module(root()+"/Projects/Testing/src/test.gld");
-    // g_ptr<GDSL::Frame> frame = compile(root()+"/Projects/Testing/src/test.gld");
-    // execute_r_nodes(frame);
+
+    //ctest
+    //test_module(root()+"/Engine/ext/GDSL/modules/ctest.gld");
+
+    //lisptest
+    //test_module(root()+"/Engine/ext/GDSL/modules/lisptest.gld");
 
 
 
