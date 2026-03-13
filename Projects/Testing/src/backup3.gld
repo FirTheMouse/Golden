@@ -1,0 +1,31 @@
+template<typename T>
+list {
+    T val;
+}
+
+
+
+template<typename N, typename K>
+map {
+    N a;
+    K b;
+
+    K find(N label) {
+        list<K> potential;
+        K result = b;
+        return result;
+    }
+}
+
+
+int main() {
+    map<string, int> reg;
+
+    reg.a = "wub";
+    reg.b = 6;
+
+    print(reg.a);
+    print(reg.b);
+}
+
+main();
