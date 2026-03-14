@@ -14,10 +14,10 @@ using namespace GDSL;
 
 int main() {
     //CPP test
-    std::string cpptest = root()+"/Projects/Lab/src/cpptest.cpp";
-    test_module(cpptest);
-    std::system(("time clang -fsyntax-only "+cpptest+" 2>&1").c_str());
-    std::system(("clang -ftime-report -fsyntax-only "+cpptest+" 2>&1").c_str());
+    // std::string cpptest = root()+"/Projects/Lab/src/cpptest.cpp";
+    // test_module(cpptest);
+    // std::system(("time clang -fsyntax-only "+cpptest+" 2>&1").c_str());
+    // std::system(("clang -ftime-report -fsyntax-only "+cpptest+" 2>&1").c_str());
 
     // for(int i=0;i<500;i++) {
     //     print("b=",i,";");
@@ -32,6 +32,8 @@ int main() {
     //lisptest
     //test_module(root()+"/Engine/ext/GDSL/modules/lisptest.gld");
 
+
+    print("Hello world!");
 
 
     // int t[3][2] = {{2,3},{3,2},{10,8}};
