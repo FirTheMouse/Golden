@@ -33,9 +33,6 @@ int main() {
     //test_module(root()+"/Engine/ext/GDSL/modules/lisptest.gld");
 
 
-    print("Hello world!");
-
-
     // int t[3][2] = {{2,3},{3,2},{10,8}};
     // for(int i=0;i<3;i++) {
     //     list<g_ptr<Node>> tokens = tokenize(
