@@ -1,27 +1,8 @@
-list T const {
-    T val;
-}
-
-
-map K V {
-    V a;
-    K b;
-
-    K find(V label) {
-        K result = b;
-        return result;
-    }
-}
-
-
 int main() {
-    map<string, int> reg;
+   int b = 0;
+    for(int i=0;i<500;i=i+1) {
+        b = i;
+    }
 
-    reg.a = "wub";
-    reg.b = 6;
-
-    print(reg.a);
-    print(reg.b);
 }
-
 main();

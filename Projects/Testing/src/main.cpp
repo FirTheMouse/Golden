@@ -13,18 +13,24 @@
 using namespace GDSL;
 
 int main() {
-    //test_module(root()+"/Projects/Lab/src/stresstest.cpp");
+    //CPP test
+    std::string cpptest = root()+"/Projects/Lab/src/cpptest.cpp";
+    test_module(cpptest);
+    std::system(("time clang -fsyntax-only "+cpptest+" 2>&1").c_str());
+    std::system(("clang -ftime-report -fsyntax-only "+cpptest+" 2>&1").c_str());
+
+    // for(int i=0;i<500;i++) {
+    //     print("b=",i,";");
+    // }
 
     //Standard test
-    test_module(root()+"/Projects/Testing/src/test.gld");
+    //test_module(root()+"/Projects/Testing/src/test.gld");
 
     //ctest
     //test_module(root()+"/Engine/ext/GDSL/modules/ctest.gld");
 
     //lisptest
     //test_module(root()+"/Engine/ext/GDSL/modules/lisptest.gld");
-
-
 
 
 

@@ -1,17 +1,13 @@
-template<typename T>
-list {
+list T const {
     T val;
 }
 
 
-
-template<typename N, typename K>
-map {
-    N a;
+map K V {
+    V a;
     K b;
 
-    K find(N label) {
-        list<K> potential;
+    K find(V label) {
         K result = b;
         return result;
     }
