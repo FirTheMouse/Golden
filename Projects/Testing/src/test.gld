@@ -1,32 +1,27 @@
-num {
-    int x;
-    int y;
+list T const {
+    T val;
+}
 
-    int inc(int val, num* counter) {
 
-        print("Counter x: ",(*counter).x);
-        print("Raw: ",counter.x);
-        int depth = 0;
-        while((*counter).x<val) {
-            (*counter).x = (*counter).x+1;
-            if((*counter).x>x) {
-                return (*counter).x;
-            }
-            depth = depth+1;
-            if(depth>8) return 0;
-        }
-        return (*counter).x;
+map K V {
+    V a;
+    K b;
+
+    K find(V label) {
+        K result = b;
+        return result;
     }
 }
 
+
 int main() {
-    num c;
-    c.x = 5;
-    num j;
-    j.x = 0;
-    print(c.inc(6,&j));
-    print("j.x: ",j.x);
-    j.x = 2;
-    print(c.inc(4,&j));
+    map<string, int> reg;
+
+    reg.a = "wub";
+    reg.b = 6;
+
+    print(reg.a);
+    print(reg.b);
 }
+
 main();
