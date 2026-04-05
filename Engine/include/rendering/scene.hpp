@@ -8,7 +8,7 @@
 #include <gui/quad.hpp>
 #include <util/q_list.hpp>
 #include <util/d_list.hpp>
-#include <core/type.hpp>
+#include <core/typePool.hpp>
 
 #define DEBUG 0
 
@@ -456,10 +456,10 @@ public:
     }
 
 
-    map<std::string,g_ptr<Type>> types;
+    map<std::string,g_ptr<TypePool>> types;
 
     void define(const std::string& label, std::function<g_ptr<Object>(void)> make_func = nullptr) {
-        g_ptr<Type> type = make<Type>();
+        g_ptr<TypePool> type = make<TypePool>();
         type->type_name = label;
         if(make_func) {
             type->make_func = make_func;
@@ -474,20 +474,20 @@ public:
         });
     }
 
-    g_ptr<Type> getType(const std::string& label) {
-        g_ptr<Type> fallback = nullptr;
+    g_ptr<TypePool> getType(const std::string& label) {
+        g_ptr<TypePool> fallback = nullptr;
         return types.getOrDefault(label,fallback);
     }
 
     void add_initilizer(const std::string& label, std::function<void(g_ptr<Object>)> init_func) {
-        g_ptr<Type> type = getType(label);
+        g_ptr<TypePool> type = getType(label);
         type->add_initializer(init_func);
     }
 
     //I liked "make" better but that conflicts with Object
     template<typename T, typename = std::enable_if_t<std::is_base_of_v<Object, T>>>
     g_ptr<T> create(const std::string& label) {
-        g_ptr<Type> type = getType(label);
+        g_ptr<TypePool> type = getType(label);
         if(type) {
             g_ptr<Object> obj = type->create();
             obj->dtype = label;
@@ -510,7 +510,7 @@ public:
         std::string useType = label;
         if(label=="undefined") {useType = item->dtype;}
 
-        g_ptr<Type> type = getType(useType);
+        g_ptr<TypePool> type = getType(useType);
         if(type) {
             if(auto sobj = g_dynamic_pointer_cast<S_Object>(item)){deactivate(sobj);}
             type->recycle(item);
